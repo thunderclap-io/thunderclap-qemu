@@ -1307,7 +1307,7 @@ void hmp_usb_del(Monitor *mon, const QDict *qdict)
 /***********************************************************/
 /* machine registration */
 
-MachineState *current_machine;
+MachineState *vlc_current_machine;
 
 static void machine_class_init(ObjectClass *oc, void *data)
 {

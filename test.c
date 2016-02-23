@@ -93,13 +93,17 @@ static DeviceClass *qdev_get_device_class(const char **driver, Error **errp)
     return dc;
 }
 
+MachineState *current_machine;
+
 int
 main(int argc, char *argv[])
 {
+	printf("Starting.\n");
 	/*const char *driver = "e1000-82540em";*/
 	const char *driver = "e1000e";
 	const char *id = "the-e1000e";
 
+	MachineClass *machine_class;
     DeviceClass *dc;
     DeviceState *dev;
     Error *err = NULL;
@@ -107,16 +111,44 @@ main(int argc, char *argv[])
 	/* This needs to be called, otherwise the types are never registered. */
 	module_call_init(MODULE_INIT_QOM);
 
+    qemu_add_opts(&qemu_netdev_opts);
+    qemu_add_opts(&qemu_net_opts);
+
+	/* Stuff needs to exist within the context of a mchine, apparently. The
+	 * device attempts to realize the machine within the course of getting
+	 * realized itself
+	 */
+    module_call_init(MODULE_INIT_MACHINE);
+    machine_class = find_default_machine();
+
+	printf("Initialised modules, found default machine.\n");
+
+	current_machine = MACHINE(object_new(object_class_get_name(
+                          OBJECT_CLASS(machine_class))));
+
+	printf("Created machine, attached to root object.\n");
+
+    object_property_add_child(object_get_root(), "machine",
+                              OBJECT(current_machine), &error_abort);
+
+	printf("Attached machine to root object.\n");
+
 	/* This sets up the appropriate address spaces. */
 	cpu_exec_init_all();
+
+	printf("Done cpu init.\n");
 
 	MemoryRegion *pci_memory;
 	pci_memory = g_new(MemoryRegion, 1);
 	memory_region_init(pci_memory, NULL, "pci", UINT64_MAX);
 
+	printf("Created pci memory region.\n");
+
 	// Something to do with interrupts
 	GSIState *gsi_state = g_malloc0(sizeof(*gsi_state));
 	qemu_irq *gsi = qemu_allocate_irqs(gsi_handler, gsi_state, GSI_NUM_PINS);
+
+	printf("Done gsi stuff.\n");
 
 	Q35PCIHost *q35_host;
 	q35_host = Q35_HOST_DEVICE(qdev_create(NULL, TYPE_Q35_HOST_DEVICE));
@@ -128,6 +160,8 @@ main(int argc, char *argv[])
     /*q35_host->mch.above_4g_mem_size = above_4g_mem_size;*/
     /*q35_host->mch.guest_info = guest_info;*/
 
+	printf("Created q35.\n");
+
 	// Actually get round to creating the bus!
 	PCIHostState *phb;
 	PCIBus *pci_bus;
@@ -136,7 +170,10 @@ main(int argc, char *argv[])
     phb = PCI_HOST_BRIDGE(q35_host);
     pci_bus = phb->bus;
 
+	printf("Created bus.\n");
+
 	if (net_init_clients() < 0) {
+		printf("Failed to initialise network clients :(\n");
 		exit(1);
 	}
 	printf("Network clients initialised.\n");
@@ -144,8 +181,11 @@ main(int argc, char *argv[])
     /* find driver */
     dc = qdev_get_device_class(&driver, &err);
     if (!dc) {
+		printf("Didn't find NIC device class -- failing :(\n");
         return 1;
     }
+
+	printf("Found device class.\n");
 
     /* find bus */
 	if (!pci_bus /*|| qbus_is_full(bus)*/) {
@@ -178,7 +218,6 @@ main(int argc, char *argv[])
 
 	PCIDevice *pci_dev = PCI_DEVICE(dev);
 	printf("%x.\n", pci_host_config_read_common(pci_dev, 0, 4, 4));
-
 
 	return 0;
 }
