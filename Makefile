@@ -38,15 +38,14 @@ CC = clang
 LIBS := glib-2.0 pixman-1
 CFLAGS := $(shell pkg-config --cflags $(LIBS))
 CFLAGS := $(CFLAGS) -g #-rdynamic
-CFLAGS := $(CFLAGS) -Itcg/i386
+CFLAGS := $(CFLAGS) -Itcg/i386 -Islirp
 CFLAGS := $(CFLAGS) -ferror-limit=1
 CFLAGS := $(CFLAGS) -I. -Ihw/net -Ilinux-headers -Itarget-i386 -Itcg
 CFLAGS := $(CFLAGS) -Ix86_64-softmmu -Ihw/core -Ii386-softmmu
-CFLAGS := $(CFLAGS) -D NEED_CPU_H -D TARGET_X86_64
-CFLAGS := $(CFLAGS) -Werror -Wno-error=unused-command-line-argument
+CFLAGS := $(CFLAGS) -D NEED_CPU_H -D TARGET_X86_64 -D CONFIG_BSD
 CFLAGS := $(CFLAGS) -Wno-error=initializer-overrides
 CFLAGS := $(CFLAGS) -D_GNU_SOURCE # To pull in pipe2 -- seems dodgy
-LDFLAGS := $(shell pkg-config --libs $(LIBS)) -lthr -lm
+LDFLAGS := $(shell pkg-config --libs $(LIBS)) -lthr -lm -lz -lutil
 # NEED_CPU_H to stop poison...
 
 DONT_FIND_TEMPLATES := $(shell grep "include \".*\.c\"" -Roh . | uniq | sed 's/include /! -name /g')

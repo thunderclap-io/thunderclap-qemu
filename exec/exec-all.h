@@ -20,6 +20,7 @@
 #ifndef _EXEC_ALL_H_
 #define _EXEC_ALL_H_
 
+#include "exec/cpu-common.h"
 #include "qemu-common.h"
 
 /* allow to see translation results - the slowdown should be negligible, so we leave it */

@@ -7,53 +7,37 @@
 #define CONFIG_QEMU_HELPERDIR "/usr/local/libexec"
 #define CONFIG_QEMU_LOCALEDIR "/usr/local/share/locale"
 #define HOST_X86_64 1
+#define CONFIG_DEBUG_TCG 1
 #define CONFIG_POSIX 1
 #define CONFIG_SLIRP 1
 #define CONFIG_SMBD_COMMAND "/usr/sbin/smbd"
 #define CONFIG_NETMAP 1
 #define CONFIG_AUDIO_DRIVERS \
-    &oss_audio_driver,\
 
-#define CONFIG_OSS 1
 #define CONFIG_BDRV_RW_WHITELIST\
     NULL
 #define CONFIG_BDRV_RO_WHITELIST\
     NULL
-#define CONFIG_VNC 1
-#define CONFIG_VNC_TLS 1
-#define CONFIG_VNC_PNG 1
-#define CONFIG_VNC_WS 1
 #define CONFIG_FNMATCH 1
 #define QEMU_VERSION "2.3.0"
 #define QEMU_PKGVERSION ""
-#define CONFIG_CURSES 1
 #define CONFIG_PIPE2 1
 #define CONFIG_ACCEPT4 1
 #define CONFIG_POSIX_FALLOCATE 1
 #define CONFIG_DUP3 1
 #define CONFIG_PPOLL 1
-#define CONFIG_CURL m
-#define CONFIG_GTK 1
-#define CONFIG_GTKABI 2.0
 #define CONFIG_IOVEC 1
 #define CONFIG_PREADV 1
-#define CONFIG_FDT 1
 #define CONFIG_MADVISE 1
 #define CONFIG_POSIX_MADVISE 1
-#define CONFIG_SMARTCARD_NSS 1
-#define CONFIG_BZIP2 1
 #define CONFIG_BSD 1
 #define CONFIG_ZERO_MALLOC 1
 #define CONFIG_QOM_CAST_DEBUG 1
 #define CONFIG_COROUTINE_BACKEND ucontext
 #define CONFIG_COROUTINE_POOL 1
-#define CONFIG_VALGRIND_H 1
 #define CONFIG_CPUID_H 1
 #define CONFIG_INT128 1
-#define CONFIG_LIBSSH2 m
-#define CONFIG_QUORUM 1
-#define CONFIG_TPM $(CONFIG_SOFTMMU)
-#define CONFIG_TRACE_NOP 1
+#define CONFIG_TRACE_STDERR 1
 #define CONFIG_TRACE_FILE trace
 #define CONFIG_IASL iasl
 #define HOST_DSOSUF ".so"

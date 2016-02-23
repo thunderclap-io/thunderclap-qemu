@@ -42,7 +42,7 @@
 #if defined(__APPLE__) || defined(main)
 #include <SDL.h>
 int qemu_main(int argc, char **argv, char **envp);
-int main(int argc, char **argv)
+int vl_main(int argc, char **argv)
 {
     return qemu_main(argc, argv, NULL);
 }
@@ -2727,7 +2727,7 @@ static void set_memory_options(uint64_t *ram_slots, ram_addr_t *maxram_size)
     }
 }
 
-int main(int argc, char **argv, char **envp)
+int vlc_main(int argc, char **argv, char **envp)
 {
     int i;
     int snapshot, linux_boot;
