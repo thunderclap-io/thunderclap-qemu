@@ -20,8 +20,6 @@
  * THE SOFTWARE.
  */
 
-#include "tcg.h"
-
 typedef struct TCGBackendData {
     /* Empty */
     char dummy;

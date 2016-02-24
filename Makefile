@@ -38,7 +38,7 @@ CC = clang
 LIBS := glib-2.0 pixman-1
 CFLAGS := $(shell pkg-config --cflags $(LIBS))
 CFLAGS := $(CFLAGS) -g #-rdynamic
-CFLAGS := $(CFLAGS) -Itcg/i386 -Islirp
+CFLAGS := $(CFLAGS) -Itcg/tci -Islirp
 CFLAGS := $(CFLAGS) -ferror-limit=1
 CFLAGS := $(CFLAGS) -I. -Ihw/net -Ilinux-headers -Itarget-i386 -Itcg
 CFLAGS := $(CFLAGS) -Ix86_64-softmmu -Ihw/core -Ii386-softmmu
