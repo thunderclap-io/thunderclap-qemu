@@ -64,6 +64,10 @@
 #include "hw/pci-host/q35.h"
 #include "qapi/qmp/qerror.h"
 
+#include "pcie.h"
+#include "pciefpga.h"
+#include "beri-io.h"
+
 static DeviceClass *qdev_get_device_class(const char **driver, Error **errp)
 {
     ObjectClass *oc;
@@ -92,6 +96,67 @@ static DeviceClass *qdev_get_device_class(const char **driver, Error **errp)
 
     return dc;
 }
+
+/* tlp_len is length of the buffer in bytes. */
+int
+wait_for_tlp(TLPDoubleWord *tlp, int tlp_len)
+{
+	volatile PCIeStatus pciestatus;
+	volatile TLPDoubleWord pciedata;
+	volatile TLPWord pciedata1, pciedata0;
+	volatile uint64_t *data, *status;
+	volatile int ready;
+	int i = 0; // i is "length of TLP so far received in doublewords.
+
+	do {
+		ready = IORD64(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_READY);
+	} while (ready == 0);
+
+	do {
+		data = (uint64_t *)(physmem + 0x50101000LL);
+		status = (uint64_t *)(physmem + 0x50101010LL);
+		pciestatus.word = *status;
+		pciedata = *data;
+		pciedata0 = pciedata >> 32LL;
+		pciedata1 = pciedata & 0xffffffffLL;
+		if (pciestatus.bits.startofpacket) {
+			i = 0;
+		}
+		tlp[i++] = pciedata;
+		if ((i * 8) > tlp_len) {
+			printf("ERROR: TLP Larger than buffer.\n");
+			return -1;
+		}
+	} while (!pciestatus.bits.endofpacket);
+
+	return (i * 8);
+}
+
+int
+create_config_read_completion(TLPDouble *tlp)
+{
+	// Clear buffer
+	memset(tlp, 0, 16);
+
+	struct TLP64HeaderWord0 *header0 = (struct TLP64HeaderWord0 *)&tlp;
+	header0->fmt = TLPFMT_3DW_NODATA;
+	header0->type = Completion;
+	header0->length = 1;
+
+}
+
+/* tlp length is the legnth of the buffer in bytes. */
+int
+send_tlp(TLPDoubleWord *tlp, int tlp_len)
+{
+	assert(false); // NOT IMPLEMENTED!
+	int i;
+	for (i = 0; i < (tlp_len / 8); ++i)
+	{
+	}
+	return 0;
+}
+
 
 MachineState *current_machine;
 
@@ -217,7 +282,64 @@ main(int argc, char *argv[])
 	object_property_set_bool(OBJECT(dev), true, "realized", &err);
 
 	PCIDevice *pci_dev = PCI_DEVICE(dev);
+	// Use pci_host_config read common to reply to read responses.
 	printf("%x.\n", pci_host_config_read_common(pci_dev, 0, 4, 4));
+
+	physmem = open_io_region(0LL, 1LL<<32LL);
+
+	int tlp_len = 0;
+	TLPDoubleWord tlp[64];
+	TLP64Header01 h0and1;
+	TLPDirection dir;
+	char *type_string;
+	bool print;
+	uint16_t length, requester_id;
+	struct TLP64ConfigReq *config_req = &tlp;
+	struct TLP64Header0Bits *h0bits = &(config_req->header0);
+	struct TLP64HeaderReqBits *req_bits = &(config_req->req);
+	uint64_t addr, req_addr;
+	while (1) {
+		tlp_len = wait_for_tlp(tlp, sizeof(tlp));
+		h0and1.word = tlp[0];
+
+		dir = (TLPDirection)((h0and1.bits.header0.bits.fmt & 2) >> 1);
+		const char *direction_string = (dir == 0) ? "read" : "write";
+
+		print = true;
+
+		uint8_t type = h0and1.bits.header0.bits.type;
+		switch (type) {
+		case MemoryReq:
+			type_string = "Memory";
+			break;
+		case Conf0:
+			print = false;
+			length = h0bits->lengthH << 8 | h0bits->lengthL;
+			requester_id = req_bits->requesteridH << 8 | req_bits->requesteridL;
+			req_addr = config_req->ext_reg_num;
+			req_addr = (req_addr << 6) | config_req->reg_num;
+			req_addr <<= 2;
+			printf("Config %s TLP.\n  Length: %#x\n  Requester ID: %#x\n"
+				"  Tag: %#x\n  ReqAddr: %#x",
+				direction_string, length, requester_id, req_bits->tag, req_addr);
+			break;
+		case IOReq:
+			type_string = "IO";
+			break;
+		case Completion:
+			type_string = "Completion";
+			break;
+		case 0x13: //Broadcast packets, can drop.
+			print = false;
+			break;
+		default:
+			type_string = "Unknown";
+		}
+
+		if (print) {
+			printf("%s (%#x) %s TLP.\n", type_string, type, direction_string);
+		}
+	}
 
 	return 0;
 }
