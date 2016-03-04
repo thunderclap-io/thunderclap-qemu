@@ -32,23 +32,25 @@
 # OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 # SUCH DAMAGE.
 
-CC = clang
-#CC = gcc
+CC = /home/cr437/cheri-sdk/sdk/bin/clang
+EXTRA_USR=/home/cr437/iommu/iommu/beri-fake-peripherals/usr
 
 LIBS := glib-2.0 pixman-1
-CFLAGS := $(shell pkg-config --cflags $(LIBS))
-CFLAGS := $(CFLAGS) -g #-rdynamic
+CFLAGS := $(addprefix "-I$(EXTRA_USR)/local/include/",$(LIBS))
+CFLAGS := $(CFLAGS) -I$(EXTRA_USR)/local/lib/glib-2.0/include
+
+LDFLAGS := -L$(EXTRA_USR)/local/lib -lglib-2.0 -lpixman-1 -lpcre -lthr -lm -lz
+LDFLAGS := $(LDFLAGS) -lutil -liconv -lintl
+CFLAGS := $(CFLAGS) -g
 CFLAGS := $(CFLAGS) -Itcg/tci -Islirp
-CFLAGS := $(CFLAGS) -ferror-limit=1
+#CFLAGS := $(CFLAGS) -ferror-limit=1
 CFLAGS := $(CFLAGS) -I. -Ihw/net -Ilinux-headers -Itarget-i386 -Itcg
 CFLAGS := $(CFLAGS) -Ix86_64-softmmu -Ihw/core -Ii386-softmmu
 CFLAGS := $(CFLAGS) -D NEED_CPU_H -D TARGET_X86_64 -D CONFIG_BSD
+# NEED_CPU_H to stop poison...
 CFLAGS := $(CFLAGS) -Wno-error=initializer-overrides
 CFLAGS := $(CFLAGS) -D_GNU_SOURCE # To pull in pipe2 -- seems dodgy
-LDFLAGS := $(shell pkg-config --libs $(LIBS)) -lthr -lm -lz -lutil
-# NEED_CPU_H to stop poison...
-
-DONT_FIND_TEMPLATES := $(shell grep "include \".*\.c\"" -Roh . | uniq | sed 's/include /! -name /g')
+DONT_FIND_TEMPLATES := $(shell grep "include \".*\.c\"" -Roh . | sort | uniq | sed 's/include /! -name /g')
 SOURCES := $(shell find . -name "*.c" $(DONT_FIND_TEMPLATES))
 O_FILES := $(SOURCES:.c=.o)
 HEADERS := $(shell find . -name "*.h")
