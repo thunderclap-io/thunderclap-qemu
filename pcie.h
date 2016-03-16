@@ -24,25 +24,29 @@ enum TLPFmt {
 
 typedef union {
 	struct {
-		uint64_t pad:48;
-		uint8_t startofpacket:8;
-		uint8_t endofpacket:8;
+		uint64_t pad1:16;
+		uint32_t byteenable:8;
+		uint32_t startofpacket:1;
+		uint32_t endofpacket:1;
+		uint64_t pad2:22;
+		uint8_t  startofpacket55:8;
+		uint8_t  endofpacketEE:8;
 	} bits;
 	uint64_t word;
 } PCIeStatus;
 
 struct TLP64Header0Bits {
-	uint8_t lengthL:8; // LSbyte 0 HL
-	uint8_t td:1;      // byte 1 H
+	uint8_t fmt:3;
+	TLPType type:5;
+	uint8_t reserved0:1;
+	uint8_t tc:3;
+	uint8_t reserved1:3;
+	uint8_t th:1;
+	uint8_t td:1;
 	uint8_t ep:1;
 	uint8_t attr:2;
 	uint8_t at:2;
-	uint8_t lengthH:2; // byte 1 L
-	uint8_t twentythree:1; // byte 2 H
-	uint8_t tc:3;
-	uint8_t sixteen:4; // byte 2 L
-	uint8_t fmt:3;     // MSbyte 3 H
-	uint8_t type:5;    // MSbyte 3 L
+	uint16_t length:10;
 };
 
 typedef union {
@@ -51,11 +55,10 @@ typedef union {
 } TLP64Header0;
 
 struct TLP64HeaderReqBits {
-	uint8_t lastbe:4; //XXX CR: Think last and first be might be in the wrong order?
+	uint16_t requester_id;
+	uint8_t tag:8;
+	uint8_t lastbe:4;
 	uint8_t firstbe:4;
-	uint8_t tag:8; // XXX: CR: If not, tag will be manged in the middle
-	uint8_t requesteridL:8;
-	uint8_t requesteridH:8;
 };
 
 typedef union {
@@ -64,27 +67,27 @@ typedef union {
 } TLP64HeaderReq;
 
 
+struct TLP64HeaderCompl0Bits {
+	uint16_t	completer_id:16;
+	uint8_t		status:3;
+	uint8_t		bcm:1;
+	uint16_t	bytecount:12;
+};
+
 typedef union {
-	struct {
-		uint8_t		bytecountL:8;	// byte 0
-		uint8_t		status:3;	// byte 1 H
-		uint8_t		bcm:1;
-		uint8_t		bytecountH:4;	// byte 1 L
-		uint8_t		completeridL:8;	// byte 2
-		uint8_t		completeridH:8;	// byte 3
-	} bits;
+	struct TLP64HeaderCompl0Bits bits;
 	uint32_t word;
 } TLP64HeaderCompl0;
 
+struct TLP64HeaderCompl1Bits {
+	uint16_t	requester_id:16;
+	uint8_t		tag:8;
+	uint8_t		reserved:1;
+	uint8_t		loweraddress:7; // byte 0 L
+};
 
 typedef union {
-	struct {
-		uint8_t		seven:1;	// byte 0 H
-		uint8_t		loweraddress:7; // byte 0 L
-		uint8_t		tag:8;		// byte 1
-		uint8_t		requestedidL:8; // byte 2
-		uint8_t		requesteridH:8;	// byte 3
-	} bits;
+	struct TLP64HeaderCompl1Bits bits;
 	uint32_t word;
 } TLP64HeaderCompl1;
 
@@ -94,27 +97,14 @@ typedef union {
 	TLP64HeaderCompl1 compl1;
 } TLP64Header1;
 
-struct TLP64HeaderWord0 {
-	unsigned int fmt:3; // XXX CR: This was 2, but seems to be wrong
-	TLPType      type:5;
-	unsigned int twentythree:1;
-	unsigned int tc:3;
-	unsigned int sixteen:4;
-	unsigned int td:1;
-	unsigned int ep:1;
-	unsigned int attr:2;
-	unsigned int at:2;
-	unsigned int length:10;
-};
-
-union TLP64HeaderWord0Union {					// big endian
-	struct TLP64HeaderWord0 bits;
+union TLP64HeaderWord0 {					// big endian
+	struct TLP64Header0Bits bits;
 	uint32_t word;
 };
 
 typedef union {					// big endian
 	struct {
-		unsigned int requesterid:16;
+		unsigned int requester_id:16;
 		unsigned int tag:8;
 		unsigned int lastbe:4;
 		unsigned int firstbe:4;
@@ -124,7 +114,7 @@ typedef union {					// big endian
 
 typedef union {					// big endian
 	struct {
-		unsigned int completerid:16;
+		unsigned int completer_id:16;
 		unsigned int status:3;
 		unsigned int bcm:1;
 		unsigned int bytecount:12;
@@ -134,7 +124,7 @@ typedef union {					// big endian
 
 typedef union {					// big endian
 	struct {
-		unsigned int requesterid:16;
+		unsigned int requester_id:16;
 		unsigned int tag:8;
 		unsigned int seven:1;
 		unsigned int loweraddress:7;
@@ -142,15 +132,15 @@ typedef union {					// big endian
 	uint32_t word;
 } TLPHeaderCompl1;
 
-typedef enum {
-	SC=0,
-	UR=1,
-	CRS=2,
-	Reserved3=3,
-	CA=4,
-	Reserved5=5,
-	RequestTimeout=-1
-} TLPCompletionStatus;
+enum TLPCompletionStatus {
+	TLPCS_SUCCESSFUL_COMPLETION	= 0,
+	TLPCS_UNSUPPORTED_REQUEST		= 1,
+	TLPCS_CONFIGURATION_REQUEST_RETRY = 2,
+	TLPCS_RESERVED_LITERAL_3		= 3,
+	TLPCS_COMPLETER_ABORT			= 4,
+	TLPCS_RESERVED_LITERAL_5		= 5,
+	TLPCS_REQUEST_TIMEOUT			= -1
+} ;
 
 typedef uint64_t TLPDoubleWord;
 
@@ -174,7 +164,7 @@ typedef union {
 } TLP64Header01;
 
 typedef struct {
-	union TLP64HeaderWord0Union header0;
+	union TLP64HeaderWord0 header0;
 	TLPHeaderReq      id;
 	TLPAddress32 addressH;
 	TLPAddress32 addressL;
@@ -182,16 +172,14 @@ typedef struct {
 } TLP64bit;
 
 struct TLP64ConfigReq {
-	struct TLP64HeaderWord0 header0;
+	struct TLP64Header0Bits header0;
 	struct TLP64HeaderReqBits req;
-	uint8_t reserved:2;
-	uint8_t reg_num:6;
+	uint16_t completer_id:16;
+	uint8_t reserved0:4;
 	uint8_t ext_reg_num:4;
-	uint8_t reserved2:4;
-	uint8_t func_num:3;
-	uint8_t device_num:5;
-	uint8_t bus_num:8;
-}
+	uint8_t reg_num:6;
+	uint8_t reserved1:2;
+};
 
 typedef struct {
 	TLP64Header01	header;
@@ -222,7 +210,7 @@ typedef struct {			// big endian
 } TLP64HeaderRaw;
 
 typedef struct {
-	TLPCompletionStatus status;
+	enum TLPCompletionStatus status;
 //	uint32_t			length;
 	MemoryWord			data32;
 } MemoryResponse;
