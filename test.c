@@ -55,6 +55,9 @@
  * pc_q35_init, and I am slowly cannibalising it.
  */
 
+#define TARGET_BERI		1
+#define TARGET_NATIVE	2
+
 #include <stdio.h>
 
 #include <libpq-fe.h>

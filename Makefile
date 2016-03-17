@@ -32,15 +32,37 @@
 # OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 # SUCH DAMAGE.
 
-CC = /home/cr437/cheri-sdk/sdk/bin/clang
-EXTRA_USR=/home/cr437/iommu/iommu/beri-fake-peripherals/usr
+TARGET ?= BERI
+SEP :=, 
+TARGETS = BERI$(SEP)NATIVE
+
+# Remove instances of SEP from the TARGET, then search for TARGET follwed by
+# SEP in the list of TARGETS followed by SEP to guarentee that an exact match
+# for TARGET is in the TARGET list.
+ifeq (,$(findstring $(filter-out $(SEP), $(TARGET))$(SEP), $(TARGETS)$(SEP)))
+$(error $(TARGET) is not a valid target: choices are $(TARGETS))
+endif
 
 LIBS := glib-2.0 pixman-1
+LDFLAGS := -lthr -lm -lz
+
+ifeq ($(TARGET),BERI)
+$(info Building for BERI)
+CC = /home/cr437/cheri-sdk/sdk/bin/clang
+EXTRA_USR=/home/cr437/iommu/iommu/beri-fake-peripherals/usr
 CFLAGS := $(addprefix "-I$(EXTRA_USR)/local/include/",$(LIBS))
 CFLAGS := $(CFLAGS) -I$(EXTRA_USR)/local/lib/glib-2.0/include
-
-LDFLAGS := -L$(EXTRA_USR)/local/lib -lglib-2.0 -lpixman-1 -lpcre -lthr -lm -lz
+CFLAGS := $(CFLAGS) -DTARGET=TARGET_BERI
+LDFLAGS := -L$(EXTRA_USR)/local/lib -lglib-2.0 -lpixman-1 -lpcre $(LDFLAGS)
 LDFLAGS := $(LDFLAGS) -lutil -liconv -lintl
+else ifeq ($(TARGET),NATIVE)
+$(info Building native)
+CC = clang
+CFLAGS := $(shell pkg-config --cflags $(LIBS))
+CFLAGS := $(CFLAGS) -DTARGET=TARGET_NATIVE
+LDFLAGS := $(shell pkg-config --libs $(LIBS)) -lutil $(LDFLAGS)
+endif
+
 CFLAGS := $(CFLAGS) -g
 CFLAGS := $(CFLAGS) -Itcg/tci -Islirp
 #CFLAGS := $(CFLAGS) -ferror-limit=1
@@ -50,6 +72,7 @@ CFLAGS := $(CFLAGS) -D NEED_CPU_H -D TARGET_X86_64 -D CONFIG_BSD
 # NEED_CPU_H to stop poison...
 CFLAGS := $(CFLAGS) -Wno-error=initializer-overrides
 CFLAGS := $(CFLAGS) -D_GNU_SOURCE # To pull in pipe2 -- seems dodgy
+
 DONT_FIND_TEMPLATES := $(shell grep "include \".*\.c\"" -Roh . | sort | uniq | sed 's/include /! -name /g')
 SOURCES := $(shell find . -name "*.c" $(DONT_FIND_TEMPLATES))
 O_FILES := $(SOURCES:.c=.o)
