@@ -32,7 +32,10 @@
 # OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 # SUCH DAMAGE.
 
+POSTGRES ?= 0
 TARGET ?= BERI
+#POSTGRES ?= 1
+#TARGET ?= NATIVE
 SEP :=, 
 TARGETS = BERI$(SEP)NATIVE
 
@@ -61,6 +64,11 @@ CC = clang
 CFLAGS := $(shell pkg-config --cflags $(LIBS))
 CFLAGS := $(CFLAGS) -DTARGET=TARGET_NATIVE
 LDFLAGS := $(shell pkg-config --libs $(LIBS)) -lutil $(LDFLAGS)
+ifeq ($(POSTGRES), 1)
+CFLAGS := $(CFLAGS) -I$(shell pg_config --includedir)
+LDFLAGS := $(LDFLAGS) -L$(shell pg_config --libdir)
+LDFLAGS := $(LDFLAGS) -lintl -lssl -lcrypto -lpq
+endif #POSTGRES
 endif
 
 CFLAGS := $(CFLAGS) -g

@@ -60,7 +60,9 @@
 
 #include <stdio.h>
 
+#ifdef POSTGRES
 #include <libpq-fe.h>
+#endif
 
 #include "qom/object.h"
 #include "hw/pci/pci.h"
