@@ -325,7 +325,7 @@ main(int argc, char *argv[])
 	// Use pci_host_config read common to reply to read responses.
 	printf("%x.\n", pci_host_config_read_common(pci_dev, 0, 4, 4));
 
-	physmem = open_io_region(0LL, 1LL<<32LL);
+	physmem = open_io_region(PCIEPACKET_REGION_BASE, PCIEPACKET_REGION_LENGTH);
 
 	int i, tlp_in_len = 0, tlp_out_len;
 	TLPDoubleWord tlp_in[64], tlp_out[64];

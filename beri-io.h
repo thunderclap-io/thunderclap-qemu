@@ -7,25 +7,25 @@ extern volatile uint8_t *physmem;
 
 static inline volatile uint32_t IORD(uint64_t base, uint64_t offset)
 {
-	volatile uint32_t *pointer = (uint32_t *) (physmem+base);
+	volatile uint32_t *pointer = (uint32_t *) (physmem+base-PCIEPACKET_REGION_BASE);
 	return pointer[offset];
 }
 
 static inline volatile uint64_t IORD64(uint64_t base, uint64_t offset)
 {
-	volatile uint64_t *pointer = (uint64_t *) (physmem+(base));
+	volatile uint64_t *pointer = (uint64_t *) (physmem+base-PCIEPACKET_REGION_BASE);
 	return pointer[offset];
 }
 
 static inline void IOWR(uint64_t base, uint64_t offset, uint32_t data)
 {
-	volatile uint32_t *pointer = (uint32_t *) (physmem+(base));
+	volatile uint32_t *pointer = (uint32_t *) (physmem+base-PCIEPACKET_REGION_BASE);
 	pointer[offset] = data;
 }
 
 static inline void IOWR64(uint64_t base, uint64_t offset, uint64_t data)
 {
-	volatile uint64_t *pointer = (uint64_t *) (physmem+(base));
+	volatile uint64_t *pointer = (uint64_t *) (physmem+base-PCIEPACKET_REGION_BASE);
 	pointer[offset] = data;
 }
 
