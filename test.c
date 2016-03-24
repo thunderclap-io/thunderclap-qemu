@@ -123,8 +123,9 @@ wait_for_tlp(TLPDoubleWord *tlp, int tlp_len)
 	do {
 		data = (uint64_t *)(physmem + 0x50101000LL);
 		status = (uint64_t *)(physmem + 0x50101010LL);
-		pciestatus.word = *status;
-		pciedata = *data;
+		pciestatus.word = IORD64(PCIEPACKETRECEIVER_0_BASE,
+			PCIEPACKETRECEIVER_STATUS);
+		pciedata = IORD64(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_DATA);
 		pciedata0 = pciedata >> 32LL;
 		pciedata1 = pciedata & 0xffffffffLL;
 		if (pciestatus.bits.startofpacket) {
@@ -340,7 +341,9 @@ main(int argc, char *argv[])
 	struct TLP64HeaderReqBits *req_bits = &(config_req->req);
 	uint64_t addr, req_addr;
 	while (1) {
+		printf("Waiting for TLP.\n");
 		tlp_in_len = wait_for_tlp(tlp_in, sizeof(tlp_in));
+		printf("Received TLP.\n");
 		h0and1.word = tlp_in[0];
 
 		dir = (TLPDirection)((h0and1.bits.header0.bits.fmt & 2) >> 1);

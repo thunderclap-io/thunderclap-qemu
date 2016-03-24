@@ -46,28 +46,30 @@ ifeq (,$(findstring $(filter-out $(SEP), $(TARGET))$(SEP), $(TARGETS)$(SEP)))
 $(error $(TARGET) is not a valid target: choices are $(TARGETS))
 endif
 
+LDFLAGS := -static #-G0
 LIBS := glib-2.0 pixman-1
-LDFLAGS := -lthr -lm -lz
+LDLIBS := -lthr -lm -lz
 
 ifeq ($(TARGET),BERI)
 $(info Building for BERI)
 CC = /home/cr437/cheri-sdk/sdk/bin/clang
+#CC=/home/cr437/cheri-sdk/sdk/bin/gcc
 EXTRA_USR=/home/cr437/iommu/iommu/beri-fake-peripherals/usr
 CFLAGS := $(addprefix "-I$(EXTRA_USR)/local/include/",$(LIBS))
 CFLAGS := $(CFLAGS) -I$(EXTRA_USR)/local/lib/glib-2.0/include
-CFLAGS := $(CFLAGS) -DTARGET=TARGET_BERI
-LDFLAGS := -L$(EXTRA_USR)/local/lib -lglib-2.0 -lpixman-1 -lpcre $(LDFLAGS)
-LDFLAGS := $(LDFLAGS) -lutil -liconv -lintl
+CFLAGS := $(CFLAGS) -DTARGET=TARGET_BERI -femulated-tls # -G0 -mxgot
+LDFLAGS := $(LDFLAGS) -L$(EXTRA_USR)/local/lib
+LDLIBS := -lpixman-1 -lpcre -lglib-2.0 -lutil -liconv -lintl $(LDLIBS)
 else ifeq ($(TARGET),NATIVE)
 $(info Building native)
 CC = clang
 CFLAGS := $(shell pkg-config --cflags $(LIBS))
 CFLAGS := $(CFLAGS) -DTARGET=TARGET_NATIVE
-LDFLAGS := $(shell pkg-config --libs $(LIBS)) -lutil $(LDFLAGS)
+LDLIBS := $(LDLIBS) $(shell pkg-config --libs $(LIBS)) -lutil 
 ifeq ($(POSTGRES), 1)
 CFLAGS := $(CFLAGS) -I$(shell pg_config --includedir)
 LDFLAGS := $(LDFLAGS) -L$(shell pg_config --libdir)
-LDFLAGS := $(LDFLAGS) -lintl -lssl -lcrypto -lpq
+LDLIBS := $(LBLIBS) -lintl -lssl -lcrypto -lpq
 endif #POSTGRES
 endif
 
@@ -78,7 +80,7 @@ CFLAGS := $(CFLAGS) -I. -Ihw/net -Ilinux-headers -Itarget-i386 -Itcg
 CFLAGS := $(CFLAGS) -Ix86_64-softmmu -Ihw/core -Ii386-softmmu
 CFLAGS := $(CFLAGS) -D NEED_CPU_H -D TARGET_X86_64 -D CONFIG_BSD
 # NEED_CPU_H to stop poison...
-CFLAGS := $(CFLAGS) -Wno-error=initializer-overrides
+#CFLAGS := $(CFLAGS) -Wno-error=initializer-overrides
 CFLAGS := $(CFLAGS) -D_GNU_SOURCE # To pull in pipe2 -- seems dodgy
 
 DONT_FIND_TEMPLATES := $(shell grep "include \".*\.c\"" -Roh . | sort | uniq | sed 's/include /! -name /g')

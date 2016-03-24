@@ -122,7 +122,7 @@ typedef struct E1000Core_st {
     NICState *owner_nic;
     PCIDevice *owner;
     void (*owner_start_recv)(PCIDevice *d);
-} E1000ECore;
+};
 
 #define defreg(x)   x = (E1000_##x>>2)
 enum {
