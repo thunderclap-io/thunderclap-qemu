@@ -55,7 +55,7 @@ typedef union {
 } TLP64Header0;
 
 struct TLP64HeaderReqBits {
-	uint32_t requester_id;
+	uint32_t requester_id:16;
 	uint32_t tag:8;
 	uint32_t lastbe:4;
 	uint32_t firstbe:4;

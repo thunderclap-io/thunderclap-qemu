@@ -46,16 +46,21 @@ ifeq (,$(findstring $(filter-out $(SEP), $(TARGET))$(SEP), $(TARGETS)$(SEP)))
 $(error $(TARGET) is not a valid target: choices are $(TARGETS))
 endif
 
-LDFLAGS := -static #-G0
+LDFLAGS := -static #-target mips64-unknown-freebsd #-G0
+LDFLAGS := $(LDFLAGS) --sysroot=/home/cr437/cheri-sdk/my-freebsd-root
 LIBS := glib-2.0 pixman-1
 LDLIBS := -lthr -lm -lz
 
 ifeq ($(TARGET),BERI)
 $(info Building for BERI)
-CC = /home/cr437/cheri-sdk/sdk/bin/clang
+SDK = /home/cr437/cheri-sdk/sdk
+CC = $(SDK)/bin/clang
+OBJDUMP = $(SDK)/bin/objdump
 #CC=/home/cr437/cheri-sdk/sdk/bin/gcc
 EXTRA_USR=/home/cr437/iommu/iommu/beri-fake-peripherals/usr
 CFLAGS := $(addprefix "-I$(EXTRA_USR)/local/include/",$(LIBS))
+#CFLAGS := $(CFLAGS) --target=mips64-unknown-freebsd
+CFLAGS := $(CFLAGS) --sysroot=/home/cr437/cheri-sdk/my-freebsd-root
 CFLAGS := $(CFLAGS) -I$(EXTRA_USR)/local/lib/glib-2.0/include
 CFLAGS := $(CFLAGS) -DTARGET=TARGET_BERI -femulated-tls # -G0 -mxgot
 LDFLAGS := $(LDFLAGS) -L$(EXTRA_USR)/local/lib
@@ -73,7 +78,7 @@ LDLIBS := $(LBLIBS) -lintl -lssl -lcrypto -lpq
 endif #POSTGRES
 endif
 
-CFLAGS := $(CFLAGS) -g
+CFLAGS := $(CFLAGS) -g -O2
 CFLAGS := $(CFLAGS) -Itcg/tci -Islirp
 #CFLAGS := $(CFLAGS) -ferror-limit=1
 CFLAGS := $(CFLAGS) -I. -Ihw/net -Ilinux-headers -Itarget-i386 -Itcg
@@ -89,6 +94,9 @@ O_FILES := $(SOURCES:.c=.o)
 HEADERS := $(shell find . -name "*.h")
 
 test: test.o $(O_FILES)
+
+test.dump: test
+	$(OBJDUMP) -ChdS $< > $@
 
 .PHONY: clean
 clean:

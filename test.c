@@ -106,12 +106,12 @@ static DeviceClass *qdev_get_device_class(const char **driver, Error **errp)
 }
 
 /* tlp_len is length of the buffer in bytes. */
+/* Return -1 if 1024 attempts to poll the buffer fail. */
 int
 wait_for_tlp(TLPDoubleWord *tlp, int tlp_len)
 {
 	volatile PCIeStatus pciestatus;
 	volatile TLPDoubleWord pciedata;
-	volatile TLPWord pciedata1, pciedata0;
 	volatile uint64_t *data, *status;
 	volatile int ready;
 	int i = 0; // i is "length of TLP so far received in doublewords.
@@ -126,8 +126,6 @@ wait_for_tlp(TLPDoubleWord *tlp, int tlp_len)
 		pciestatus.word = IORD64(PCIEPACKETRECEIVER_0_BASE,
 			PCIEPACKETRECEIVER_STATUS);
 		pciedata = IORD64(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_DATA);
-		pciedata0 = pciedata >> 32LL;
-		pciedata1 = pciedata & 0xffffffffLL;
 		if (pciestatus.bits.startofpacket) {
 			i = 0;
 		}
@@ -173,7 +171,7 @@ send_tlp(TLPDoubleWord *tlp, int tlp_len)
 }
 
 
-void
+static inline void
 create_config_read_completion_header(TLPDoubleWord *tlp, uint16_t completer_id,
 	enum TLPCompletionStatus completion_status, uint16_t requester_id,
 	uint8_t tag)
@@ -182,19 +180,19 @@ create_config_read_completion_header(TLPDoubleWord *tlp, uint16_t completer_id,
 	// exploit?
 	memset(tlp, 0, 12);
 
-	struct TLP64Header0Bits *header0 = (struct TLP64Header0Bits *)(&tlp);
-	header0->fmt = TLPFMT_3DW_NODATA;
+	struct TLP64Header0Bits *header0 = (struct TLP64Header0Bits *)(tlp);
+	header0->fmt = TLPFMT_3DW_DATA;
 	header0->type = Completion;
 	header0->length = 1;
 
 	struct TLP64HeaderCompl0Bits *header1 =
-		(struct TLP64HeaderCompl0Bits *)(&tlp) + 1;
+		(struct TLP64HeaderCompl0Bits *)(tlp) + 1;
 	header1->completer_id = completer_id;
 	header1->status = completion_status;
 	header1->bytecount = 4;
 
 	struct TLP64HeaderCompl1Bits *header2 =
-		(struct TLP64HeaderCompl1Bits *)(&tlp) + 2;
+		(struct TLP64HeaderCompl1Bits *)(tlp) + 2;
 	header2->requester_id = requester_id;
 	header2->tag = tag;
 }
@@ -329,21 +327,29 @@ main(int argc, char *argv[])
 	physmem = open_io_region(PCIEPACKET_REGION_BASE, PCIEPACKET_REGION_LENGTH);
 
 	int i, tlp_in_len = 0, tlp_out_len;
-	TLPDoubleWord tlp_in[64], tlp_out[64];
-	TLPWord *tlp_out_body = ((TLPWord *)tlp_out) + 3;
+	volatile TLPDoubleWord tlp_in[64], tlp_out[64];
+	volatile TLPWord *tlp_out_body = ((TLPWord *)tlp_out) + 3;
 	TLP64Header01 h0and1;
 	TLPDirection dir;
 	char *type_string;
 	bool print;
-	uint16_t length, completer_id, requester_id;
-	struct TLP64ConfigReq *config_req = (struct TLP64ConfigReq *)&tlp_in;
+	uint16_t length, device_id, requester_id;
+	struct TLP64ConfigReq *config_req = (struct TLP64ConfigReq *)tlp_in;
 	struct TLP64Header0Bits *h0bits = &(config_req->header0);
 	struct TLP64HeaderReqBits *req_bits = &(config_req->req);
 	uint64_t addr, req_addr;
+
+	tlp_in[0] = 0xDEADBEE0;
+	tlp_in[1] = 0xDEADBEE1;
+	tlp_in[2] = 0xDEADBEE2;
+	tlp_in[3] = 0xDEADBEE3;
+
 	while (1) {
-		printf("Waiting for TLP.\n");
+		/*printf("Waiting for TLP.\n");*/
+		/*putchar('.');*/
+		/*fflush(stdout);*/
 		tlp_in_len = wait_for_tlp(tlp_in, sizeof(tlp_in));
-		printf("Received TLP.\n");
+		/*printf("Received TLP.\n");*/
 		h0and1.word = tlp_in[0];
 
 		dir = (TLPDirection)((h0and1.bits.header0.bits.fmt & 2) >> 1);
@@ -363,14 +369,20 @@ main(int argc, char *argv[])
 			print = false;
 
 			assert(length == 1);
-			completer_id = config_req->completer_id;
+			device_id = config_req->completer_id;
 			requester_id = req_bits->requester_id;
 			req_addr = config_req->ext_reg_num;
 			req_addr = (req_addr << 6) | config_req->reg_num;
 			req_addr <<= 2;
 
+			/*printf("Config %s TLP.\n  Length: %#x\n  Requester ID: %#x\n"*/
+				/*"  Tag: %#x\n  ReqAddr: %#lx. TLP Sent.\n",*/
+				/*direction_string, length, requester_id, req_bits->tag, req_addr);*/
+
+			/*printf("Trying to read from: %#lx.\n", req_addr);*/
+
 			create_config_read_completion_header(
-				tlp_out, completer_id, TLPCS_SUCCESSFUL_COMPLETION, req_addr,
+				tlp_out, device_id, TLPCS_SUCCESSFUL_COMPLETION, requester_id,
 				req_bits->tag);
 
 			tlp_out_body[0] = pci_host_config_read_common(
@@ -378,9 +390,27 @@ main(int argc, char *argv[])
 
 			send_tlp(tlp_out, 16);
 
-			printf("Config %s TLP.\n  Length: %#x\n  Requester ID: %#x\n"
-				"  Tag: %#x\n  ReqAddr: %#x. TLP Sent.\n",
-				direction_string, length, requester_id, req_bits->tag, req_addr);
+			printf("Fmt %#x, Type %#x, R %x, TC %#x, R|Attr_b2|R %x, "
+				"TH %x, Td %x, Ep %x, Attr %#x, AT %#x, Length %#x\n"
+				"RequesterID %#x, Tag %#x, Last BE %#x, First BE %#x\n"
+				"Bus Number %#x, Dev Num %#x, Fn # %#x, R %#x, "
+				"Reg Number %#lx\n",
+				h0bits->fmt, h0bits->type, h0bits->reserved0, h0bits->tc,
+				h0bits->reserved1, h0bits->th, h0bits->td, h0bits->ep,
+				h0bits->attr, h0bits->at, h0bits->length,
+				req_bits->requester_id, req_bits->tag, req_bits->lastbe,
+				req_bits->firstbe,
+				config_req->completer_id >> 8,
+				(config_req->completer_id >> 2) & 0x3F,
+				config_req->completer_id & 0x7,
+				config_req->reserved1,
+				req_addr);
+
+			printf("tlp_in[0] = %#0lx\ntlp_in[1] = %#0lx\ntlp_in[2] = %#0lx\n",
+				tlp_in[0], tlp_in[1], tlp_in[2]);
+
+
+			printf("Requester id: %#x.\n", requester_id);
 			break;
 		case IOReq:
 			type_string = "IO";
@@ -395,9 +425,9 @@ main(int argc, char *argv[])
 			type_string = "Unknown";
 		}
 
-		if (print) {
-			printf("%s (%#x) %s TLP.\n", type_string, type, direction_string);
-		}
+		/*if (print) {*/
+			/*printf("%s (%#x) %s TLP.\n", type_string, type, direction_string);*/
+		/*}*/
 	}
 
 	return 0;
