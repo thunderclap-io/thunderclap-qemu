@@ -142,9 +142,9 @@ enum TLPCompletionStatus {
 	TLPCS_REQUEST_TIMEOUT			= -1
 } ;
 
-typedef uint64_t TLPDoubleWord;
+typedef uint64_t TLPQuadWord;
 
-typedef uint32_t TLPWord;
+typedef uint32_t TLPDoubleWord;
 
 typedef uint32_t TLPAddress32;
 
@@ -168,7 +168,7 @@ typedef struct {
 	TLPHeaderReq      id;
 	TLPAddress32 addressH;
 	TLPAddress32 addressL;
-	TLPWord	   data[];
+	TLPDoubleWord	   data[];
 } TLP64bit;
 
 struct TLP64ConfigReq {
@@ -184,7 +184,7 @@ struct TLP64ConfigReq {
 typedef struct {
 	TLP64Header01	header;
 	TLP64Address64	address;
-	TLPWord		data[];
+	TLPDoubleWord		data[];
 } TLP6464bit;
 
 typedef struct {
@@ -192,21 +192,21 @@ typedef struct {
 	//union TLP64HeaderWord0Union header0;
 	TLPHeaderReq      id;
 	TLPAddress32 addressL;
-	TLPWord	   data[];
+	TLPDoubleWord	   data[];
 } TLP32bit;
 
 typedef struct {
 	TLP64Header01	header;
 	TLPAddress32	addressL;
-	TLPWord		data[];	// first word could either be pad, or the first data word if a 3 D-word TLP with non-Qword aligned address
-//	TLPWord		data[];
+	TLPDoubleWord		data[];	// first word could either be pad, or the first data word if a 3 D-word TLP with non-Qword aligned address
+//	TLPDoubleWord		data[];
 } TLP6432bit;
 
 typedef struct {			// big endian
-	TLPWord		h0;
-	TLPWord		h1;
-	TLPWord		h2;
-	TLPWord		h3;
+	TLPDoubleWord		h0;
+	TLPDoubleWord		h1;
+	TLPDoubleWord		h2;
+	TLPDoubleWord		h3;
 } TLP64HeaderRaw;
 
 typedef struct {

@@ -47,9 +47,8 @@ $(error $(TARGET) is not a valid target: choices are $(TARGETS))
 endif
 
 LDFLAGS := -static #-target mips64-unknown-freebsd #-G0
-LDFLAGS := $(LDFLAGS) --sysroot=/home/cr437/cheri-sdk/my-freebsd-root
 LIBS := glib-2.0 pixman-1
-LDLIBS := -lthr -lm -lz
+LDLIBS := -lthr -lm -lz -liconv -lexecinfo -lelf
 
 ifeq ($(TARGET),BERI)
 $(info Building for BERI)
@@ -62,15 +61,17 @@ CFLAGS := $(addprefix "-I$(EXTRA_USR)/local/include/",$(LIBS))
 #CFLAGS := $(CFLAGS) --target=mips64-unknown-freebsd
 CFLAGS := $(CFLAGS) --sysroot=/home/cr437/cheri-sdk/my-freebsd-root
 CFLAGS := $(CFLAGS) -I$(EXTRA_USR)/local/lib/glib-2.0/include
-CFLAGS := $(CFLAGS) -DTARGET=TARGET_BERI -femulated-tls # -G0 -mxgot
+CFLAGS := $(CFLAGS) -DTARGET=TARGET_BERI -G0 -mxgot -O2 -ftls-model=local-exec
+LDFLAGS := $(LDFLAGS) --sysroot=/home/cr437/cheri-sdk/my-freebsd-root
 LDFLAGS := $(LDFLAGS) -L$(EXTRA_USR)/local/lib
 LDLIBS := -lpixman-1 -lpcre -lglib-2.0 -lutil -liconv -lintl $(LDLIBS)
 else ifeq ($(TARGET),NATIVE)
 $(info Building native)
 CC = clang
+OBJDUMP = objdump
 CFLAGS := $(shell pkg-config --cflags $(LIBS))
 CFLAGS := $(CFLAGS) -DTARGET=TARGET_NATIVE
-LDLIBS := $(LDLIBS) $(shell pkg-config --libs $(LIBS)) -lutil 
+LDLIBS := $(LDLIBS) $(shell pkg-config --libs $(LIBS)) -lutil
 ifeq ($(POSTGRES), 1)
 CFLAGS := $(CFLAGS) -I$(shell pg_config --includedir)
 LDFLAGS := $(LDFLAGS) -L$(shell pg_config --libdir)
@@ -78,7 +79,7 @@ LDLIBS := $(LBLIBS) -lintl -lssl -lcrypto -lpq
 endif #POSTGRES
 endif
 
-CFLAGS := $(CFLAGS) -g -O2
+CFLAGS := $(CFLAGS) -g
 CFLAGS := $(CFLAGS) -Itcg/tci -Islirp
 #CFLAGS := $(CFLAGS) -ferror-limit=1
 CFLAGS := $(CFLAGS) -I. -Ihw/net -Ilinux-headers -Itarget-i386 -Itcg
@@ -94,6 +95,9 @@ O_FILES := $(SOURCES:.c=.o)
 HEADERS := $(shell find . -name "*.h")
 
 test: test.o $(O_FILES)
+
+test-no-source.dump: test
+	$(OBJDUMP) -Cdz $< > $@
 
 test.dump: test
 	$(OBJDUMP) -ChdS $< > $@
