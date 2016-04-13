@@ -33,11 +33,11 @@
 # SUCH DAMAGE.
 
 POSTGRES ?= 0
-TARGET ?= BERI
+TARGET ?= beri
 #POSTGRES ?= 1
-#TARGET ?= NATIVE
+#TARGET ?= native
 SEP :=, 
-TARGETS = BERI$(SEP)NATIVE
+TARGETS = beri$(SEP)native
 
 # Remove instances of SEP from the TARGET, then search for TARGET follwed by
 # SEP in the list of TARGETS followed by SEP to guarentee that an exact match
@@ -46,11 +46,14 @@ ifeq (,$(findstring $(filter-out $(SEP), $(TARGET))$(SEP), $(TARGETS)$(SEP)))
 $(error $(TARGET) is not a valid target: choices are $(TARGETS))
 endif
 
+TARGET_DIR=build-$(TARGET)
+
 LDFLAGS := -static #-target mips64-unknown-freebsd #-G0
 LIBS := glib-2.0 pixman-1
-LDLIBS := -lthr -lm -lz -liconv -lexecinfo -lelf
+LDLIBS := -lz -lexecinfo -lelf -lpixman-1 -lpcre -lglib-2.0
+LDLIBS := $(LDLIBS) -lutil -liconv -lintl -lm -lthr
 
-ifeq ($(TARGET),BERI)
+ifeq ($(TARGET),beri)
 $(info Building for BERI)
 SDK = /home/cr437/cheri-sdk/sdk
 CC = $(SDK)/bin/clang
@@ -64,18 +67,17 @@ CFLAGS := $(CFLAGS) -I$(EXTRA_USR)/local/lib/glib-2.0/include
 CFLAGS := $(CFLAGS) -DTARGET=TARGET_BERI -G0 -mxgot -O2 -ftls-model=local-exec
 LDFLAGS := $(LDFLAGS) --sysroot=/home/cr437/cheri-sdk/my-freebsd-root
 LDFLAGS := $(LDFLAGS) -L$(EXTRA_USR)/local/lib
-LDLIBS := -lpixman-1 -lpcre -lglib-2.0 -lutil -liconv -lintl $(LDLIBS)
-else ifeq ($(TARGET),NATIVE)
+else ifeq ($(TARGET),native)
 $(info Building native)
 CC = clang
 OBJDUMP = objdump
 CFLAGS := $(shell pkg-config --cflags $(LIBS))
 CFLAGS := $(CFLAGS) -DTARGET=TARGET_NATIVE
-LDLIBS := $(LDLIBS) $(shell pkg-config --libs $(LIBS)) -lutil
+LDLIBS := $(LDLIBS) $(shell pkg-config --libs $(LIBS))
 ifeq ($(POSTGRES), 1)
 CFLAGS := $(CFLAGS) -I$(shell pg_config --includedir)
 LDFLAGS := $(LDFLAGS) -L$(shell pg_config --libdir)
-LDLIBS := $(LBLIBS) -lintl -lssl -lcrypto -lpq
+LDLIBS := $(LBLIBS) -lssl -lcrypto -lpq
 endif #POSTGRES
 endif
 
@@ -90,17 +92,24 @@ CFLAGS := $(CFLAGS) -D NEED_CPU_H -D TARGET_X86_64 -D CONFIG_BSD
 CFLAGS := $(CFLAGS) -D_GNU_SOURCE # To pull in pipe2 -- seems dodgy
 
 DONT_FIND_TEMPLATES := $(shell grep "include \".*\.c\"" -Roh . | sort | uniq | sed 's/include /! -name /g')
-SOURCES := $(shell find . -name "*.c" $(DONT_FIND_TEMPLATES))
-O_FILES := $(SOURCES:.c=.o)
+SOURCES := $(shell find . -name "*.c" $(DONT_FIND_TEMPLATES) | sed 's|./||')
+O_FILES := $(addprefix $(TARGET_DIR)/,$(SOURCES:.c=.o))
 HEADERS := $(shell find . -name "*.h")
 
-test: test.o $(O_FILES)
+$(TARGET_DIR)/test: $(O_FILES)
 
-test-no-source.dump: test
+$(TARGET_DIR)/test-no-source.dump: test
 	$(OBJDUMP) -Cdz $< > $@
 
-test.dump: test
+$(TARGET_DIR)/test.dump: test
 	$(OBJDUMP) -ChdS $< > $@
+
+$(TARGET_DIR)/%.o: %.c
+	mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
+
+# Cancel implicit rule
+%.o : %.c
 
 .PHONY: clean
 clean:
