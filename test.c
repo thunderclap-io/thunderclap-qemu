@@ -61,6 +61,8 @@
 #include <execinfo.h>
 #include <stdio.h>
 #include <signal.h>
+#include <stdlib.h>
+#include <sys/endian.h>
 
 #ifdef POSTGRES
 #include <libpq-fe.h>
@@ -77,6 +79,21 @@
 #include "pcie.h"
 #include "pciefpga.h"
 #include "beri-io.h"
+
+#ifdef POSTGRES
+
+#define PG_REPR_TEXTUAL		0
+#define PG_REPR_BINARY		1
+
+static PGconn *postgres_connection;
+
+void
+close_connection()
+{
+	PQfinish(postgres_connection);
+}
+
+#endif
 
 void
 print_backtrace(int signum)
@@ -258,12 +275,104 @@ blink_main(int argc, char *argv[])
 		usleep(100000);
 	}
 	return 0;
+}
 
+static void
+print_result(PGresult *result)
+{
+	Oid field_type;
+	int32_t int_value;
+	int64_t int64_value;
+	uint32_t network_value32;
+	uint64_t network_value64;
+	int field_num, field_name_length, size;
+	int longest_field_name_length = 0;
+	int field_count = PQnfields(result);
+	for (field_num = 0; field_num < field_count; ++field_num) {
+		field_name_length = strlen(PQfname(result, field_num));
+		if (field_name_length > longest_field_name_length) {
+			longest_field_name_length = field_name_length;
+		}
+	}
+	for (field_num = 0; field_num < field_count; ++field_num) {
+		field_type = PQftype(result, field_num);
+		size = PQgetlength(result, 0, field_num);
+		printf("%-*s %s %2d %8d ",
+			longest_field_name_length,
+			PQfname(result, field_num),
+			PQfformat(result, field_num) == PG_REPR_TEXTUAL ? "text" : "bin",
+			size,
+			field_type);
+
+		if (PQgetisnull(result, 0, field_num)) {
+			printf("NULL");
+		}
+		else if (field_type == 23) {
+			network_value32 = *(uint32_t *)PQgetvalue(result, 0, field_num);
+			int_value = (int32_t)be32toh(network_value32);
+			printf("%u", int_value);
+		} else if (field_type == 20) {
+			network_value64 = *(uint64_t *)PQgetvalue(result, 0, field_num);
+			int64_value = (int64_t)be64toh(network_value64);
+			printf("%lu", int64_value);
+		} else {
+			printf("%s", PQgetvalue(result, 0, field_num));
+		}
+		printf("\n");
+	}
 }
 
 int
 main(int argc, char *argv[])
 {
+#ifdef POSTGRES
+	if (argc != 2) {
+		printf("Usage: %s CONNECTION_STRING\n", argv[0]);
+		return 1;
+	}
+	printf("Connecting to database...\n");
+	postgres_connection = PQconnectdb(argv[1]);
+	ConnStatusType conn_status = PQstatus(postgres_connection);
+	if (conn_status == CONNECTION_OK) {
+		printf("Success!\n");
+	} else {
+		assert(conn_status == CONNECTION_BAD);
+		printf("Error when connecting to database: %s",
+			PQerrorMessage(postgres_connection));
+		return 2;
+	}
+
+	atexit(close_connection);
+
+	int query_status = PQsendQueryParams(
+		postgres_connection,
+		"SELECT * FROM trace ORDER BY packet ASC;",
+		0, // Zero parameters
+		NULL, // Types
+		NULL, // Values
+		NULL, // Lengths
+		NULL, // Formats
+		PG_REPR_BINARY // Binary response, please
+	);
+	if (query_status == 0) {
+		printf("Error when querying trace database: %s",
+			PQerrorMessage(postgres_connection));
+		return 3;
+	}
+	query_status = PQsetSingleRowMode(postgres_connection);
+	if (query_status == 0) {
+		printf("Error when entering single row mode: %s",
+			PQerrorMessage(postgres_connection));
+		return 4;
+	}
+
+	PGresult *query_result = PQgetResult(postgres_connection);
+	print_result(query_result);
+	PQclear(query_result);
+
+	return 0;
+
+#endif
 	printf("Starting.\n");
 	/*const char *driver = "e1000-82540em";*/
 	const char *driver = "e1000e";
@@ -386,8 +495,10 @@ main(int argc, char *argv[])
 	// Use pci_host_config read common to reply to read responses.
 	printf("%x.\n", pci_host_config_read_common(pci_dev, 0, 4, 4));
 
+#ifndef POSTGRES
 	physmem = open_io_region(PCIEPACKET_REGION_BASE, PCIEPACKET_REGION_LENGTH);
 	initialise_leds();
+#endif
 
 	int i, tlp_in_len = 0, tlp_out_len;
 	volatile TLPQuadWord tlp_in[64], tlp_out[64];

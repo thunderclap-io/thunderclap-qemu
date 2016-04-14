@@ -32,10 +32,7 @@
 # OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 # SUCH DAMAGE.
 
-POSTGRES ?= 0
 TARGET ?= beri
-#POSTGRES ?= 1
-#TARGET ?= native
 SEP :=, 
 TARGETS = beri$(SEP)native
 
@@ -46,13 +43,18 @@ ifeq (,$(findstring $(filter-out $(SEP), $(TARGET))$(SEP), $(TARGETS)$(SEP)))
 $(error $(TARGET) is not a valid target: choices are $(TARGETS))
 endif
 
+ifeq ($(TARGET),native)
+	POSTGRES ?= 1
+else
+	POSTGRES ?= 0
+endif
+
 TARGET_DIR=build-$(TARGET)
 
 LDFLAGS := -static #-target mips64-unknown-freebsd #-G0
 LIBS := glib-2.0 pixman-1
-LDLIBS := -lz -lexecinfo -lelf -lpixman-1 -lpcre -lglib-2.0
-LDLIBS := $(LDLIBS) -lutil -liconv -lintl -lm -lthr
-
+LDLIBS := -lz -lexecinfo -lelf -lpixman-1 -lpcre
+LDLIBS := $(LDLIBS) -lutil -lglib-2.0 -liconv -lintl -lm -lthr
 ifeq ($(TARGET),beri)
 $(info Building for BERI)
 SDK = /home/cr437/cheri-sdk/sdk
@@ -75,9 +77,9 @@ CFLAGS := $(shell pkg-config --cflags $(LIBS))
 CFLAGS := $(CFLAGS) -DTARGET=TARGET_NATIVE
 LDLIBS := $(LDLIBS) $(shell pkg-config --libs $(LIBS))
 ifeq ($(POSTGRES), 1)
-CFLAGS := $(CFLAGS) -I$(shell pg_config --includedir)
+CFLAGS := $(CFLAGS) -DPOSTGRES -I$(shell pg_config --includedir)
 LDFLAGS := $(LDFLAGS) -L$(shell pg_config --libdir)
-LDLIBS := $(LBLIBS) -lssl -lcrypto -lpq
+LDLIBS := $(LDLIBS) -lpq -lssl -lcrypto
 endif #POSTGRES
 endif
 
