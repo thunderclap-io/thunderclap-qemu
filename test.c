@@ -85,12 +85,14 @@
 #define PG_REPR_TEXTUAL		0
 #define PG_REPR_BINARY		1
 
-static PGconn *postgres_connection;
+static PGconn *postgres_connection_downstream;
+static PGconn *postgres_connection_upstream;
 
 void
-close_connection()
+close_connections()
 {
-	PQfinish(postgres_connection);
+	PQfinish(postgres_connection_downstream);
+	PQfinish(postgres_connection_upstream);
 }
 
 #endif
@@ -147,6 +149,9 @@ static DeviceClass
 int
 wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 {
+#ifdef POSTGRES
+
+#else /* Real approach: no POSTGRES */
 	volatile PCIeStatus pciestatus;
 	volatile TLPQuadWord pciedata;
 	volatile int ready;
@@ -168,6 +173,7 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	} while (!pciestatus.bits.endofpacket);
 
 	return (i * 8);
+#endif
 }
 
 /* tlp is a pointer to the tlp, tlp_len is the length of the tlp in bytes. */
@@ -322,31 +328,27 @@ print_result(PGresult *result)
 	}
 }
 
-int
-main(int argc, char *argv[])
+static int
+check_connection_status(const PGconn *connection)
 {
-#ifdef POSTGRES
-	if (argc != 2) {
-		printf("Usage: %s CONNECTION_STRING\n", argv[0]);
-		return 1;
-	}
-	printf("Connecting to database...\n");
-	postgres_connection = PQconnectdb(argv[1]);
-	ConnStatusType conn_status = PQstatus(postgres_connection);
+	ConnStatusType conn_status = PQstatus(connection);
 	if (conn_status == CONNECTION_OK) {
 		printf("Success!\n");
+		return 0;
 	} else {
 		assert(conn_status == CONNECTION_BAD);
 		printf("Error when connecting to database: %s",
-			PQerrorMessage(postgres_connection));
+			PQerrorMessage(postgres_connection_downstream));
 		return 2;
 	}
+}
 
-	atexit(close_connection);
-
+static int
+start_binary_single_row_query(const PGconn *connection, const char *query)
+{
 	int query_status = PQsendQueryParams(
-		postgres_connection,
-		"SELECT * FROM trace ORDER BY packet ASC;",
+		connection,
+		query,
 		0, // Zero parameters
 		NULL, // Types
 		NULL, // Values
@@ -356,23 +358,70 @@ main(int argc, char *argv[])
 	);
 	if (query_status == 0) {
 		printf("Error when querying trace database: %s",
-			PQerrorMessage(postgres_connection));
+			PQerrorMessage(connection));
 		return 3;
 	}
-	query_status = PQsetSingleRowMode(postgres_connection);
+	query_status = PQsetSingleRowMode(connection);
 	if (query_status == 0) {
 		printf("Error when entering single row mode: %s",
-			PQerrorMessage(postgres_connection));
+			PQerrorMessage(connection));
 		return 4;
 	}
+	return 0;
+}
 
-	PGresult *query_result = PQgetResult(postgres_connection);
+int
+main(int argc, char *argv[])
+{
+	int connection_status, query_status;
+#ifdef POSTGRES
+	if (argc != 2) {
+		printf("Usage: %s CONNECTION_STRING\n", argv[0]);
+		return 1;
+	}
+	printf("Creating connection for downstream packets...\n");
+	atexit(close_connections);
+	postgres_connection_downstream = PQconnectdb(argv[1]);
+	connection_status = check_connection_status(postgres_connection_downstream);
+	if (connection_status != 0) {
+		return connection_status;
+	}
+	printf("Creating connection for upstream packets...\n");
+	postgres_connection_upstream = PQconnectdb(argv[1]);
+	connection_status = check_connection_status(postgres_connection_upstream);
+	if (connection_status != 0) {
+		return connection_status;
+	}
+
+	query_status = start_binary_single_row_query(
+		postgres_connection_downstream,
+		"SELECT * FROM trace "
+		"WHERE link_dir = 'Downstream' "
+		"ORDER BY packet ASC;");
+	if (query_status != 0) {
+		return query_status;
+	}
+
+	PGresult *query_result = PQgetResult(postgres_connection_downstream);
+	print_result(query_result);
+	PQclear(query_result);
+
+	query_status = start_binary_single_row_query(
+		postgres_connection_upstream,
+		"SELECT * FROM trace "
+		"WHERE link_dir = 'Upstream' "
+		"ORDER BY packet ASC;");
+	if (query_status != 0) {
+		return query_status;
+	}
+
+	query_result = PQgetResult(postgres_connection_upstream);
 	print_result(query_result);
 	PQclear(query_result);
 
 	return 0;
-
 #endif
+
 	printf("Starting.\n");
 	/*const char *driver = "e1000-82540em";*/
 	const char *driver = "e1000e";
