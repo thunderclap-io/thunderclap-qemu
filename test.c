@@ -146,14 +146,14 @@ static DeviceClass
 
 #ifdef POSTGRES
 
-static enum postgres_tlp_type {
+enum postgres_tlp_type {
 	CFG_RD_0, CFG_WR_0, CPL, CPL_D, IO_RD, IO_WR, M_RD_32, M_WR_32, MSG_D
 };
 
 static enum postgres_tlp_type
-get_postgres_tlp_type(const PGResult *result)
+get_postgres_tlp_type(const PGresult *result)
 {
-	int tlp_type_field_num = PQfname(result, "tlp_type");
+	int tlp_type_field_num = PQfnumber(result, "tlp_type");
 	const char * const field_text = PQgetvalue(result, 0, tlp_type_field_num);
 	if (strcmp(field_text, "CfgRd0") == 0) {
 		return CFG_RD_0;
@@ -179,14 +179,14 @@ get_postgres_tlp_type(const PGResult *result)
 	}
 }
 
-static enum postgres_msg_routing { BROADCAST = 3, LOCAL = 4 };
+enum postgres_msg_routing { BROADCAST = 3, LOCAL = 4 };
 
 static enum postgres_msg_routing
-get_postgres_msg_routing(const PGResult *result)
+get_postgres_msg_routing(const PGresult *result)
 {
-	int msg_routing_field_num = PQfname(result, "msg_routing");
+	int msg_routing_field_num = PQfnumber(result, "msg_routing");
 	const char * const field_text =
-		PGgetvalue(result, 0, msg_routing_field_num);
+		PQgetvalue(result, 0, msg_routing_field_num);
 	if (strcmp(field_text, "Broadcast") == 0) {
 		return BROADCAST;
 	} else if (strcmp(field_text, "Local") == 0) {
@@ -197,12 +197,29 @@ get_postgres_msg_routing(const PGResult *result)
 	}
 }
 
+enum postgres_message_code { SET_SLOT_POWER_LIMIT = 0x50 };
+
+static enum postgres_message_code
+get_postgres_message_code(const PGresult *result)
+{
+	int message_code_field_num = PQfnumber(result, "message_code");
+	const char * const field_text =
+		PQgetvalue(result, 0, message_code_field_num);
+	if (strcmp(field_text, "Set_Slot_Power_Limit") == 0) {
+		return SET_SLOT_POWER_LIMIT;
+	}
+	else {
+		assert(false);
+		return -1;
+	}
+}
+
 #define		POSTGRES_INT_FIELD(FIELD_NAME)									\
 	static inline uint32_t													\
-	get_postgres_##FIELD_NAME(const PGResult *result)						\
+	get_postgres_##FIELD_NAME(const PGresult *result)						\
 	{																		\
-		int field_num = PQfname(result, #FIELD_NAME);						\
-		return be32toh(PQgetvalue(result, 0, field_num));					\
+		int field_num = PQfnumber(result, #FIELD_NAME);						\
+		return be32toh(*(uint32_t *)PQgetvalue(result, 0, field_num));		\
 	}
 
 POSTGRES_INT_FIELD(length);
@@ -219,10 +236,10 @@ POSTGRES_INT_FIELD(lwr_addr);
 
 #define		POSTGRES_BIGINT_FIELD(FIELD_NAME)								\
 	static inline uint64_t													\
-	get_postgres_##FIELD_NAME(const PGResult *result)						\
+	get_postgres_##FIELD_NAME(const PGresult *result)						\
 	{																		\
-		int field_num = PQfname(result, #FIELD_NAME);						\
-		return be64toh(PQgetvalue(result, 0, field_num));					\
+		int field_num = PQfnumber(result, #FIELD_NAME);						\
+		return be64toh(*(uint64_t *)PQgetvalue(result, 0, field_num));		\
 	}
 
 POSTGRES_BIGINT_FIELD(address);
@@ -240,7 +257,7 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	PGresult *result = PQgetResult(postgres_connection_downstream);
 	assert(result != NULL);
 
-	struct TLPHeader0Bits *header0 = (struct TLP64Header0Bits *)tlp;
+	struct TLP64Header0Bits *header0 = (struct TLP64Header0Bits *)tlp;
 
 	struct TLP64MessageReqBits *message_req =
 		(struct TLP64MessageReqBits *)(tlp + 1);
@@ -255,14 +272,26 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	case MSG_D:
 		header0->fmt = TLPFMT_4DW_DATA;
 		header0->type = ((1 << 4) | get_postgres_msg_routing(result));
-		message_req = get_postgres_requester_id(result);
+		message_req->requester_id = get_postgres_requester_id(result);
+		message_req->tag = get_postgres_tag(result);
+		message_req->message_code = get_postgres_message_code(result);
+
+		if (message_req->message_code == SET_SLOT_POWER_LIMIT) {
+			tlp[2] = 0;
+			tlp[3] = 0;
+			tlp[4] = get_postgres_data(result);
+			return (5 * 8);
+		}
 
 		break;
 	default:
+		fprintf(stderr, "ERROR! Unrecognised TLP of type: %s\n",
+			PQgetvalue(result, 0, PQfnumber(result, "tlp_type")));
 		assert(false);
 	}
+	return -1;
 
-	PQclear(query_result);
+	PQclear(result);
 #else /* Real approach: no POSTGRES */
 	volatile PCIeStatus pciestatus;
 	volatile TLPQuadWord pciedata;
@@ -362,6 +391,7 @@ volatile uint8_t *led_phys_mem;
 void
 initialise_leds()
 {
+#ifdef BERI
 #define LED_BASE		0x7F006000LL
 #define LED_LEN			0x1
 
@@ -369,18 +399,22 @@ initialise_leds()
 
 #undef LED_LEN
 #undef LED_BASE
+#endif
 }
 
 static inline void
 write_leds(uint8_t data)
 {
+#ifdef BERI
 	*led_phys_mem = ~data;
+#endif
 }
 
 int
 blink_main(int argc, char *argv[])
 {
 	printf("It's blinky time!\n");
+#ifdef BERI
 	initialise_leds();
 
 	uint8_t led_value = 0x55; // 0b0101
@@ -392,6 +426,7 @@ blink_main(int argc, char *argv[])
 		fflush(stdout);
 		usleep(100000);
 	}
+#endif
 	return 0;
 }
 
@@ -458,7 +493,7 @@ check_connection_status(const PGconn *connection)
 }
 
 static int
-start_binary_single_row_query(const PGconn *connection, const char *query)
+start_binary_single_row_query(PGconn *connection, const char *query)
 {
 	int query_status = PQsendQueryParams(
 		connection,
