@@ -100,10 +100,10 @@ HEADERS := $(shell find . -name "*.h")
 
 $(TARGET_DIR)/test: $(O_FILES)
 
-$(TARGET_DIR)/test-no-source.dump: test
+$(TARGET_DIR)/test-no-source.dump: $(TARGET_DIR)/test
 	$(OBJDUMP) -Cdz $< > $@
 
-$(TARGET_DIR)/test.dump: test
+$(TARGET_DIR)/test.dump: $(TARGET_DIR)/test
 	$(OBJDUMP) -ChdS $< > $@
 
 $(TARGET_DIR)/%.o: %.c

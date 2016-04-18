@@ -66,6 +66,11 @@ typedef union {
         uint32_t word;
 } TLP64HeaderReq;
 
+struct TLP64MessageReqBits {
+	uint32_t requester_id:16;
+	uint32_t tag:8;
+	uint32_t message_code:8;
+};
 
 struct TLP64HeaderCompl0Bits {
 	uint32_t	completer_id:16;

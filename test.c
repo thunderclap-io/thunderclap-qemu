@@ -144,13 +144,125 @@ static DeviceClass
     return dc;
 }
 
+#ifdef POSTGRES
+
+static enum postgres_tlp_type {
+	CFG_RD_0, CFG_WR_0, CPL, CPL_D, IO_RD, IO_WR, M_RD_32, M_WR_32, MSG_D
+};
+
+static enum postgres_tlp_type
+get_postgres_tlp_type(const PGResult *result)
+{
+	int tlp_type_field_num = PQfname(result, "tlp_type");
+	const char * const field_text = PQgetvalue(result, 0, tlp_type_field_num);
+	if (strcmp(field_text, "CfgRd0") == 0) {
+		return CFG_RD_0;
+	} else if (strcmp(field_text, "CfgWr0") == 0) {
+		return CFG_WR_0;
+	} else if (strcmp(field_text, "Cpl") == 0) {
+		return CPL;
+	} else if (strcmp(field_text, "CplD") == 0) {
+		return CPL_D;
+	} else if (strcmp(field_text, "IORd") == 0) {
+		return IO_RD;
+	} else if (strcmp(field_text, "IOWr") == 0) {
+		return IO_WR;
+	} else if (strcmp(field_text, "MRd(32)") == 0) {
+		return M_RD_32;
+	} else if (strcmp(field_text, "MWr(32)") == 0) {
+		return M_WR_32;
+	} else if (strcmp(field_text, "MsgD") == 0) {
+		return MSG_D;
+	} else {
+		assert(false);
+		return -1;
+	}
+}
+
+static enum postgres_msg_routing { BROADCAST = 3, LOCAL = 4 };
+
+static enum postgres_msg_routing
+get_postgres_msg_routing(const PGResult *result)
+{
+	int msg_routing_field_num = PQfname(result, "msg_routing");
+	const char * const field_text =
+		PGgetvalue(result, 0, msg_routing_field_num);
+	if (strcmp(field_text, "Broadcast") == 0) {
+		return BROADCAST;
+	} else if (strcmp(field_text, "Local") == 0) {
+		return LOCAL;
+	} else {
+		assert(false);
+		return -1;
+	}
+}
+
+#define		POSTGRES_INT_FIELD(FIELD_NAME)									\
+	static inline uint32_t													\
+	get_postgres_##FIELD_NAME(const PGResult *result)						\
+	{																		\
+		int field_num = PQfname(result, #FIELD_NAME);						\
+		return be32toh(PQgetvalue(result, 0, field_num));					\
+	}
+
+POSTGRES_INT_FIELD(length);
+POSTGRES_INT_FIELD(requester_id);
+POSTGRES_INT_FIELD(tag);
+POSTGRES_INT_FIELD(completer_id);
+POSTGRES_INT_FIELD(device_id);
+POSTGRES_INT_FIELD(register);
+POSTGRES_INT_FIELD(first_be);
+POSTGRES_INT_FIELD(last_be);
+POSTGRES_INT_FIELD(byte_cnt);
+POSTGRES_INT_FIELD(bcm);
+POSTGRES_INT_FIELD(lwr_addr);
+
+#define		POSTGRES_BIGINT_FIELD(FIELD_NAME)								\
+	static inline uint64_t													\
+	get_postgres_##FIELD_NAME(const PGResult *result)						\
+	{																		\
+		int field_num = PQfname(result, #FIELD_NAME);						\
+		return be64toh(PQgetvalue(result, 0, field_num));					\
+	}
+
+POSTGRES_BIGINT_FIELD(address);
+POSTGRES_BIGINT_FIELD(data);
+
+#endif //ifdef POSTGRES
+
 /* tlp_len is length of the buffer in bytes. */
 /* Return -1 if 1024 attempts to poll the buffer fail. */
 int
 wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 {
 #ifdef POSTGRES
+	/* TODO: Check we don't buffer overrun. */
+	PGresult *result = PQgetResult(postgres_connection_downstream);
+	assert(result != NULL);
 
+	struct TLPHeader0Bits *header0 = (struct TLP64Header0Bits *)tlp;
+
+	struct TLP64MessageReqBits *message_req =
+		(struct TLP64MessageReqBits *)(tlp + 1);
+
+	header0->tc = 0; // Assume traffic class best effort
+	header0->th = 0; // Assume no traffic processing hints.
+	header0->td = 0; // Assume no TLP digest
+	header0->ep = 0; // Assume TLP is not poisoned, as you do.
+	header0->length = get_postgres_length(result);
+	
+	switch (get_postgres_tlp_type(result)) {
+	case MSG_D:
+		header0->fmt = TLPFMT_4DW_DATA;
+		header0->type = ((1 << 4) | get_postgres_msg_routing(result));
+		message_req = get_postgres_requester_id(result);
+
+		break;
+	default:
+		assert(false);
+	}
+
+	PQclear(query_result);
 #else /* Real approach: no POSTGRES */
 	volatile PCIeStatus pciestatus;
 	volatile TLPQuadWord pciedata;
@@ -283,6 +395,8 @@ blink_main(int argc, char *argv[])
 	return 0;
 }
 
+#ifdef POSTGRES
+
 static void
 print_result(PGresult *result)
 {
@@ -370,6 +484,8 @@ start_binary_single_row_query(const PGconn *connection, const char *query)
 	return 0;
 }
 
+#endif
+
 int
 main(int argc, char *argv[])
 {
@@ -402,10 +518,6 @@ main(int argc, char *argv[])
 		return query_status;
 	}
 
-	PGresult *query_result = PQgetResult(postgres_connection_downstream);
-	print_result(query_result);
-	PQclear(query_result);
-
 	query_status = start_binary_single_row_query(
 		postgres_connection_upstream,
 		"SELECT * FROM trace "
@@ -415,11 +527,6 @@ main(int argc, char *argv[])
 		return query_status;
 	}
 
-	query_result = PQgetResult(postgres_connection_upstream);
-	print_result(query_result);
-	PQclear(query_result);
-
-	return 0;
 #endif
 
 	printf("Starting.\n");
