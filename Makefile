@@ -36,6 +36,21 @@ TARGET ?= beri
 SEP :=, 
 TARGETS = beri$(SEP)native
 
+ifndef PCIE_QEMU_CHERI_SDK
+$(error Variable PCIE_QEMU_CHERI_SDK is not set)
+endif
+
+ifndef PCIE_QEMU_LIBRARY_ROOT
+$(error PCIE_QEMU_LIBRARY_ROOT is not set)
+# PCIE_QEMU_LIBRARY_ROOT should be the directory into which the .txz libraries
+# have been extracted. It should contain a usr directory.
+endif
+
+ifndef PCIE_QEMU_SYSROOT
+$(error PCIE_QEMU_SYSROOT is not set)
+# This must be a BERI sysroot, to avoid including the CHERI memcpy, for example.
+endif
+
 # Remove instances of SEP from the TARGET, then search for TARGET follwed by
 # SEP in the list of TARGETS followed by SEP to guarentee that an exact match
 # for TARGET is in the TARGET list.
@@ -57,17 +72,17 @@ LDLIBS := -lz -lexecinfo -lelf -lpixman-1 -lpcre
 LDLIBS := $(LDLIBS) -lutil -lglib-2.0 -liconv -lintl -lm -lthr
 ifeq ($(TARGET),beri)
 $(info Building for BERI)
-SDK = /home/cr437/cheri-sdk/sdk
+SDK = $(PCIE_QEMU_CHERI_SDK)/sdk
 CC = $(SDK)/bin/clang
 OBJDUMP = $(SDK)/bin/objdump
 #CC=/home/cr437/cheri-sdk/sdk/bin/gcc
-EXTRA_USR=/home/cr437/iommu/iommu/beri-fake-peripherals/usr
+EXTRA_USR=$(PCIE_QEMU_LIBRARY_ROOT)/usr
 CFLAGS := $(addprefix "-I$(EXTRA_USR)/local/include/",$(LIBS))
 #CFLAGS := $(CFLAGS) --target=mips64-unknown-freebsd
-CFLAGS := $(CFLAGS) --sysroot=/home/cr437/cheri-sdk/my-freebsd-root
+CFLAGS := $(CFLAGS) --sysroot=$(PCIE_QEMU_SYSROOT)
 CFLAGS := $(CFLAGS) -I$(EXTRA_USR)/local/lib/glib-2.0/include
 CFLAGS := $(CFLAGS) -DTARGET=TARGET_BERI -G0 -mxgot -O2 -ftls-model=local-exec
-LDFLAGS := $(LDFLAGS) --sysroot=/home/cr437/cheri-sdk/my-freebsd-root
+LDFLAGS := $(LDFLAGS) --sysroot=$(PCIE_QEMU_SYSROOT)
 LDFLAGS := $(LDFLAGS) -L$(EXTRA_USR)/local/lib
 else ifeq ($(TARGET),native)
 $(info Building native)
