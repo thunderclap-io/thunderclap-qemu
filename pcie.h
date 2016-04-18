@@ -1,16 +1,23 @@
 #ifndef PCIE_H
 #define PCIE_H
 
-typedef enum {
-	MemoryReq=0, MemoryReqLocked=1, IOReq=2, Conf0=4, Conf1=5,
-	TConf=0x1B, Message=0x10, Completion=0xA, CompletionLock=0x0B
-} TLPType;
+enum tlp_type {
+	M					= 0x0, // Memory
+	M_LK				= 0x1, // Memory Locked
+	IO					= 0x2,
+	CFG_0				= 0x4,
+	CFG_1				= 0x5,
+	CPL					= 0xA, // Completion
+	CPL_LK				= 0x0B, // Completion Locked
+	MSG					= 0x10, // Message Request
+	T_CFG				= 0x1B, // These are deprecated
+};
 
 typedef enum {
 	Read=0, Write=1
 } TLPDirection;
 
-enum TLPFmt {
+enum tlp_fmt {
 	TLPFMT_3DW_NODATA	= 0,
 	TLPFMT_4DW_NODATA	= 1,
 	TLPFMT_3DW_DATA		= 2,
@@ -18,9 +25,9 @@ enum TLPFmt {
 	TLPFMT_PREFIX		= 4
 };
 
-#define TLPFMT_PREFIX		0x4
-#define TLPFMT_WITHDATA		0x2
 #define TLPFMT_4DW			0x1
+#define TLPFMT_WITHDATA		0x2
+#define TLPFMT_PREFIX		0x4
 
 typedef union {
 	struct {
@@ -36,8 +43,8 @@ typedef union {
 } PCIeStatus;
 
 struct TLP64Header0Bits {
-	uint32_t fmt:3;
-	TLPType type:5;
+	enum tlp_fmt fmt:3;
+	enum tlp_type type:5;
 	uint32_t reserved0:1;
 	uint32_t tc:3;
 	uint32_t reserved1:3;

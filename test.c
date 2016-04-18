@@ -147,7 +147,15 @@ static DeviceClass
 #ifdef POSTGRES
 
 enum postgres_tlp_type {
-	CFG_RD_0, CFG_WR_0, CPL, CPL_D, IO_RD, IO_WR, M_RD_32, M_WR_32, MSG_D
+	PG_CFG_RD_0,
+	PG_CFG_WR_0,
+	PG_CPL,
+	PG_CPL_D,
+	PG_IO_RD,
+	PG_IO_WR,
+	PG_M_RD_32,
+	PG_M_WR_32,
+	PG_MSG_D
 };
 
 static enum postgres_tlp_type
@@ -156,23 +164,23 @@ get_postgres_tlp_type(const PGresult *result)
 	int tlp_type_field_num = PQfnumber(result, "tlp_type");
 	const char * const field_text = PQgetvalue(result, 0, tlp_type_field_num);
 	if (strcmp(field_text, "CfgRd0") == 0) {
-		return CFG_RD_0;
+		return PG_CFG_RD_0;
 	} else if (strcmp(field_text, "CfgWr0") == 0) {
-		return CFG_WR_0;
+		return PG_CFG_WR_0;
 	} else if (strcmp(field_text, "Cpl") == 0) {
-		return CPL;
+		return PG_CPL;
 	} else if (strcmp(field_text, "CplD") == 0) {
-		return CPL_D;
+		return PG_CPL_D;
 	} else if (strcmp(field_text, "IORd") == 0) {
-		return IO_RD;
+		return PG_IO_RD;
 	} else if (strcmp(field_text, "IOWr") == 0) {
-		return IO_WR;
+		return PG_IO_WR;
 	} else if (strcmp(field_text, "MRd(32)") == 0) {
-		return M_RD_32;
+		return PG_M_RD_32;
 	} else if (strcmp(field_text, "MWr(32)") == 0) {
-		return M_WR_32;
+		return PG_M_WR_32;
 	} else if (strcmp(field_text, "MsgD") == 0) {
-		return MSG_D;
+		return PG_MSG_D;
 	} else {
 		assert(false);
 		return -1;
@@ -245,6 +253,50 @@ POSTGRES_INT_FIELD(lwr_addr);
 POSTGRES_BIGINT_FIELD(address);
 POSTGRES_BIGINT_FIELD(data);
 
+/* Generates a TLP given a PGresult that has as row 0 a record from the trace
+ * table. Returns the length of the TLP in bytes. */
+/* TLPDoubleWord is a more natural way to manipulate the TLP Data */
+static int
+tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
+{
+	struct TLP64Header0Bits *header0 = (struct TLP64Header0Bits *)buffer;
+
+	struct TLP64MessageReqBits *message_req =
+		(struct TLP64MessageReqBits *)(buffer + 1);
+
+	header0->tc = 0; // Assume traffic class best effort
+	header0->th = 0; // Assume no traffic processing hints.
+	header0->td = 0; // Assume no TLP digest
+	header0->ep = 0; // Assume TLP is not poisoned, as you do.
+	header0->length = get_postgres_length(result);
+	
+	switch (get_postgres_tlp_type(result)) {
+	case PG_CFG_RD_0:
+		header0->fmt = TLPFMT_3DW_NODATA;
+		return -1;
+	case PG_MSG_D:
+		header0->fmt = TLPFMT_4DW_DATA;
+		header0->type = ((1 << 4) | get_postgres_msg_routing(result));
+		message_req->requester_id = get_postgres_requester_id(result);
+		message_req->tag = get_postgres_tag(result);
+		message_req->message_code = get_postgres_message_code(result);
+
+		if (message_req->message_code == SET_SLOT_POWER_LIMIT) {
+			buffer[2] = 0;
+			buffer[3] = 0;
+			buffer[4] = get_postgres_data(result);
+			return (5 * 8);
+		}
+
+		break;
+	default:
+		fprintf(stderr, "ERROR! Unknown TLP type: %s\n",
+			PQgetvalue(result, 0, PQfnumber(result, "tlp_type")));
+		assert(false);
+	}
+	return -1;
+}
+
 #endif //ifdef POSTGRES
 
 /* tlp_len is length of the buffer in bytes. */
@@ -257,39 +309,8 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	PGresult *result = PQgetResult(postgres_connection_downstream);
 	assert(result != NULL);
 
-	struct TLP64Header0Bits *header0 = (struct TLP64Header0Bits *)tlp;
-
-	struct TLP64MessageReqBits *message_req =
-		(struct TLP64MessageReqBits *)(tlp + 1);
-
-	header0->tc = 0; // Assume traffic class best effort
-	header0->th = 0; // Assume no traffic processing hints.
-	header0->td = 0; // Assume no TLP digest
-	header0->ep = 0; // Assume TLP is not poisoned, as you do.
-	header0->length = get_postgres_length(result);
-	
-	switch (get_postgres_tlp_type(result)) {
-	case MSG_D:
-		header0->fmt = TLPFMT_4DW_DATA;
-		header0->type = ((1 << 4) | get_postgres_msg_routing(result));
-		message_req->requester_id = get_postgres_requester_id(result);
-		message_req->tag = get_postgres_tag(result);
-		message_req->message_code = get_postgres_message_code(result);
-
-		if (message_req->message_code == SET_SLOT_POWER_LIMIT) {
-			tlp[2] = 0;
-			tlp[3] = 0;
-			tlp[4] = get_postgres_data(result);
-			return (5 * 8);
-		}
-
-		break;
-	default:
-		fprintf(stderr, "ERROR! Unrecognised TLP of type: %s\n",
-			PQgetvalue(result, 0, PQfnumber(result, "tlp_type")));
-		assert(false);
-	}
-	return -1;
+	TLPDoubleWord *tlp_dword = (TLPDoubleWord *)tlp;
+	return tlp_from_postgres(result, tlp_dword, tlp_len);
 
 	PQclear(result);
 #else /* Real approach: no POSTGRES */
@@ -299,13 +320,13 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	int i = 0; // i is "length of TLP so far received in doublewords.
 
 	do {
-		ready = IORD64(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_READY);
+		ready = PG_IORD64(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_READY);
 	} while (ready == 0);
 
 	do {
-		pciestatus.word = IORD64(PCIEPACKETRECEIVER_0_BASE,
+		pciestatus.word = PG_IORD64(PCIEPACKETRECEIVER_0_BASE,
 			PCIEPACKETRECEIVER_STATUS);
-		pciedata = IORD64(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_DATA);
+		pciedata = PG_IORD64(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_DATA);
 		tlp[i++] = pciedata;
 		if ((i * 8) > tlp_len) {
 			printf("ERROR: TLP Larger than buffer.\n");
@@ -322,6 +343,25 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 int
 send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 {
+#ifdef POSTGRES
+	int response;
+
+	PGresult *result = PQgetResult(postgres_connection_upstream);
+	assert(result != NULL);
+
+	TLPQuadWord expected[64];
+	int buffer_len = 64 * sizeof(TLPQuadWord);
+	assert(tlp_len <= buffer_len);
+	response = tlp_from_postgres(result, (TLPDoubleWord *)expected, buffer_len);
+
+	assert(response == tlp_len);
+
+	for (int i = 0; i < (tlp_len / 8); ++i) {
+		assert(expected[i] == tlp[i]);
+	}
+
+	return 0;
+#else
 	int double_word_index;
 	volatile PCIeStatus statusword;
 
@@ -330,7 +370,7 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	/*printf("Starting to send TLP.\n");*/
 
 	// Stops the TX queue from draining whilst we're filling it.
-	IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 0);
+	PG_IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 0);
 
 	for (double_word_index = 0; double_word_index < (tlp_len / 8);
 			++double_word_index) {
@@ -341,18 +381,19 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 
 		/*printf("Writing packet status.\n");*/
 		// Write status word.
-		IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_STATUS,
+		PG_IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_STATUS,
 			statusword.word);
 		// Write data
 		/*printf("Writing packet data.\n");*/
-		IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_DATA,
+		PG_IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_DATA,
 			tlp[double_word_index]);
 	}
 	// Release queued data
-	IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 1);
+	PG_IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 1);
 
 	/*printf("Releasing TLP.\n");*/
 	return 0;
+#endif
 }
 
 
@@ -370,7 +411,7 @@ create_config_read_completion_header(volatile TLPQuadWord *tlp, uint16_t complet
 
 	volatile struct TLP64Header0Bits *header0 = (volatile struct TLP64Header0Bits *)(tlp);
 	header0->fmt = TLPFMT_3DW_DATA;
-	header0->type = Completion;
+	header0->type = CPL;
 	header0->length = 1;
 
 	volatile struct TLP64HeaderCompl0Bits *header1 =
@@ -527,7 +568,7 @@ main(int argc, char *argv[])
 	int connection_status, query_status;
 #ifdef POSTGRES
 	if (argc != 2) {
-		printf("Usage: %s CONNECTION_STRING\n", argv[0]);
+		printf("Usage: %s CONNECTPG_ION_STRING\n", argv[0]);
 		return 1;
 	}
 	printf("Creating connection for downstream packets...\n");
@@ -687,7 +728,7 @@ main(int argc, char *argv[])
 	printf("%x.\n", pci_host_config_read_common(pci_dev, 0, 4, 4));
 
 #ifndef POSTGRES
-	physmem = open_io_region(PCIEPACKET_REGION_BASE, PCIEPACKET_REGION_LENGTH);
+	physmem = open_io_region(PCIEPACKET_REGPG_ION_BASE, PCIEPACKET_REGPG_ION_LENGTH);
 	initialise_leds();
 #endif
 
@@ -732,11 +773,11 @@ main(int argc, char *argv[])
 		length = h0bits->length;
 
 		switch (type) {
-		case MemoryReq:
+		case M:
 			print = false;
 
 			break;
-		case Conf0:
+		case CFG_0:
 			print = false;
 
 			assert(length == 1);
@@ -793,10 +834,10 @@ main(int argc, char *argv[])
 
 			/*printf("Requester id: %#x.\n", requester_id);*/
 			break;
-		case IOReq:
+		case IO:
 			type_string = "IO";
 			break;
-		case Completion:
+		case CPL:
 			type_string = "Completion";
 			break;
 		case 0x13: //Broadcast packets, can drop.
