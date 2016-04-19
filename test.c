@@ -380,13 +380,13 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	int i = 0; // i is "length of TLP so far received in doublewords.
 
 	do {
-		ready = PG_IORD64(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_READY);
+		ready = IORD64(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_READY);
 	} while (ready == 0);
 
 	do {
-		pciestatus.word = PG_IORD64(PCIEPACKETRECEIVER_0_BASE,
+		pciestatus.word = IORD64(PCIEPACKETRECEIVER_0_BASE,
 			PCIEPACKETRECEIVER_STATUS);
-		pciedata = PG_IORD64(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_DATA);
+		pciedata = IORD64(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_DATA);
 		tlp[i++] = pciedata;
 		if ((i * 8) > tlp_len) {
 			printf("ERROR: TLP Larger than buffer.\n");
@@ -417,7 +417,11 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	assert(response == tlp_len);
 
 	for (int i = 0; i < (tlp_len / 8); ++i) {
-		assert(expected[i] == tlp[i]);
+		if (expected[i] != tlp[i]) {
+			fprintf(stderr, "Error! QWord %d of TLP differ. Expected: %0#x "
+				"Got: %0#x.\n", i, expected[i], tlp[i]);
+			return -1;
+		}
 	}
 
 	return 0;
@@ -430,7 +434,7 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	/*printf("Starting to send TLP.\n");*/
 
 	// Stops the TX queue from draining whilst we're filling it.
-	PG_IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 0);
+	IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 0);
 
 	for (double_word_index = 0; double_word_index < (tlp_len / 8);
 			++double_word_index) {
@@ -441,15 +445,15 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 
 		/*printf("Writing packet status.\n");*/
 		// Write status word.
-		PG_IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_STATUS,
+		IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_STATUS,
 			statusword.word);
 		// Write data
 		/*printf("Writing packet data.\n");*/
-		PG_IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_DATA,
+		IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_DATA,
 			tlp[double_word_index]);
 	}
 	// Release queued data
-	PG_IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 1);
+	IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 1);
 
 	/*printf("Releasing TLP.\n");*/
 	return 0;
@@ -788,11 +792,11 @@ main(int argc, char *argv[])
 	printf("%x.\n", pci_host_config_read_common(pci_dev, 0, 4, 4));
 
 #ifndef POSTGRES
-	physmem = open_io_region(PCIEPACKET_REGPG_ION_BASE, PCIEPACKET_REGPG_ION_LENGTH);
+	physmem = open_io_region(PCIEPACKET_REGION_BASE, PCIEPACKET_REGION_LENGTH);
 	initialise_leds();
 #endif
 
-	int i, tlp_in_len = 0, tlp_out_len;
+	int i, tlp_in_len = 0, tlp_out_len, send_result;
 	volatile TLPQuadWord tlp_in[64], tlp_out[64];
 	volatile TLPDoubleWord *tlp_out_body = ((TLPDoubleWord *)tlp_out) + 3;
 	TLP64Header01 h0and1;
@@ -847,52 +851,23 @@ main(int argc, char *argv[])
 			req_addr = (req_addr << 6) | config_req->dword2.reg_num;
 			req_addr <<= 2;
 
-			/*printf("Config %s TLP.\n  Length: %#x\n  Requester ID: %#x\n"*/
-				/*"  Tag: %#x\n  ReqAddr: %#lx. TLP Sent.\n",*/
-				/*direction_string, length, requester_id, req_bits->tag, req_addr);*/
-
-			/*printf("Trying to read from: %#lx.\n", req_addr);*/
-
 			create_config_read_completion_header(
 				tlp_out, device_id, TLPCS_SUCCESSFUL_COMPLETION, requester_id,
 				req_bits->tag);
 
-			/*tlp_out_body[0] = pci_host_config_read_common(*/
-				/*pci_dev, req_addr, 4, 4);*/
-			tlp_out_body[0] = 0xFFFFFFFF;
+			tlp_out_body[0] = pci_host_config_read_common(
+				pci_dev, req_addr, 4, 4);
+
+			/*printf("Sending TLP with device_id %#x.\n"*/
+				/*"requester_id %#x.\n",*/
+				/*device_id,*/
+				/*requester_id);*/
 
 			++received_count;
 			write_leds(received_count);
 
-			send_tlp(tlp_out, 16);
-			IORD64(PCIEPACKETRECEIVER_0_BASE, 1);
-
-			/*putchar('.');*/
-			/*fflush(stdout);*/
-
-			/*printf("Fmt %#x, Type %#x, R %x, TC %#x, R|Attr_b2|R %x, "*/
-				/*"TH %x, Td %x, Ep %x, Attr %#x, AT %#x, Length %#x\n"*/
-				/*"RequesterID %#x, Tag %#x, Last BE %#x, First BE %#x\n"*/
-				/*"Bus Number %#x, Dev Num %#x, Fn # %#x, R %#x, "*/
-				/*"Reg Number %#lx\n",*/
-				/*h0bits->fmt, h0bits->type, h0bits->reserved0, h0bits->tc,*/
-				/*h0bits->reserved1, h0bits->th, h0bits->td, h0bits->ep,*/
-				/*h0bits->attr, h0bits->at, h0bits->length,*/
-				/*req_bits->requester_id, req_bits->tag, req_bits->lastbe,*/
-				/*req_bits->firstbe,*/
-				/*config_req->completer_id >> 8,*/
-				/*(config_req->completer_id >> 2) & 0x3F,*/
-				/*config_req->completer_id & 0x7,*/
-				/*config_req->reserved1,*/
-				/*req_addr);*/
-
-			/*printf("Received %d bytes of tlp.\n", tlp_in_len);*/
-
-			/*for (int tlp_num = 0; tlp_num < tlp_in_len / 8; ++tlp_num) {*/
-				/*printf("tlp_in[%d] = %#018lx\n", tlp_num, tlp_in[tlp_num]);*/
-			/*}*/
-
-			/*printf("Requester id: %#x.\n", requester_id);*/
+			send_result = send_tlp(tlp_out, 16);
+			assert(send_result != -1);
 			break;
 		case IO:
 			type_string = "IO";
