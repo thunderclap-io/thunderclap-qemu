@@ -216,8 +216,26 @@ get_postgres_message_code(const PGresult *result)
 		PQgetvalue(result, 0, message_code_field_num);
 	if (strcmp(field_text, "Set_Slot_Power_Limit") == 0) {
 		return SET_SLOT_POWER_LIMIT;
+	} else {
+		assert(false);
+		return -1;
 	}
-	else {
+}
+
+enum postgres_cpl_status { PG_SC = 0x0, PG_UR = 0x1 };
+
+static enum postgres_cpl_status
+get_postgres_cpl_status(const PGresult *result)
+{
+	int cpl_status_field_num = PQfnumber(result, "cpl_status");
+	const char * const field_text =
+		PQgetvalue(result, 0, cpl_status_field_num);
+	if (strcmp(field_text, "SC") == 0) {
+		return PG_SC;
+	} else if (strcmp(field_text, "UR") == 0) {
+		return PG_UR;
+	} else {
+		fprintf(stderr, "ERROR! Invalid cpl_status: '%s'\n", field_text);
 		assert(false);
 		return -1;
 	}
@@ -266,6 +284,7 @@ uint32_mask(uint32_t width) {
 static int
 tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 {
+	/* Strictly, this should probably all be done with a massive union. */
 	struct TLP64Header0Bits *header0 = (struct TLP64Header0Bits *)buffer;
 
 	struct TLP64MessageReqBits *message_req =
@@ -274,8 +293,14 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 	struct TLP64HeaderReqBits *header_req =
 		(struct TLP64HeaderReqBits *)(buffer + 1);
 
+	struct TLP64HeaderCompl0Bits *compl_dword1 =
+		(struct TLP64HeaderCompl0Bits *)(buffer + 1);
+
 	struct TLP64ConfigReqDWord2Bits *config_dword2 =
 		(struct TLP64ConfigReqDWord2Bits *)(buffer + 2);
+
+	struct TLP64HeaderCompl1Bits *compl_dword2 =
+		(struct TLP64HeaderCompl1Bits *)(buffer + 2);
 
 	header0->tc = 0; // Assume traffic class best effort
 	header0->th = 0; // Assume no traffic processing hints.
@@ -296,6 +321,18 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 		config_dword2->ext_reg_num = reg >> 8;
 		config_dword2->reg_num = reg >> 2 & uint32_mask(6);
 		return 12;
+		break;
+	case PG_CPL_D:
+		header0->fmt = TLPFMT_3DW_DATA;
+		header0->type = CPL;
+		compl_dword1->completer_id = get_postgres_completer_id(result);
+		compl_dword1->status = get_postgres_cpl_status(result);
+		compl_dword1->bcm = get_postgres_bcm(result);
+		compl_dword1->bytecount = get_postgres_byte_cnt(result);
+		compl_dword2->requester_id = get_postgres_requester_id(result);
+		compl_dword2->tag = get_postgres_tag(result);
+		compl_dword2->loweraddress = get_postgres_lwr_addr(result);
+		return (12 + compl_dword1->bytecount);
 		break;
 	case PG_MSG_D:
 		header0->fmt = TLPFMT_4DW_DATA;
