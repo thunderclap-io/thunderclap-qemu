@@ -183,14 +183,18 @@ typedef struct {
 	TLPDoubleWord	   data[];
 } TLP64bit;
 
-struct TLP64ConfigReq {
-	struct TLP64Header0Bits header0;
-	struct TLP64HeaderReqBits req;
-	uint32_t completer_id:16;
+struct TLP64ConfigReqDWord2Bits {
+	uint32_t device_id:16;
 	uint32_t reserved0:4;
 	uint32_t ext_reg_num:4;
 	uint32_t reg_num:6;
 	uint32_t reserved1:2;
+};
+
+struct TLP64ConfigReq {
+	struct TLP64Header0Bits header0;
+	struct TLP64HeaderReqBits req_header;
+	struct TLP64ConfigReqDWord2Bits dword2;
 };
 
 typedef struct {
@@ -200,7 +204,6 @@ typedef struct {
 } TLP6464bit;
 
 typedef struct {
-	/// XXX: CR I BROKEN THIS
 	//union TLP64HeaderWord0Union header0;
 	TLPHeaderReq      id;
 	TLPAddress32 addressL;

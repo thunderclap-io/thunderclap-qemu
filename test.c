@@ -200,6 +200,7 @@ get_postgres_msg_routing(const PGresult *result)
 	} else if (strcmp(field_text, "Local") == 0) {
 		return LOCAL;
 	} else {
+		fprintf(stderr, "Invalid msg_routing type: '%s'\n", field_text);
 		assert(false);
 		return -1;
 	}
@@ -253,6 +254,12 @@ POSTGRES_INT_FIELD(lwr_addr);
 POSTGRES_BIGINT_FIELD(address);
 POSTGRES_BIGINT_FIELD(data);
 
+static inline uint32_t
+uint32_mask(uint32_t width) {
+	assert(width <= 32);
+	return ((1 << (width + 1)) - 1);
+}
+
 /* Generates a TLP given a PGresult that has as row 0 a record from the trace
  * table. Returns the length of the TLP in bytes. */
 /* TLPDoubleWord is a more natural way to manipulate the TLP Data */
@@ -264,6 +271,12 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 	struct TLP64MessageReqBits *message_req =
 		(struct TLP64MessageReqBits *)(buffer + 1);
 
+	struct TLP64HeaderReqBits *header_req =
+		(struct TLP64HeaderReqBits *)(buffer + 1);
+
+	struct TLP64ConfigReqDWord2Bits *config_dword2 =
+		(struct TLP64ConfigReqDWord2Bits *)(buffer + 2);
+
 	header0->tc = 0; // Assume traffic class best effort
 	header0->th = 0; // Assume no traffic processing hints.
 	header0->td = 0; // Assume no TLP digest
@@ -273,7 +286,17 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 	switch (get_postgres_tlp_type(result)) {
 	case PG_CFG_RD_0:
 		header0->fmt = TLPFMT_3DW_NODATA;
-		return -1;
+		header0->type = CFG_0;
+		header_req->requester_id = get_postgres_requester_id(result);
+		header_req->tag = get_postgres_tag(result);
+		header_req->lastbe = get_postgres_last_be(result);
+		header_req->firstbe = get_postgres_first_be(result);
+		config_dword2->device_id = get_postgres_device_id(result);
+		uint32_t reg = get_postgres_register(result);
+		config_dword2->ext_reg_num = reg >> 8;
+		config_dword2->reg_num = reg >> 2 & uint32_mask(6);
+		return 12;
+		break;
 	case PG_MSG_D:
 		header0->fmt = TLPFMT_4DW_DATA;
 		header0->type = ((1 << 4) | get_postgres_msg_routing(result));
@@ -743,7 +766,7 @@ main(int argc, char *argv[])
 	volatile struct TLP64ConfigReq *config_req =
 		(volatile struct TLP64ConfigReq *)tlp_in;
 	volatile struct TLP64Header0Bits *h0bits = &(config_req->header0);
-	volatile struct TLP64HeaderReqBits *req_bits = &(config_req->req);
+	volatile struct TLP64HeaderReqBits *req_bits = &(config_req->req_header);
 	volatile uint64_t addr, req_addr;
 
 	int received_count = 0;
@@ -781,10 +804,10 @@ main(int argc, char *argv[])
 			print = false;
 
 			assert(length == 1);
-			device_id = config_req->completer_id;
+			device_id = config_req->dword2.device_id;
 			requester_id = req_bits->requester_id;
-			req_addr = config_req->ext_reg_num;
-			req_addr = (req_addr << 6) | config_req->reg_num;
+			req_addr = config_req->dword2.ext_reg_num;
+			req_addr = (req_addr << 6) | config_req->dword2.reg_num;
 			req_addr <<= 2;
 
 			/*printf("Config %s TLP.\n  Length: %#x\n  Requester ID: %#x\n"*/
