@@ -59,9 +59,11 @@ $(error $(TARGET) is not a valid target: choices are $(TARGETS))
 endif
 
 ifeq ($(TARGET),native)
-	POSTGRES ?= 1
+	POSTGRES ?=1
+	PCIE_DEBUG ?=1
 else
-	POSTGRES ?= 0
+	POSTGRES ?=0
+	PCIE_DEBUG ?=0
 endif
 
 TARGET_DIR=build-$(TARGET)
@@ -70,6 +72,11 @@ LDFLAGS := -static #-target mips64-unknown-freebsd #-G0
 LIBS := glib-2.0 pixman-1
 LDLIBS := -lz -lexecinfo -lelf -lpixman-1 -lpcre
 LDLIBS := $(LDLIBS) -lutil -lglib-2.0 -liconv -lintl -lm -lthr
+
+ifeq ($(PCIE_DEBUG),1)
+CFLAGS := $(CFLAGS) -DPCIE_DEBUG
+endif
+
 ifeq ($(TARGET),beri)
 $(info Building for BERI)
 SDK = $(PCIE_QEMU_CHERI_SDK)/sdk
@@ -77,7 +84,7 @@ CC = $(SDK)/bin/clang
 OBJDUMP = $(SDK)/bin/objdump
 #CC=/home/cr437/cheri-sdk/sdk/bin/gcc
 EXTRA_USR=$(PCIE_QEMU_LIBRARY_ROOT)/usr
-CFLAGS := $(addprefix "-I$(EXTRA_USR)/local/include/",$(LIBS))
+CFLAGS := $(CFLAGS) $(addprefix "-I$(EXTRA_USR)/local/include/",$(LIBS))
 #CFLAGS := $(CFLAGS) --target=mips64-unknown-freebsd
 CFLAGS := $(CFLAGS) --sysroot=$(PCIE_QEMU_SYSROOT)
 CFLAGS := $(CFLAGS) -I$(EXTRA_USR)/local/lib/glib-2.0/include
@@ -88,10 +95,10 @@ else ifeq ($(TARGET),native)
 $(info Building native)
 CC = clang
 OBJDUMP = objdump
-CFLAGS := $(shell pkg-config --cflags $(LIBS))
+CFLAGS := $(CFLAGS) $(shell pkg-config --cflags $(LIBS))
 CFLAGS := $(CFLAGS) -DTARGET=TARGET_NATIVE
 LDLIBS := $(LDLIBS) $(shell pkg-config --libs $(LIBS))
-ifeq ($(POSTGRES), 1)
+ifeq ($(POSTGRES),1)
 CFLAGS := $(CFLAGS) -DPOSTGRES -I$(shell pg_config --includedir)
 LDFLAGS := $(LDFLAGS) -L$(shell pg_config --libdir)
 LDLIBS := $(LDLIBS) -lpq -lssl -lcrypto

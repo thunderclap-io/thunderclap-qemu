@@ -80,6 +80,22 @@
 #include "pciefpga.h"
 #include "beri-io.h"
 
+#ifdef PCIE_DEBUG
+#define PDBG(...)				do {									\
+	fprintf(stderr, "%s(%s:%d): ", __func__, __FILE__, __LINE__);		\
+	fprintf(stderr, __VA_ARGS__);										\
+	fprintf(stderr, "\n");												\
+} while (0)
+
+#define DEBUG_PRINTF(...)		do {									\
+	fprintf(stderr, __VA_ARGS__);										\
+} while (0)
+#else
+#define PDBG(...)
+#define DBG_PRINTF(...)
+#endif
+
+
 #ifdef POSTGRES
 
 #define PG_REPR_TEXTUAL		0
@@ -108,7 +124,7 @@ print_backtrace(int signum)
 	backtrace_lines = backtrace_symbols(addrlist, 32);
 
 	for (size_t i = 0; i < size; ++i) {
-		printf("%s\n", backtrace_lines[i]);
+		PDBG("%s\n", backtrace_lines[i]);
 	}
 	
 	free(backtrace_lines);
@@ -200,7 +216,7 @@ get_postgres_msg_routing(const PGresult *result)
 	} else if (strcmp(field_text, "Local") == 0) {
 		return LOCAL;
 	} else {
-		fprintf(stderr, "Invalid msg_routing type: '%s'\n", field_text);
+		PDBG("Invalid msg_routing type: '%s'", field_text);
 		assert(false);
 		return -1;
 	}
@@ -235,7 +251,7 @@ get_postgres_cpl_status(const PGresult *result)
 	} else if (strcmp(field_text, "UR") == 0) {
 		return PG_UR;
 	} else {
-		fprintf(stderr, "ERROR! Invalid cpl_status: '%s'\n", field_text);
+		PDBG("ERROR! Invalid cpl_status: '%s'\n", field_text);
 		assert(false);
 		return -1;
 	}
@@ -309,11 +325,10 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 	header0->td = 0; // Assume no TLP digest
 	header0->ep = 0; // Assume TLP is not poisoned, as you do.
 	header0->length = get_postgres_length(result);
-	/*printf("Length: 0x%x\n", header0->length);*/
 	
 	switch (get_postgres_tlp_type(result)) {
 	case PG_CFG_RD_0:
-		printf("CfgRd0 TLP.\n");
+		DEBUG_PRINTF("CfgRd0 TLP.\n");
 		header0->fmt = TLPFMT_3DW_NODATA;
 		header0->type = CFG_0;
 		header_req->requester_id = get_postgres_requester_id(result);
@@ -326,7 +341,7 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 		config_dword2->reg_num = reg >> 2 & uint32_mask(6);
 		return 12;
 	case PG_CPL_D:
-		printf("CplD TLP.\n");
+		DEBUG_PRINTF("CplD TLP.\n");
 		header0->fmt = TLPFMT_3DW_DATA;
 		header0->type = CPL;
 		compl_dword1->completer_id = get_postgres_completer_id(result);
@@ -344,7 +359,7 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 		}
 		return (12 + compl_dword1->bytecount);
 	case PG_MSG_D:
-		printf("MsgD TLP.\n");
+		DEBUG_PRINTF("MsgD TLP.\n");
 		header0->fmt = TLPFMT_4DW_DATA;
 		header0->type = ((1 << 4) | get_postgres_msg_routing(result));
 		message_req->requester_id = get_postgres_requester_id(result);
@@ -360,7 +375,7 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 
 		break;
 	default:
-		fprintf(stderr, "ERROR! Unknown TLP type: %s\n",
+		PDBG("ERROR! Unknown TLP type: %s",
 			PQgetvalue(result, 0, PQfnumber(result, "tlp_type")));
 		assert(false);
 	}
@@ -381,7 +396,7 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	assert(result != NULL);
 
 	TLPDoubleWord *tlp_dword = (TLPDoubleWord *)tlp;
-	printf("Simulating receiving ");
+	DEBUG_PRINTF("Simulating receiving TLP ");
 	ret_value = tlp_from_postgres(result, tlp_dword, tlp_len);
 
 	PQclear(result);
@@ -402,7 +417,7 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 		pciedata = IORD64(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_DATA);
 		tlp[i++] = pciedata;
 		if ((i * 8) > tlp_len) {
-			printf("ERROR: TLP Larger than buffer.\n");
+			PDBG("ERROR: TLP Larger than buffer.");
 			return -1;
 		}
 	} while (!pciestatus.bits.endofpacket);
@@ -426,7 +441,7 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	int buffer_len = 64 * sizeof(TLPQuadWord);
 	assert(tlp_len <= buffer_len);
 	memset(expected, 0, buffer_len);
-	printf("Simulating sending ");
+	DEBUG_PRINTF("Simulating sending ");
 	response = tlp_from_postgres(result, (TLPDoubleWord *)expected, buffer_len);
 
 	assert(response == tlp_len);
@@ -444,15 +459,12 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 
 	if (!match) {
 		for (i = 0; i < tlp_len; ++i) {
-			fprintf(stderr, "%03d: Exp - 0x%02x; Act - 0x%02x (%p)",
+			DEBUG_PRINTF("%03d: Exp - 0x%02x; Act - 0x%02x (%p)",
 				i, expected_byte[i], actual_byte[i], &actual_byte[i]);
 			if (expected_byte[i] != actual_byte[i]) {
-				fprintf(stderr, " !");
-				/*fprintf(stderr, "Error! Byte %d of TLP differ. Expected: %0#x "*/
-					/*"Got: %0#x.\n", i, expected_byte[i], actual_byte[i]);*/
-				/*return -1;*/
+				DEBUG_PRINTF(" !");
 			}
-			fprintf(stderr, "\n");
+			DEBUG_PRINTF("\n");
 		}
 		return -1;
 	}
@@ -464,8 +476,6 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 
 	assert(tlp_len / 8 < 64);
 
-	/*printf("Starting to send TLP.\n");*/
-
 	// Stops the TX queue from draining whilst we're filling it.
 	IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 0);
 
@@ -476,19 +486,16 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 		statusword.bits.endofpacket =
 			((double_word_index + 1) >= (tlp_len / 8));
 
-		/*printf("Writing packet status.\n");*/
 		// Write status word.
 		IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_STATUS,
 			statusword.word);
 		// Write data
-		/*printf("Writing packet data.\n");*/
 		IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_DATA,
 			tlp[double_word_index]);
 	}
 	// Release queued data
 	IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 1);
 
-	/*printf("Releasing TLP.\n");*/
 	return 0;
 #endif
 }
@@ -665,7 +672,7 @@ main(int argc, char *argv[])
 	int connection_status, query_status;
 #ifdef POSTGRES
 	if (argc != 2) {
-		printf("Usage: %s CONNECTPG_ION_STRING\n", argv[0]);
+		printf("Usage: %s CONNECTION_STRING\n", argv[0]);
 		return 1;
 	}
 	printf("Creating connection for downstream packets...\n");
@@ -891,15 +898,6 @@ main(int argc, char *argv[])
 			*tlp_out_body = pci_host_config_read_common(
 				pci_dev, req_addr, 4, 4);
 
-			printf("TLP Body: %0x\n", tlp_out_body[0]);
-			printf("TLP Out Addr:  %p\n", tlp_out);
-			printf("TLP Body Addr: %p\n", tlp_out_body);
-
-			/*printf("Sending TLP with device_id %#x.\n"*/
-				/*"requester_id %#x.\n",*/
-				/*device_id,*/
-				/*requester_id);*/
-
 			++received_count;
 			write_leds(received_count);
 
@@ -918,10 +916,6 @@ main(int argc, char *argv[])
 		default:
 			type_string = "Unknown";
 		}
-
-		/*if (print) {*/
-			/*printf("%s (%#x) %s TLP.\n", type_string, type, direction_string);*/
-		/*}*/
 	}
 
 	return 0;
