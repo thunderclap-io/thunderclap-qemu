@@ -1,6 +1,9 @@
 #ifndef PCIE_H
 #define PCIE_H
 
+typedef uint64_t TLPQuadWord;
+typedef uint32_t TLPDoubleWord;
+
 enum tlp_type {
 	M					= 0x0, // Memory
 	M_LK				= 0x1, // Memory Locked
@@ -42,7 +45,19 @@ typedef union {
 	uint64_t word;
 } PCIeStatus;
 
-struct TLP64Header0Bits {
+/* TLP Structure Naming Scheme:
+ * TLP64 -- Namespace. Structures for sending TLPs 64 bits at a time.
+ * <TLP Type> -- String representing the applicable types of TLP.
+ * DWord<n> -- The offset from the prefix section in DWords that the header
+ * DWord appears at.
+ *
+ * Unions for conversion between dwords and the struct, have the suffix "int".
+ *
+ * In line with style(9) the struct and union keywords are not typedefed
+ * away.
+ */
+
+struct TLP64DWord0 {
 	enum tlp_fmt fmt:3;
 	enum tlp_type type:5;
 	uint32_t reserved0:1;
@@ -56,93 +71,52 @@ struct TLP64Header0Bits {
 	uint32_t length:10;
 };
 
-typedef union {
-        struct TLP64Header0Bits bits;
+union TLP64DWord0Int {
+        struct TLP64DWord0 bits;
         uint32_t word;
-} TLP64Header0;
+};
 
-struct TLP64HeaderReqBits {
+struct TLP64RequestDWord1 {
 	uint32_t requester_id:16;
 	uint32_t tag:8;
 	uint32_t lastbe:4;
 	uint32_t firstbe:4;
 };
 
-typedef union {
-        struct TLP64HeaderReqBits bits;
+union TLP64RequestDWord1Int {
+        struct TLP64RequestDWord1 bits;
         uint32_t word;
-} TLP64HeaderReq;
+};
 
-struct TLP64MessageReqBits {
+struct TLP64MessageRequestDWord1 {
 	uint32_t requester_id:16;
 	uint32_t tag:8;
 	uint32_t message_code:8;
 };
 
-struct TLP64HeaderCompl0Bits {
+struct TLP64CompletionDWord1 {
 	uint32_t	completer_id:16;
 	uint32_t	status:3;
 	uint32_t	bcm:1;
 	uint32_t	bytecount:12;
 };
 
-typedef union {
-	struct TLP64HeaderCompl0Bits bits;
+union TLP64CompletionDWord1Int {
+	struct TLP64CompletionDWord1 bits;
 	uint32_t word;
-} TLP64HeaderCompl0;
+};
 
-struct TLP64HeaderCompl1Bits {
+struct TLP64CompletionDWord2 {
 	uint32_t	requester_id:16;
 	uint32_t	tag:8;
 	uint32_t	reserved:1;
 	uint32_t	loweraddress:7; // byte 0 L
 };
 
-typedef union {
-	struct TLP64HeaderCompl1Bits bits;
-	uint32_t word;
-} TLP64HeaderCompl1;
-
-typedef union {
-	TLP64HeaderReq req;
-	TLP64HeaderCompl0 compl0;
-	TLP64HeaderCompl1 compl1;
-} TLP64Header1;
-
-union TLP64HeaderWord0 {					// big endian
-	struct TLP64Header0Bits bits;
+union TLP64CompletionDWord2Int {
+	struct TLP64CompletionDWord2 bits;
 	uint32_t word;
 };
-
-typedef union {					// big endian
-	struct {
-		uint32_t requester_id:16;
-		uint32_t tag:8;
-		uint32_t lastbe:4;
-		uint32_t firstbe:4;
-	} bits;
-	uint32_t word;
-} TLPHeaderReq;
-
-typedef union {					// big endian
-	struct {
-		uint32_t completer_id:16;
-		uint32_t status:3;
-		uint32_t bcm:1;
-		uint32_t bytecount:12;
-	} bits;
-	uint32_t word;
-} TLPHeaderCompl0;
-
-typedef union {					// big endian
-	struct {
-		uint32_t requester_id:16;
-		uint32_t tag:8;
-		uint32_t seven:1;
-		uint32_t loweraddress:7;
-	} bits;
-	uint32_t word;
-} TLPHeaderCompl1;
 
 enum TLPCompletionStatus {
 	TLPCS_SUCCESSFUL_COMPLETION	= 0,
@@ -152,38 +126,9 @@ enum TLPCompletionStatus {
 	TLPCS_COMPLETER_ABORT			= 4,
 	TLPCS_RESERVED_LITERAL_5		= 5,
 	TLPCS_REQUEST_TIMEOUT			= -1
-} ;
+};
 
-typedef uint64_t TLPQuadWord;
-
-typedef uint32_t TLPDoubleWord;
-
-typedef uint32_t TLPAddress32;
-
-typedef uint32_t MemoryWord;
-
-typedef struct {
-	TLPAddress32 addressH;
-	TLPAddress32 addressL;
-} TLP64Address64;
-
-typedef union {
-	struct {
-		TLP64Header0 header0;
-		TLP64Header1 header1;
-	} bits;
-	uint64_t word;
-} TLP64Header01;
-
-typedef struct {
-	union TLP64HeaderWord0 header0;
-	TLPHeaderReq      id;
-	TLPAddress32 addressH;
-	TLPAddress32 addressL;
-	TLPDoubleWord	   data[];
-} TLP64bit;
-
-struct TLP64ConfigReqDWord2Bits {
+struct TLP64ConfigRequestDWord2 {
 	uint32_t device_id:16;
 	uint32_t reserved0:4;
 	uint32_t ext_reg_num:4;
@@ -192,44 +137,9 @@ struct TLP64ConfigReqDWord2Bits {
 };
 
 struct TLP64ConfigReq {
-	struct TLP64Header0Bits header0;
-	struct TLP64HeaderReqBits req_header;
-	struct TLP64ConfigReqDWord2Bits dword2;
+	struct TLP64DWord0 header0;
+	struct TLP64RequestDWord1 req_header;
+	struct TLP64ConfigRequestDWord2 dword2;
 };
-
-typedef struct {
-	TLP64Header01	header;
-	TLP64Address64	address;
-	TLPDoubleWord		data[];
-} TLP6464bit;
-
-typedef struct {
-	//union TLP64HeaderWord0Union header0;
-	TLPHeaderReq      id;
-	TLPAddress32 addressL;
-	TLPDoubleWord	   data[];
-} TLP32bit;
-
-typedef struct {
-	TLP64Header01	header;
-	TLPAddress32	addressL;
-	TLPDoubleWord		data[];	// first word could either be pad, or the first data word if a 3 D-word TLP with non-Qword aligned address
-//	TLPDoubleWord		data[];
-} TLP6432bit;
-
-typedef struct {			// big endian
-	TLPDoubleWord		h0;
-	TLPDoubleWord		h1;
-	TLPDoubleWord		h2;
-	TLPDoubleWord		h3;
-} TLP64HeaderRaw;
-
-typedef struct {
-	enum TLPCompletionStatus status;
-//	uint32_t			length;
-	MemoryWord			data32;
-} MemoryResponse;
-
-typedef uint64_t Address;
 
 #endif

@@ -301,22 +301,22 @@ static int
 tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 {
 	/* Strictly, this should probably all be done with a massive union. */
-	struct TLP64Header0Bits *header0 = (struct TLP64Header0Bits *)buffer;
+	struct TLP64DWord0 *header0 = (struct TLP64DWord0 *)buffer;
 
-	struct TLP64MessageReqBits *message_req =
-		(struct TLP64MessageReqBits *)(buffer + 1);
+	struct TLP64MessageRequestDWord1 *message_req =
+		(struct TLP64MessageRequestDWord1 *)(buffer + 1);
 
-	struct TLP64HeaderReqBits *header_req =
-		(struct TLP64HeaderReqBits *)(buffer + 1);
+	struct TLP64RequestDWord1 *header_req =
+		(struct TLP64RequestDWord1 *)(buffer + 1);
 
-	struct TLP64HeaderCompl0Bits *compl_dword1 =
-		(struct TLP64HeaderCompl0Bits *)(buffer + 1);
+	struct TLP64CompletionDWord1 *compl_dword1 =
+		(struct TLP64CompletionDWord1 *)(buffer + 1);
 
 	struct TLP64ConfigReqDWord2Bits *config_dword2 =
 		(struct TLP64ConfigReqDWord2Bits *)(buffer + 2);
 
-	struct TLP64HeaderCompl1Bits *compl_dword2 =
-		(struct TLP64HeaderCompl1Bits *)(buffer + 2);
+	struct TLP64CompletionDWord2 *compl_dword2 =
+		(struct TLP64CompletionDWord2 *)(buffer + 2);
 
 	TLPDoubleWord *dword3 = (buffer + 3);
 
@@ -497,7 +497,7 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 
 	return 0;
 #else
-	int double_word_index;
+	int quad_word_index;
 	volatile PCIeStatus statusword;
 
 	assert(tlp_len / 8 < 64);
@@ -505,19 +505,19 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	// Stops the TX queue from draining whilst we're filling it.
 	IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 0);
 
-	for (double_word_index = 0; double_word_index < (tlp_len / 8);
-			++double_word_index) {
+	for (quad_word_index = 0; quad_word_index < (tlp_len / 8);
+			++quad_word_index) {
 		statusword.word = 0;
-		statusword.bits.startofpacket = (double_word_index == 0);
+		statusword.bits.startofpacket = (quad_word_index == 0);
 		statusword.bits.endofpacket =
-			((double_word_index + 1) >= (tlp_len / 8));
+			((quad_word_index + 1) >= (tlp_len / 8));
 
 		// Write status word.
 		IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_STATUS,
 			statusword.word);
 		// Write data
 		IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_DATA,
-			tlp[double_word_index]);
+			tlp[quad_word_index]);
 	}
 	// Release queued data
 	IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 1);
@@ -528,30 +528,27 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 
 
 static inline void
-create_config_read_completion_header(volatile TLPQuadWord *tlp, uint16_t completer_id,
-	enum TLPCompletionStatus completion_status, uint16_t requester_id,
-	uint8_t tag)
+create_config_read_completion_header(volatile TLPDoubleWord *tlp,
+	uint16_t completer_id, enum TLPCompletionStatus completion_status,
+	uint16_t requester_id, uint8_t tag)
 {
 	// Clear buffer. If passed in a buffer that's too short, this might be an
 	// exploit?
-	/*memset(tlp, 0, 12);*/
-	tlp[0] = 0;
-	tlp[1] = 0;
-	tlp[2] = 0;
+	memset((void *)tlp, 0, 12);
 
-	volatile struct TLP64Header0Bits *header0 = (volatile struct TLP64Header0Bits *)(tlp);
+	volatile struct TLP64DWord0 *header0 = (volatile struct TLP64DWord0 *)(tlp);
 	header0->fmt = TLPFMT_3DW_DATA;
 	header0->type = CPL;
 	header0->length = 1;
 
-	volatile struct TLP64HeaderCompl0Bits *header1 =
-		(volatile struct TLP64HeaderCompl0Bits *)(tlp) + 1;
+	volatile struct TLP64CompletionDWord1 *header1 =
+		(volatile struct TLP64CompletionDWord1 *)(tlp) + 1;
 	header1->completer_id = completer_id;
 	header1->status = completion_status;
 	header1->bytecount = 4;
 
-	volatile struct TLP64HeaderCompl1Bits *header2 =
-		(volatile struct TLP64HeaderCompl1Bits *)(tlp) + 2;
+	volatile struct TLP64CompletionDWord2 *header2 =
+		(volatile struct TLP64CompletionDWord2 *)(tlp) + 2;
 	header2->requester_id = requester_id;
 	header2->tag = tag;
 }
@@ -863,18 +860,26 @@ main(int argc, char *argv[])
 #endif
 
 	int i, tlp_in_len = 0, tlp_out_len, send_result;
-	volatile TLPQuadWord tlp_in[64], tlp_out[64];
-	volatile TLPDoubleWord *tlp_out_body = ((TLPDoubleWord *)tlp_out + 3);
-	TLP64Header01 h0and1;
 	TLPDirection dir;
 	char *type_string;
 	bool print;
-	volatile uint16_t length, device_id, requester_id;
-	volatile struct TLP64ConfigReq *config_req =
-		(volatile struct TLP64ConfigReq *)tlp_in;
-	volatile struct TLP64Header0Bits *h0bits = &(config_req->header0);
-	volatile struct TLP64HeaderReqBits *req_bits = &(config_req->req_header);
-	volatile uint64_t addr, req_addr;
+	uint16_t length, device_id, requester_id;
+	uint64_t addr, req_addr;
+
+	TLPDoubleWord tlp_in[64], tlp_out[64];
+	TLPDoubleWord *tlp_out_body = (tlp_out + 3);
+	TLPQuadWord *tlp_in_quadword = (TLPQuadWord *)tlp_in;
+	TLPQuadWord *tlp_out_quadword = (TLPQuadWord *)tlp_out;
+
+	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)tlp_in;
+	struct TLP64RequestDWord1 *request_dword1 =
+		(struct TLP64RequestDWord1 *)(tlp_in + 1);
+	struct TLP64ConfigRequestDWord2 *config_request_dword2 =
+		(struct TLP64ConfigRequestDWord2 *)(tlp_in + 2);
+
+	struct TLP64ConfigReq *config_req = (struct TLP64ConfigReq *)tlp_in;
+	struct TLP64DWord0 *h0bits = &(config_req->header0);
+	struct TLP64RequestDWord1 *req_bits = &(config_req->req_header);
 
 	int received_count = 0;
 	write_leds(received_count);
@@ -890,19 +895,15 @@ main(int argc, char *argv[])
 		/*printf("Waiting for TLP.\n");*/
 		/*putchar('.');*/
 		/*fflush(stdout);*/
-		tlp_in_len = wait_for_tlp(tlp_in, sizeof(tlp_in));
+		tlp_in_len = wait_for_tlp(tlp_in_quadword, sizeof(tlp_in));
 		/*printf("Received TLP.\n");*/
-		h0and1.word = tlp_in[0];
 
-		dir = (TLPDirection)((h0and1.bits.header0.bits.fmt & 2) >> 1);
+		dir = (TLPDirection)((dword0->fmt & 2) >> 1);
 		const char *direction_string = (dir == 0) ? "read" : "write";
 
 		print = true;
 
-		uint8_t type = h0and1.bits.header0.bits.type;
-		length = h0bits->length;
-
-		switch (type) {
+		switch (dword0->type) {
 		case M:
 			print = false;
 
@@ -910,24 +911,24 @@ main(int argc, char *argv[])
 		case CFG_0:
 			print = false;
 
-			assert(length == 1);
-			device_id = config_req->dword2.device_id;
-			requester_id = req_bits->requester_id;
-			req_addr = config_req->dword2.ext_reg_num;
-			req_addr = (req_addr << 6) | config_req->dword2.reg_num;
+			assert(dword0->length == 1);
+			requester_id = request_dword1->requester_id;
+			device_id = config_request_dword2->device_id;
+			req_addr = config_request_dword2->ext_reg_num;
+			req_addr = (req_addr << 6) | config_request_dword2->reg_num;
 			req_addr <<= 2;
 
 			create_config_read_completion_header(
 				tlp_out, device_id, TLPCS_SUCCESSFUL_COMPLETION, requester_id,
 				req_bits->tag);
 
-			*tlp_out_body = pci_host_config_read_common(
+			tlp_out_body[0] = pci_host_config_read_common(
 				pci_dev, req_addr, 4, 4);
 
 			++received_count;
 			write_leds(received_count);
 
-			send_result = send_tlp(tlp_out, 16);
+			send_result = send_tlp(tlp_out_quadword, 16);
 			assert(send_result != -1);
 			break;
 		case IO:
@@ -935,9 +936,6 @@ main(int argc, char *argv[])
 			break;
 		case CPL:
 			type_string = "Completion";
-			break;
-		case 0x13: //Broadcast packets, can drop.
-			print = false;
 			break;
 		default:
 			type_string = "Unknown";
