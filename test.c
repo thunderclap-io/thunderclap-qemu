@@ -312,8 +312,8 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 	struct TLP64CompletionDWord1 *compl_dword1 =
 		(struct TLP64CompletionDWord1 *)(buffer + 1);
 
-	struct TLP64ConfigReqDWord2Bits *config_dword2 =
-		(struct TLP64ConfigReqDWord2Bits *)(buffer + 2);
+	struct TLP64ConfigRequestDWord2 *config_dword2 =
+		(struct TLP64ConfigRequestDWord2 *)(buffer + 2);
 
 	struct TLP64CompletionDWord2 *compl_dword2 =
 		(struct TLP64CompletionDWord2 *)(buffer + 2);
@@ -528,18 +528,22 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 
 
 static inline void
-create_config_read_completion_header(volatile TLPDoubleWord *tlp,
-	uint16_t completer_id, enum TLPCompletionStatus completion_status,
-	uint16_t requester_id, uint8_t tag)
+create_config_completion_header(volatile TLPDoubleWord *tlp,
+	enum tlp_direction direction, uint16_t completer_id,
+	enum TLPCompletionStatus completion_status, uint16_t requester_id,
+	uint8_t tag)
 {
 	// Clear buffer. If passed in a buffer that's too short, this might be an
 	// exploit?
-	memset((void *)tlp, 0, 12);
+	tlp[0] = 0;
+	tlp[1] = 0;
+	tlp[2] = 0;
 
 	volatile struct TLP64DWord0 *header0 = (volatile struct TLP64DWord0 *)(tlp);
-	header0->fmt = TLPFMT_3DW_DATA;
+	header0->fmt = ((direction == TLPD_READ) ?
+		TLPFMT_3DW_DATA : TLPFMT_3DW_NODATA);
 	header0->type = CPL;
-	header0->length = 1;
+	header0->length = ((direction == TLPD_READ) ? 1 : 0);
 
 	volatile struct TLP64CompletionDWord1 *header1 =
 		(volatile struct TLP64CompletionDWord1 *)(tlp) + 1;
@@ -859,8 +863,8 @@ main(int argc, char *argv[])
 	initialise_leds();
 #endif
 
-	int i, tlp_in_len = 0, tlp_out_len, send_result;
-	TLPDirection dir;
+	int i, tlp_in_len = 0, tlp_out_len, send_length, send_result;
+	enum tlp_direction dir;
 	char *type_string;
 	bool print;
 	uint16_t length, device_id, requester_id;
@@ -889,6 +893,8 @@ main(int argc, char *argv[])
 	tlp_in[2] = 0xDEADBEE2;
 	tlp_in[3] = 0xDEADBEE3;
 
+	memset(tlp_out, 0, 64 * sizeof(TLPDoubleWord));
+
 	printf("LEDs clear; let's go.\n");
 
 	while (1) {
@@ -898,8 +904,8 @@ main(int argc, char *argv[])
 		tlp_in_len = wait_for_tlp(tlp_in_quadword, sizeof(tlp_in));
 		/*printf("Received TLP.\n");*/
 
-		dir = (TLPDirection)((dword0->fmt & 2) >> 1);
-		const char *direction_string = (dir == 0) ? "read" : "write";
+		dir = ((dword0->fmt & 2) >> 1);
+		const char *direction_string = (dir == TLPD_READ) ? "read" : "write";
 
 		print = true;
 
@@ -918,18 +924,29 @@ main(int argc, char *argv[])
 			req_addr = (req_addr << 6) | config_request_dword2->reg_num;
 			req_addr <<= 2;
 
-			create_config_read_completion_header(
-				tlp_out, device_id, TLPCS_SUCCESSFUL_COMPLETION, requester_id,
-				req_bits->tag);
+			if (dir == TLPD_READ) {
+				send_length = 16;
 
-			tlp_out_body[0] = pci_host_config_read_common(
-				pci_dev, req_addr, 4, 4);
+				tlp_out_body[0] = pci_host_config_read_common(
+					pci_dev, req_addr, 4, 4);
 
-			++received_count;
-			write_leds(received_count);
+				++received_count;
+				write_leds(received_count);
 
-			send_result = send_tlp(tlp_out_quadword, 16);
+			} else {
+				send_length = 12;
+
+				pci_host_config_write_common(
+					pci_dev, req_addr, 4, tlp_in[3], 4);
+			}
+
+			create_config_completion_header(
+				tlp_out, dir, device_id, TLPCS_SUCCESSFUL_COMPLETION,
+				requester_id, req_bits->tag);
+
+			send_result = send_tlp(tlp_out_quadword, send_length);
 			assert(send_result != -1);
+
 			break;
 		case IO:
 			type_string = "IO";

@@ -16,9 +16,9 @@ enum tlp_type {
 	T_CFG				= 0x1B, // These are deprecated
 };
 
-typedef enum {
-	Read=0, Write=1
-} TLPDirection;
+enum tlp_direction {
+	TLPD_READ = 0, TLPD_WRITE = 1
+};
 
 enum tlp_fmt {
 	TLPFMT_3DW_NODATA	= 0,
