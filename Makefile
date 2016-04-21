@@ -121,6 +121,8 @@ O_FILES := $(addprefix $(TARGET_DIR)/,$(SOURCES:.c=.o))
 HEADERS := $(shell find . -name "*.h")
 
 $(TARGET_DIR)/test: $(O_FILES)
+	@echo "Linking..."
+	@$(CC) $(LDFLAGS) -o $@ $^ $(LOADLIBES) $(LDLIBS)
 
 $(TARGET_DIR)/test-no-source.dump: $(TARGET_DIR)/test
 	$(OBJDUMP) -Cdz $< > $@
