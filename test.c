@@ -325,11 +325,22 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 	header0->td = 0; // Assume no TLP digest
 	header0->ep = 0; // Assume TLP is not poisoned, as you do.
 	header0->length = get_postgres_length(result);
+
+	int data_length = 0;
+	int length = -1;
+	enum postgres_tlp_type tlp_type = get_postgres_tlp_type(result);
 	
-	switch (get_postgres_tlp_type(result)) {
+	switch (tlp_type) {
 	case PG_CFG_RD_0:
-		DEBUG_PRINTF("CfgRd0 TLP.\n");
-		header0->fmt = TLPFMT_3DW_NODATA;
+	case PG_CFG_WR_0:
+		if (tlp_type == PG_CFG_RD_0) {
+			DEBUG_PRINTF("CfgRd0 TLP.\n");
+			header0->fmt = TLPFMT_3DW_NODATA;
+		} else {
+			DEBUG_PRINTF("CfgWr0 TLP.\n");
+			header0->fmt = TLPFMT_3DW_DATA;
+			data_length = 4;
+		}
 		header0->type = CFG_0;
 		header_req->requester_id = get_postgres_requester_id(result);
 		header_req->tag = get_postgres_tag(result);
@@ -339,10 +350,19 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 		uint32_t reg = get_postgres_register(result);
 		config_dword2->ext_reg_num = reg >> 8;
 		config_dword2->reg_num = reg >> 2 & uint32_mask(6);
-		return 12;
+		length = 12;
+		break;
+	case PG_CPL:
 	case PG_CPL_D:
-		DEBUG_PRINTF("CplD TLP.\n");
-		header0->fmt = TLPFMT_3DW_DATA;
+		if (tlp_type == PG_CPL) {
+			DEBUG_PRINTF("Cpl TLP.\n");
+			header0->fmt = TLPFMT_3DW_NODATA;
+			data_length = 0;
+		} else {
+			DEBUG_PRINTF("CplD TLP.\n");
+			header0->fmt = TLPFMT_3DW_DATA;
+			data_length = get_postgres_byte_cnt(result);
+		}
 		header0->type = CPL;
 		compl_dword1->completer_id = get_postgres_completer_id(result);
 		compl_dword1->status = get_postgres_cpl_status(result);
@@ -351,13 +371,8 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 		compl_dword2->requester_id = get_postgres_requester_id(result);
 		compl_dword2->tag = get_postgres_tag(result);
 		compl_dword2->loweraddress = get_postgres_lwr_addr(result);
-		uint64_t data = get_postgres_data(result);
-		TLPDoubleWord *data_dword = (TLPDoubleWord *)&data;
-		for (int i = 0; i < (compl_dword1->bytecount / sizeof(TLPDoubleWord));
-				++i) {
-			dword3[i] = bswap32(data_dword[i]);
-		}
-		return (12 + compl_dword1->bytecount);
+		length = (12 + data_length);
+		break;
 	case PG_MSG_D:
 		DEBUG_PRINTF("MsgD TLP.\n");
 		header0->fmt = TLPFMT_4DW_DATA;
@@ -370,7 +385,7 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 			buffer[2] = 0;
 			buffer[3] = 0;
 			buffer[4] = get_postgres_data(result);
-			return (5 * 8);
+			length = (5 * 8);
 		}
 
 		break;
@@ -379,7 +394,15 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 			PQgetvalue(result, 0, PQfnumber(result, "tlp_type")));
 		assert(false);
 	}
-	return -1;
+
+	if (data_length > 0) {
+		uint64_t data = get_postgres_data(result);
+		TLPDoubleWord *data_dword = (TLPDoubleWord *)&data;
+		for (int i = 0; i < (data_length / sizeof(TLPDoubleWord)); ++i) {
+			dword3[i] = bswap32(data_dword[i]);
+		}
+	}
+	return length;
 }
 
 #endif //ifdef POSTGRES
@@ -444,7 +467,10 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	DEBUG_PRINTF("Simulating sending ");
 	response = tlp_from_postgres(result, (TLPDoubleWord *)expected, buffer_len);
 
-	assert(response == tlp_len);
+	if (response != tlp_len) {
+		PDBG("Trying to send tlp of length %d. Exected %d.", tlp_len, response);
+		assert(response == tlp_len);
+	}
 
 	uint8_t *expected_byte = (uint8_t *)expected;
 	uint8_t *actual_byte = (uint8_t *)tlp;
