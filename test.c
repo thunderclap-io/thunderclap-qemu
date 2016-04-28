@@ -467,8 +467,9 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 
 	bool match = true;
 	for (i = 0; i < tlp_len; ++i) {
-		/* This is an exemption for the model num */
-		if (!(i == 14 && expected_byte[i] == 0x5e && actual_byte[i] == 0xd3)) {
+		/* This is an exemption for the model num, and revision ID */
+		if (!(i == 14 && expected_byte[i] == 0x5e && actual_byte[i] == 0xd3) &&
+			!(i == 12 && expected_byte[i] == 0x06 && actual_byte[i] == 0x00)) {
 			match = match && (expected_byte[i] == actual_byte[i]);
 		}
 	}
