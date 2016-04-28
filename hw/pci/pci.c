@@ -21,6 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+#include "pcie-debug.h"
+
 #include "hw/hw.h"
 #include "hw/pci/pci.h"
 #include "hw/pci/pci_bridge.h"
@@ -1158,6 +1160,7 @@ uint32_t pci_default_read_config(PCIDevice *d,
     uint32_t val = 0;
 
     memcpy(&val, d->config + address, len);
+	PDBG("Read %d bytes from 0x%x = 0x%x", len, address, val);
     return le32_to_cpu(val);
 }
 
@@ -2081,6 +2084,7 @@ int pci_add_pm_capability(PCIDevice *pdev, uint8_t offset, uint16_t pmc)
 int pci_add_capability(PCIDevice *pdev, uint8_t cap_id,
                        uint8_t offset, uint8_t size)
 {
+	PDBG("");
     int ret;
     Error *local_err = NULL;
 
@@ -2132,6 +2136,8 @@ int pci_add_capability2(PCIDevice *pdev, uint8_t cap_id,
     config[PCI_CAP_LIST_NEXT] = pdev->config[PCI_CAPABILITY_LIST];
     pdev->config[PCI_CAPABILITY_LIST] = offset;
     pdev->config[PCI_STATUS] |= PCI_STATUS_CAP_LIST;
+	PDBG("Config space at offset 0x%x = 0x%x",
+		PCI_STATUS, pdev->config[PCI_STATUS]);
     memset(pdev->used + offset, 0xFF, QEMU_ALIGN_UP(size, 4));
     /* Make capability read-only by default */
     memset(pdev->wmask + offset, 0, size);

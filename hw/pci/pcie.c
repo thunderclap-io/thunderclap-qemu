@@ -17,6 +17,7 @@
  * You should have received a copy of the GNU General Public License along
  * with this program; if not, see <http://www.gnu.org/licenses/>.
  */
+#include "pcie-debug.h"
 
 #include "qemu-common.h"
 #include "hw/pci/pci_bridge.h"
@@ -97,6 +98,7 @@ int pcie_cap_init(PCIDevice *dev, uint8_t offset, uint8_t type, uint8_t port)
 
 int pcie_cap_v1_init(PCIDevice *dev, uint8_t offset, uint8_t type, uint8_t port)
 {
+	PDBG("");
     int pos;
     uint8_t *exp_cap;
 

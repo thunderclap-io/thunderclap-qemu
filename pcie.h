@@ -136,6 +136,14 @@ struct TLP64ConfigRequestDWord2 {
 	uint32_t reserved1:2;
 };
 
+static inline
+uint16_t get_config_request_addr(struct TLP64ConfigRequestDWord2 *dword)
+{
+	//uint16_t *packet_start = (uint16_t *)dword;
+	//return *(packet_start + 1);
+	return ((dword->ext_reg_num << 8) | (dword->reg_num << 2));
+}
+
 struct TLP64ConfigReq {
 	struct TLP64DWord0 header0;
 	struct TLP64RequestDWord1 req_header;

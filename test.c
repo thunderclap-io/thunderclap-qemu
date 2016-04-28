@@ -54,6 +54,7 @@
  * appropriate busses set up -- the main initialisation function is called
  * pc_q35_init, and I am slowly cannibalising it.
  */
+#include "pcie-debug.h"
 
 #define TARGET_BERI		1
 #define TARGET_NATIVE	2
@@ -80,20 +81,6 @@
 #include "pciefpga.h"
 #include "beri-io.h"
 
-#ifdef PCIE_DEBUG
-#define PDBG(...)				do {									\
-	fprintf(stderr, "%s(%s:%d): ", __func__, __FILE__, __LINE__);		\
-	fprintf(stderr, __VA_ARGS__);										\
-	fprintf(stderr, "\n");												\
-} while (0)
-
-#define DEBUG_PRINTF(...)		do {									\
-	fprintf(stderr, __VA_ARGS__);										\
-} while (0)
-#else
-#define PDBG(...)
-#define DBG_PRINTF(...)
-#endif
 
 
 #ifdef POSTGRES
@@ -265,6 +252,7 @@ get_postgres_cpl_status(const PGresult *result)
 		return be32toh(*(uint32_t *)PQgetvalue(result, 0, field_num));		\
 	}
 
+POSTGRES_INT_FIELD(packet);
 POSTGRES_INT_FIELD(length);
 POSTGRES_INT_FIELD(requester_id);
 POSTGRES_INT_FIELD(tag);
@@ -334,10 +322,10 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 	case PG_CFG_RD_0:
 	case PG_CFG_WR_0:
 		if (tlp_type == PG_CFG_RD_0) {
-			DEBUG_PRINTF("CfgRd0 TLP.\n");
+			DEBUG_PRINTF("CfgRd0 TLP");
 			header0->fmt = TLPFMT_3DW_NODATA;
 		} else {
-			DEBUG_PRINTF("CfgWr0 TLP.\n");
+			DEBUG_PRINTF("CfgWr0 TLP");
 			header0->fmt = TLPFMT_3DW_DATA;
 			data_length = 4;
 		}
@@ -349,17 +337,17 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 		config_dword2->device_id = get_postgres_device_id(result);
 		uint32_t reg = get_postgres_register(result);
 		config_dword2->ext_reg_num = reg >> 8;
-		config_dword2->reg_num = reg >> 2 & uint32_mask(6);
+		config_dword2->reg_num = reg & uint32_mask(8);
 		length = 12;
 		break;
 	case PG_CPL:
 	case PG_CPL_D:
 		if (tlp_type == PG_CPL) {
-			DEBUG_PRINTF("Cpl TLP.\n");
+			DEBUG_PRINTF("Cpl TLP");
 			header0->fmt = TLPFMT_3DW_NODATA;
 			data_length = 0;
 		} else {
-			DEBUG_PRINTF("CplD TLP.\n");
+			DEBUG_PRINTF("CplD TLP");
 			header0->fmt = TLPFMT_3DW_DATA;
 			data_length = get_postgres_byte_cnt(result);
 		}
@@ -374,7 +362,7 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 		length = (12 + data_length);
 		break;
 	case PG_MSG_D:
-		DEBUG_PRINTF("MsgD TLP.\n");
+		DEBUG_PRINTF("MsgD TLP");
 		header0->fmt = TLPFMT_4DW_DATA;
 		header0->type = ((1 << 4) | get_postgres_msg_routing(result));
 		message_req->requester_id = get_postgres_requester_id(result);
@@ -394,6 +382,8 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 			PQgetvalue(result, 0, PQfnumber(result, "tlp_type")));
 		assert(false);
 	}
+
+	DEBUG_PRINTF(" (packet %d)\n", get_postgres_packet(result));
 
 	if (data_length > 0) {
 		uint64_t data = get_postgres_data(result);
@@ -922,13 +912,15 @@ main(int argc, char *argv[])
 			device_id = config_request_dword2->device_id;
 			req_addr = config_request_dword2->ext_reg_num;
 			req_addr = (req_addr << 6) | config_request_dword2->reg_num;
-			req_addr <<= 2;
+			/*req_addr <<= 2;*/
 
 			if (dir == TLPD_READ) {
 				send_length = 16;
 
 				tlp_out_body[0] = pci_host_config_read_common(
-					pci_dev, req_addr, 4, 4);
+					pci_dev, req_addr, req_addr + 4, 4);
+
+				PDBG("Read from %ld, Value 0x%x", req_addr, tlp_out_body[0]);
 
 				++received_count;
 				write_leds(received_count);

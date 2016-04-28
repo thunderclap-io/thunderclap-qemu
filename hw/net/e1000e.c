@@ -435,6 +435,8 @@ static void e1000e_pci_realize(PCIDevice *pci_dev, Error **errp)
     static const uint16_t E1000E_AER_OFFSET =  0x100;
     static const uint16_t E1000E_DSN_OFFSET =  0x140;
 
+	fprintf(stderr, "!!!!!!  Realising e1000e!\n");
+
     E1000EState *s = E1000E(pci_dev);
     uint8_t *macaddr;
 
@@ -682,6 +684,7 @@ static void e1000e_instance_init(Object *obj)
     device_add_bootindex_property(obj, &s->conf.bootindex,
                                   "bootindex", "/ethernet-phy@0",
                                   DEVICE(obj), NULL);
+	fprintf(stderr, "!!!! Performing instance init for e1000e.\n");
 }
 
 static const TypeInfo e1000e_info = {
