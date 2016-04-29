@@ -403,13 +403,14 @@ int
 wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 {
 #ifdef POSTGRES
+	static int recvd_count = 0;
 	int ret_value;
 	/* TODO: Check we don't buffer overrun. */
 	PGresult *result = PQgetResult(postgres_connection_downstream);
 	assert(result != NULL);
 
 	TLPDoubleWord *tlp_dword = (TLPDoubleWord *)tlp;
-	DEBUG_PRINTF("Simulating receiving TLP ");
+	DEBUG_PRINTF("Simulating receiving TLP %d ", recvd_count++);
 	ret_value = tlp_from_postgres(result, tlp_dword, tlp_len);
 
 	PQclear(result);
@@ -445,6 +446,7 @@ int
 send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 {
 #ifdef POSTGRES
+	static int sent_count = 0;
 	int i, response;
 
 	PGresult *result = PQgetResult(postgres_connection_upstream);
@@ -454,7 +456,7 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	int buffer_len = 64 * sizeof(TLPQuadWord);
 	assert(tlp_len <= buffer_len);
 	memset(expected, 0, buffer_len);
-	DEBUG_PRINTF("Simulating sending ");
+	DEBUG_PRINTF("Simulating sending %d ", sent_count++);
 	response = tlp_from_postgres(result, (TLPDoubleWord *)expected, buffer_len);
 
 	if (response != tlp_len) {
@@ -471,12 +473,14 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 		 * the model num,
 		 * the revision ID *
 		 * and the difference between single and multifunction.
-		 * Subsystem ID and Subsystem vendor IDi*/
+		 * Subsystem ID and Subsystem vendor ID
+		 * Devices seem to use a difference interrupt pin for some reason... */
 		if (!(i == 12 && (
 					(expected_byte[i] == 0x06 && actual_byte[i] == 0x00)
 					|| (expected_byte[i] == 0x3c && actual_byte [i] == 0x86))) &&
 			!(i == 13 && (
-					(expected_byte[i] == 0x10 && actual_byte[i] == 0x80))) &&
+					(expected_byte[i] == 0x10 && actual_byte[i] == 0x80)
+					|| (expected_byte[i] == 0x02 && actual_byte[i] == 0x01))) &&
 			!(i == 14 && (
 					(expected_byte[i] == 0x5e && actual_byte[i] == 0xd3)
 					|| (expected_byte[i] == 0x80 && actual_byte[i] == 0x00)
@@ -535,7 +539,7 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 static inline void
 create_config_completion_header(volatile TLPDoubleWord *tlp,
 	enum tlp_direction direction, uint16_t completer_id,
-	enum TLPCompletionStatus completion_status, uint16_t requester_id,
+	enum tlp_completion_status completion_status, uint16_t requester_id,
 	uint8_t tag)
 {
 	// Clear buffer. If passed in a buffer that's too short, this might be an
@@ -724,7 +728,10 @@ main(int argc, char *argv[])
 	query_status = start_binary_single_row_query(
 		postgres_connection_downstream,
 		"SELECT * FROM trace "
-		"WHERE link_dir = 'Downstream' "
+		"WHERE link_dir = 'Downstream' AND device_id != 257"
+		/* 257 is the address of the other interface on the NIC which we
+		 * don't have. This is probably a slight divergence in the actual
+		 * behaviour we'd see, but close enough. */
 		"ORDER BY packet ASC;");
 	if (query_status != 0) {
 		return query_status;
@@ -733,7 +740,7 @@ main(int argc, char *argv[])
 	query_status = start_binary_single_row_query(
 		postgres_connection_upstream,
 		"SELECT * FROM trace "
-		"WHERE link_dir = 'Upstream' "
+		"WHERE link_dir = 'Upstream' AND completer_id != 257"
 		"ORDER BY packet ASC;");
 	if (query_status != 0) {
 		return query_status;
@@ -870,6 +877,7 @@ main(int argc, char *argv[])
 
 	int i, tlp_in_len = 0, tlp_out_len, send_length, send_result;
 	enum tlp_direction dir;
+	enum tlp_completion_status completion_status;
 	char *type_string;
 	bool print;
 	uint16_t length, device_id, requester_id;
@@ -924,7 +932,14 @@ main(int argc, char *argv[])
 
 			assert(dword0->length == 1);
 			requester_id = request_dword1->requester_id;
-			device_id = config_request_dword2->device_id;
+			if ((config_request_dword2->device_id & uint32_mask(3)) == 0) {
+				/* Mask to get function num -- we are 0 */
+				completion_status = TLPCS_SUCCESSFUL_COMPLETION;
+				device_id = config_request_dword2->device_id;
+			}
+			else {
+				completion_status = TLPCS_UNSUPPORTED_REQUEST;
+			}
 			req_addr = config_request_dword2->ext_reg_num;
 			req_addr = (req_addr << 6) | config_request_dword2->reg_num;
 			/*req_addr <<= 2;*/
@@ -948,7 +963,7 @@ main(int argc, char *argv[])
 			}
 
 			create_config_completion_header(
-				tlp_out, dir, device_id, TLPCS_SUCCESSFUL_COMPLETION,
+				tlp_out, dir, device_id, completion_status,
 				requester_id, req_bits->tag);
 
 			send_result = send_tlp(tlp_out_quadword, send_length);

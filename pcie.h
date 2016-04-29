@@ -118,7 +118,7 @@ union TLP64CompletionDWord2Int {
 	uint32_t word;
 };
 
-enum TLPCompletionStatus {
+enum tlp_completion_status {
 	TLPCS_SUCCESSFUL_COMPLETION	= 0,
 	TLPCS_UNSUPPORTED_REQUEST		= 1,
 	TLPCS_CONFIGURATION_REQUEST_RETRY = 2,
