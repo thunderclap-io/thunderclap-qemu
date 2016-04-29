@@ -467,9 +467,23 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 
 	bool match = true;
 	for (i = 0; i < tlp_len; ++i) {
-		/* This is an exemption for the model num, and revision ID */
-		if (!(i == 14 && expected_byte[i] == 0x5e && actual_byte[i] == 0xd3) &&
-			!(i == 12 && expected_byte[i] == 0x06 && actual_byte[i] == 0x00)) {
+		/* These exemptions are for:
+		 * the model num,
+		 * the revision ID *
+		 * and the difference between single and multifunction.
+		 * Subsystem ID and Subsystem vendor IDi*/
+		if (!(i == 12 && (
+					(expected_byte[i] == 0x06 && actual_byte[i] == 0x00)
+					|| (expected_byte[i] == 0x3c && actual_byte [i] == 0x86))) &&
+			!(i == 13 && (
+					(expected_byte[i] == 0x10 && actual_byte[i] == 0x80))) &&
+			!(i == 14 && (
+					(expected_byte[i] == 0x5e && actual_byte[i] == 0xd3)
+					|| (expected_byte[i] == 0x80 && actual_byte[i] == 0x00)
+					|| (expected_byte[i] == 0x44 && actual_byte[i] == 0x00))) &&
+			!(i == 15 && (
+					(expected_byte[i] == 0x70 && actual_byte[i] == 0x00)))
+		   ) {
 			match = match && (expected_byte[i] == actual_byte[i]);
 		}
 	}
@@ -921,7 +935,7 @@ main(int argc, char *argv[])
 				tlp_out_body[0] = pci_host_config_read_common(
 					pci_dev, req_addr, req_addr + 4, 4);
 
-				PDBG("Read from %ld, Value 0x%x", req_addr, tlp_out_body[0]);
+				PDBG("Read from %lx, Value 0x%x", req_addr, tlp_out_body[0]);
 
 				++received_count;
 				write_leds(received_count);
