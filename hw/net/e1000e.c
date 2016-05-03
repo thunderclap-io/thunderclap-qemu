@@ -32,6 +32,8 @@
 * You should have received a copy of the GNU Lesser General Public
 * License along with this library; if not, see <http://www.gnu.org/licenses/>.
 */
+#include "pcie-debug.h"
+
 #include "hw/hw.h"
 #include "hw/pci/pci.h"
 #include "net/net.h"
@@ -657,11 +659,22 @@ static Property e1000e_properties[] = {
     DEFINE_PROP_END_OF_LIST(),
 };
 
+static uint32_t e1000e_config_read(PCIDevice *d,
+    uint32_t address, int len)
+{
+    if (address >= 0x1c && address <= 0x24) {
+        PDBG("Addr 0x%x Returning 0.\n", address);
+        return 0;
+    }
+    return pci_default_read_config(d, address, len);
+}
+
 static void e1000e_class_init(ObjectClass *class, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(class);
     PCIDeviceClass *c = PCI_DEVICE_CLASS(class);
 
+    c->config_read = e1000e_config_read;
     c->realize = e1000e_pci_realize;
     c->exit = e1000e_pci_uninit;
     c->vendor_id = PCI_VENDOR_ID_INTEL;
@@ -684,7 +697,6 @@ static void e1000e_instance_init(Object *obj)
     device_add_bootindex_property(obj, &s->conf.bootindex,
                                   "bootindex", "/ethernet-phy@0",
                                   DEVICE(obj), NULL);
-	fprintf(stderr, "!!!! Performing instance init for e1000e.\n");
 }
 
 static const TypeInfo e1000e_info = {

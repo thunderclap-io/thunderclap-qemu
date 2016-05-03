@@ -132,8 +132,8 @@ struct TLP64ConfigRequestDWord2 {
 	uint32_t device_id:16;
 	uint32_t reserved0:4;
 	uint32_t ext_reg_num:4;
-	uint32_t reg_num:6;
-	uint32_t reserved1:2;
+	uint32_t reg_num:8;
+	//uint32_t reserved1:2;
 };
 
 static inline

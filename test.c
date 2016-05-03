@@ -282,6 +282,12 @@ uint32_mask(uint32_t width) {
 	return ((1 << (width + 1)) - 1);
 }
 
+#ifdef POSTGRES
+static bool ignore_next_postgres_completion;
+/* The capbility list is different for many small reasons, which is why we
+ * want this. */
+#endif
+
 /* Generates a TLP given a PGresult that has as row 0 a record from the trace
  * table. Returns the length of the TLP in bytes. */
 /* TLPDoubleWord is a more natural way to manipulate the TLP Data */
@@ -337,8 +343,11 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 		config_dword2->device_id = get_postgres_device_id(result);
 		uint32_t reg = get_postgres_register(result);
 		config_dword2->ext_reg_num = reg >> 8;
-		config_dword2->reg_num = reg & uint32_mask(8);
+		config_dword2->reg_num = (reg & uint32_mask(8)) >> 2;
 		length = 12;
+		if (tlp_type == PG_CFG_RD_0 && reg > 0x3C) { /* Capability list. */
+			ignore_next_postgres_completion = true;
+		}
 		break;
 	case PG_CPL:
 	case PG_CPL_D:
@@ -490,6 +499,12 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 		   ) {
 			match = match && (expected_byte[i] == actual_byte[i]);
 		}
+	}
+
+	if (ignore_next_postgres_completion) {
+		match = true;
+		ignore_next_postgres_completion = false;
+		PDBG("Ignoring next completion.");
 	}
 
 	if (!match) {
@@ -939,6 +954,7 @@ main(int argc, char *argv[])
 			requester_id = request_dword1->requester_id;
 			req_addr = config_request_dword2->ext_reg_num;
 			req_addr = (req_addr << 6) | config_request_dword2->reg_num;
+			req_addr <<= 2;
 
 			if ((config_request_dword2->device_id & uint32_mask(3)) == 0) {
 				/* Mask to get function num -- we are 0 */
