@@ -549,10 +549,15 @@ create_config_completion_header(volatile TLPDoubleWord *tlp,
 	tlp[2] = 0;
 
 	volatile struct TLP64DWord0 *header0 = (volatile struct TLP64DWord0 *)(tlp);
-	header0->fmt = ((direction == TLPD_READ) ?
-		TLPFMT_3DW_DATA : TLPFMT_3DW_NODATA);
+	if (direction == TLPD_READ
+		&& completion_status == TLPCS_SUCCESSFUL_COMPLETION) {
+		header0->fmt = TLPFMT_3DW_DATA;
+		header0->length = 1;
+	} else {
+		header0->fmt = TLPFMT_3DW_NODATA;
+		header0->length = 0;
+	}
 	header0->type = CPL;
-	header0->length = ((direction == TLPD_READ) ? 1 : 0);
 
 	volatile struct TLP64CompletionDWord1 *header1 =
 		(volatile struct TLP64CompletionDWord1 *)(tlp) + 1;
@@ -932,34 +937,36 @@ main(int argc, char *argv[])
 
 			assert(dword0->length == 1);
 			requester_id = request_dword1->requester_id;
+			req_addr = config_request_dword2->ext_reg_num;
+			req_addr = (req_addr << 6) | config_request_dword2->reg_num;
+
 			if ((config_request_dword2->device_id & uint32_mask(3)) == 0) {
 				/* Mask to get function num -- we are 0 */
 				completion_status = TLPCS_SUCCESSFUL_COMPLETION;
 				device_id = config_request_dword2->device_id;
+
+				if (dir == TLPD_READ) {
+					send_length = 16;
+
+					tlp_out_body[0] = pci_host_config_read_common(
+						pci_dev, req_addr, req_addr + 4, 4);
+
+					PDBG("Read from %lx, Value 0x%x",
+						req_addr, tlp_out_body[0]);
+
+					++received_count;
+					write_leds(received_count);
+
+				} else {
+					send_length = 12;
+
+					pci_host_config_write_common(
+						pci_dev, req_addr, 4, tlp_in[3], 4);
+				}
 			}
 			else {
 				completion_status = TLPCS_UNSUPPORTED_REQUEST;
-			}
-			req_addr = config_request_dword2->ext_reg_num;
-			req_addr = (req_addr << 6) | config_request_dword2->reg_num;
-			/*req_addr <<= 2;*/
-
-			if (dir == TLPD_READ) {
-				send_length = 16;
-
-				tlp_out_body[0] = pci_host_config_read_common(
-					pci_dev, req_addr, req_addr + 4, 4);
-
-				PDBG("Read from %lx, Value 0x%x", req_addr, tlp_out_body[0]);
-
-				++received_count;
-				write_leds(received_count);
-
-			} else {
 				send_length = 12;
-
-				pci_host_config_write_common(
-					pci_dev, req_addr, 4, tlp_in[3], 4);
 			}
 
 			create_config_completion_header(
