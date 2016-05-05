@@ -80,7 +80,7 @@
 #include "pcie.h"
 #include "pciefpga.h"
 #include "beri-io.h"
-
+#include "mask.h"
 
 
 #ifdef POSTGRES
@@ -276,12 +276,6 @@ POSTGRES_INT_FIELD(lwr_addr);
 POSTGRES_BIGINT_FIELD(address);
 POSTGRES_BIGINT_FIELD(data);
 
-static inline uint32_t
-uint32_mask(uint32_t width) {
-	assert(width <= 32);
-	return ((1 << (width + 1)) - 1);
-}
-
 #ifdef POSTGRES
 static bool ignore_next_postgres_completion;
 /* The capbility list is different for many small reasons, which is why we
@@ -345,7 +339,8 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 		config_dword2->ext_reg_num = reg >> 8;
 		config_dword2->reg_num = (reg & uint32_mask(8)) >> 2;
 		length = 12;
-		if (tlp_type == PG_CFG_RD_0 && reg > 0x3C) { /* Capability list. */
+		if (tlp_type == PG_CFG_RD_0 && (reg == 0x30 || reg > 0x3C)) {
+			/* ROM bar and capability list. */
 			ignore_next_postgres_completion = true;
 		}
 		break;
@@ -504,7 +499,7 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	if (ignore_next_postgres_completion) {
 		match = true;
 		ignore_next_postgres_completion = false;
-		PDBG("Ignoring next completion.");
+		PDBG("Ignored completion.");
 	}
 
 	if (!match) {

@@ -1160,7 +1160,6 @@ uint32_t pci_default_read_config(PCIDevice *d,
     uint32_t val = 0;
 
     memcpy(&val, d->config + address, len);
-	PDBG("Read %d bytes from 0x%x = 0x%x", len, address, val);
     return le32_to_cpu(val);
 }
 
