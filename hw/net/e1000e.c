@@ -664,7 +664,7 @@ static uint32_t e1000e_config_read(PCIDevice *d,
     uint32_t address, int len)
 {
     if (address >= 0x1c && address <= 0x24) {
-        PDBG("Addr 0x%x Returning 0.", address);
+        /*PDBG("Addr 0x%x Returning 0.", address);*/
         return 0;
     }
 

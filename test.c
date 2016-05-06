@@ -111,7 +111,7 @@ print_backtrace(int signum)
 	backtrace_lines = backtrace_symbols(addrlist, 32);
 
 	for (size_t i = 0; i < size; ++i) {
-		PDBG("%s\n", backtrace_lines[i]);
+		DEBUG_PRINTF("%s\n", backtrace_lines[i]);
 	}
 	
 	free(backtrace_lines);
@@ -300,6 +300,8 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 	struct TLP64CompletionDWord1 *compl_dword1 =
 		(struct TLP64CompletionDWord1 *)(buffer + 1);
 
+	TLPDoubleWord *dword2 = (buffer + 2);
+
 	struct TLP64ConfigRequestDWord2 *config_dword2 =
 		(struct TLP64ConfigRequestDWord2 *)(buffer + 2);
 
@@ -322,10 +324,10 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 	case PG_CFG_RD_0:
 	case PG_CFG_WR_0:
 		if (tlp_type == PG_CFG_RD_0) {
-			DEBUG_PRINTF("CfgRd0 TLP");
+			/*DEBUG_PRINTF("CfgRd0 TLP");*/
 			header0->fmt = TLPFMT_3DW_NODATA;
 		} else {
-			DEBUG_PRINTF("CfgWr0 TLP");
+			/*DEBUG_PRINTF("CfgWr0 TLP");*/
 			header0->fmt = TLPFMT_3DW_DATA;
 			data_length = 4;
 		}
@@ -347,13 +349,13 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 	case PG_CPL:
 	case PG_CPL_D:
 		if (tlp_type == PG_CPL) {
-			DEBUG_PRINTF("Cpl TLP");
+			/*DEBUG_PRINTF("Cpl TLP");*/
 			header0->fmt = TLPFMT_3DW_NODATA;
 			data_length = 0;
 		} else {
-			DEBUG_PRINTF("CplD TLP");
+			/*DEBUG_PRINTF("CplD TLP");*/
 			header0->fmt = TLPFMT_3DW_DATA;
-			data_length = get_postgres_byte_cnt(result);
+			data_length = get_postgres_length(result) * 4;
 		}
 		header0->type = CPL;
 		compl_dword1->completer_id = get_postgres_completer_id(result);
@@ -366,7 +368,7 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 		length = (12 + data_length);
 		break;
 	case PG_MSG_D:
-		DEBUG_PRINTF("MsgD TLP");
+		/*DEBUG_PRINTF("MsgD TLP");*/
 		header0->fmt = TLPFMT_4DW_DATA;
 		header0->type = ((1 << 4) | get_postgres_msg_routing(result));
 		message_req->requester_id = get_postgres_requester_id(result);
@@ -381,13 +383,27 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 		}
 
 		break;
+	case PG_M_RD_32:
+		header0->fmt = TLPFMT_3DW_NODATA;
+		header0->type = M;
+		header_req->requester_id = get_postgres_requester_id(result);
+		header_req->tag = get_postgres_tag(result);
+		header_req->lastbe = get_postgres_last_be(result);
+		header_req->firstbe = get_postgres_first_be(result);
+		*dword2 = get_postgres_address(result);
+		data_length = get_postgres_length(result) * 4;
+		length = 12 + data_length;
+		if ((*dword2 >> 24) == 0xE2) { /* Option ROM */
+			ignore_next_postgres_completion = true;
+		}
+		break;
 	default:
 		PDBG("ERROR! Unknown TLP type: %s",
 			PQgetvalue(result, 0, PQfnumber(result, "tlp_type")));
 		assert(false);
 	}
 
-	DEBUG_PRINTF(" (packet %d)\n", get_postgres_packet(result));
+	/*DEBUG_PRINTF(" (packet %d)\n", get_postgres_packet(result));*/
 
 	if (data_length > 0) {
 		uint64_t data = get_postgres_data(result);
@@ -414,7 +430,7 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	assert(result != NULL);
 
 	TLPDoubleWord *tlp_dword = (TLPDoubleWord *)tlp;
-	DEBUG_PRINTF("Simulating receiving TLP %d ", recvd_count++);
+	/*DEBUG_PRINTF("Simulating receiving TLP %d ", recvd_count++);*/
 	ret_value = tlp_from_postgres(result, tlp_dword, tlp_len);
 
 	PQclear(result);
@@ -460,11 +476,12 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	int buffer_len = 64 * sizeof(TLPQuadWord);
 	assert(tlp_len <= buffer_len);
 	memset(expected, 0, buffer_len);
-	DEBUG_PRINTF("Simulating sending %d ", sent_count++);
+	/*DEBUG_PRINTF("Simulating sending %d ", sent_count++);*/
 	response = tlp_from_postgres(result, (TLPDoubleWord *)expected, buffer_len);
 
 	if (response != tlp_len) {
-		PDBG("Trying to send tlp of length %d. Exected %d.", tlp_len, response);
+		PDBG("Trying to send tlp of length %d. Exected %d. Packet %d. Checked %d.",
+			tlp_len, response, get_postgres_packet(result), sent_count);
 		assert(response == tlp_len);
 	}
 
@@ -499,10 +516,13 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	if (ignore_next_postgres_completion) {
 		match = true;
 		ignore_next_postgres_completion = false;
-		PDBG("Ignored completion.");
+	} else {
+		++sent_count;
 	}
 
 	if (!match) {
+		PDBG("Attempted packet send mismatch (sent %d, packet %d)",
+			sent_count, get_postgres_packet(result));
 		for (i = 0; i < tlp_len; ++i) {
 			DEBUG_PRINTF("%03d: Exp - 0x%02x; Act - 0x%02x (%p)",
 				i, expected_byte[i], actual_byte[i], &actual_byte[i]);
@@ -547,10 +567,10 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 
 
 static inline void
-create_config_completion_header(volatile TLPDoubleWord *tlp,
+create_completion_header(volatile TLPDoubleWord *tlp,
 	enum tlp_direction direction, uint16_t completer_id,
-	enum tlp_completion_status completion_status, uint16_t requester_id,
-	uint8_t tag)
+	enum tlp_completion_status completion_status, uint16_t bytecount,
+	uint16_t requester_id, uint8_t tag)
 {
 	// Clear buffer. If passed in a buffer that's too short, this might be an
 	// exploit?
@@ -573,7 +593,7 @@ create_config_completion_header(volatile TLPDoubleWord *tlp,
 		(volatile struct TLP64CompletionDWord1 *)(tlp) + 1;
 	header1->completer_id = completer_id;
 	header1->status = completion_status;
-	header1->bytecount = 4;
+	header1->bytecount = bytecount;
 
 	volatile struct TLP64CompletionDWord2 *header2 =
 		(volatile struct TLP64CompletionDWord2 *)(tlp) + 2;
@@ -742,11 +762,13 @@ main(int argc, char *argv[])
 
 	query_status = start_binary_single_row_query(
 		postgres_connection_downstream,
-		"SELECT * FROM trace "
-		"WHERE link_dir = 'Downstream' AND device_id != 257"
+		"SELECT * FROM trace \n"
+		"WHERE link_dir = 'Downstream' AND \n"
+		"	(device_id IS NULL OR device_id != 257)\n"
 		/* 257 is the address of the other interface on the NIC which we
 		 * don't have. This is probably a slight divergence in the actual
-		 * behaviour we'd see, but close enough. */
+		 * behaviour we'd see, but close enough. Have to let NULL through
+		 * because NULL != 257 is NULL, which is falsy.. */
 		"ORDER BY packet ASC;");
 	if (query_status != 0) {
 		return query_status;
@@ -754,9 +776,9 @@ main(int argc, char *argv[])
 
 	query_status = start_binary_single_row_query(
 		postgres_connection_upstream,
-		"SELECT * FROM trace "
-		"WHERE link_dir = 'Upstream' AND completer_id != 257"
-		"ORDER BY packet ASC;");
+		"SELECT * FROM trace \n"
+		"WHERE link_dir = 'Upstream' AND completer_id != 257 \n"
+		"ORDER BY packet ASC;\n");
 	if (query_status != 0) {
 		return query_status;
 	}
@@ -890,7 +912,7 @@ main(int argc, char *argv[])
 	initialise_leds();
 #endif
 
-	int i, tlp_in_len = 0, tlp_out_len, send_length, send_result;
+	int i, tlp_in_len = 0, tlp_out_len, send_length, send_result, bytecount;
 	enum tlp_direction dir;
 	enum tlp_completion_status completion_status;
 	char *type_string;
@@ -935,11 +957,32 @@ main(int argc, char *argv[])
 		dir = ((dword0->fmt & 2) >> 1);
 		const char *direction_string = (dir == TLPD_READ) ? "read" : "write";
 
-		print = true;
 
 		switch (dword0->type) {
 		case M:
-			print = false;
+			assert(dword0->length == 1);
+			/* This isn't in the spec, but seems to be all we've found in our
+			 * trace. */
+
+			bytecount = 0;
+
+			for (i = 0; i < 4; ++i) {
+				if ((request_dword1->firstbe >> i) & 1) {
+					++bytecount;
+					io_mem_read(
+						pci_memory,
+						tlp_in[2],
+						(uint64_t *)((uint8_t *)tlp_out_body + i),
+						1);
+				}
+			}
+
+			create_completion_header(tlp_out, dir, device_id,
+				TLPCS_SUCCESSFUL_COMPLETION, bytecount, requester_id,
+				req_bits->tag);
+
+			send_result = send_tlp(tlp_out_quadword, 16);
+			assert(send_result != -1);
 
 			break;
 		case CFG_0:
@@ -962,8 +1005,8 @@ main(int argc, char *argv[])
 					tlp_out_body[0] = pci_host_config_read_common(
 						pci_dev, req_addr, req_addr + 4, 4);
 
-					PDBG("Read from %lx, Value 0x%x",
-						req_addr, tlp_out_body[0]);
+					/*PDBG("Read from %lx, Value 0x%x",*/
+						/*req_addr, tlp_out_body[0]);*/
 
 					++received_count;
 					write_leds(received_count);
@@ -972,7 +1015,7 @@ main(int argc, char *argv[])
 					send_length = 12;
 
 					pci_host_config_write_common(
-						pci_dev, req_addr, 4, tlp_in[3], 4);
+						pci_dev, req_addr, req_addr + 4, tlp_in[3], 4);
 				}
 			}
 			else {
@@ -980,8 +1023,8 @@ main(int argc, char *argv[])
 				send_length = 12;
 			}
 
-			create_config_completion_header(
-				tlp_out, dir, device_id, completion_status,
+			create_completion_header(
+				tlp_out, dir, device_id, completion_status, 4,
 				requester_id, req_bits->tag);
 
 			send_result = send_tlp(tlp_out_quadword, send_length);

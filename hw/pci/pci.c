@@ -1165,6 +1165,7 @@ uint32_t pci_default_read_config(PCIDevice *d,
 
 void pci_default_write_config(PCIDevice *d, uint32_t addr, uint32_t val_in, int l)
 {
+	/*PDBG("Write %d of 0x%x <= 0x%x", l, addr, val_in);*/
     int i, was_irq_disabled = pci_irq_disabled(d);
     uint32_t val = val_in;
 
@@ -1172,6 +1173,8 @@ void pci_default_write_config(PCIDevice *d, uint32_t addr, uint32_t val_in, int 
         uint8_t wmask = d->wmask[addr + i];
         uint8_t w1cmask = d->w1cmask[addr + i];
         assert(!(wmask & w1cmask));
+		/*PDBG("Write 0x%x <= 0x%x; wmask 0x%x; w1c mask 0x%x",*/
+			/*addr + i, val, wmask, w1cmask);*/
         d->config[addr + i] = (d->config[addr + i] & ~wmask) | (val & wmask);
         d->config[addr + i] &= ~(val & w1cmask); /* W1C: Write 1 to Clear */
     }
