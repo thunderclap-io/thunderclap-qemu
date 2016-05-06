@@ -319,6 +319,8 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 	int data_length = 0;
 	int length = -1;
 	enum postgres_tlp_type tlp_type = get_postgres_tlp_type(result);
+
+	DEBUG_PRINTF("%d.\n", get_postgres_packet(result));
 	
 	switch (tlp_type) {
 	case PG_CFG_RD_0:
@@ -417,6 +419,25 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 
 #endif //ifdef POSTGRES
 
+/* We also use this to intercept BAR settings so that we don't send memory
+ * read requests we don't have adequate responses to. */
+
+int32_t second_card_region = -1;
+
+static inline bool
+should_receive_tlp_for_result(PGresult *result)
+{
+	uint32_t device_id = get_postgres_device_id(result);
+	if (get_postgres_tlp_type(result) == PG_CFG_WR_0 && device_id == 257 &&
+		get_postgres_register(result) == 0x30) {
+		second_card_region = bswap32(get_postgres_data(result)) >> 24;
+		PDBG("!!! Setting second card region: 0x%x", second_card_region);
+	}
+	return (device_id != 257 &&
+		(second_card_region == -1 ||
+		 (get_postgres_address(result) >> 24) != second_card_region));
+}
+
 /* tlp_len is length of the buffer in bytes. */
 /* Return -1 if 1024 attempts to poll the buffer fail. */
 int
@@ -427,10 +448,14 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	int ret_value;
 	/* TODO: Check we don't buffer overrun. */
 	PGresult *result = PQgetResult(postgres_connection_downstream);
+	while (!should_receive_tlp_for_result(result)) {
+		PQclear(result);
+		result = PQgetResult(postgres_connection_downstream);
+	}
 	assert(result != NULL);
 
 	TLPDoubleWord *tlp_dword = (TLPDoubleWord *)tlp;
-	/*DEBUG_PRINTF("Simulating receiving TLP %d ", recvd_count++);*/
+	DEBUG_PRINTF("Simulating receiving ");
 	ret_value = tlp_from_postgres(result, tlp_dword, tlp_len);
 
 	PQclear(result);
@@ -460,6 +485,12 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 #endif
 }
 
+static inline bool
+should_send_tlp_for_result(PGresult *result)
+{
+	return get_postgres_completer_id(result) != 257;
+}
+
 /* tlp is a pointer to the tlp, tlp_len is the length of the tlp in bytes. */
 /* returns 0 on success. */
 int
@@ -476,19 +507,27 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	int buffer_len = 64 * sizeof(TLPQuadWord);
 	assert(tlp_len <= buffer_len);
 	memset(expected, 0, buffer_len);
-	/*DEBUG_PRINTF("Simulating sending %d ", sent_count++);*/
+	DEBUG_PRINTF("Simulating sending ");
+
+	while (!should_send_tlp_for_result(result)) {
+		PQclear(result);
+		result = PQgetResult(postgres_connection_upstream);
+	}
+
 	response = tlp_from_postgres(result, (TLPDoubleWord *)expected, buffer_len);
+
+	bool match = true;
 
 	if (response != tlp_len) {
 		PDBG("Trying to send tlp of length %d. Exected %d. Packet %d. Checked %d.",
 			tlp_len, response, get_postgres_packet(result), sent_count);
 		assert(response == tlp_len);
+		match = false;
 	}
 
 	uint8_t *expected_byte = (uint8_t *)expected;
 	uint8_t *actual_byte = (uint8_t *)tlp;
 
-	bool match = true;
 	for (i = 0; i < tlp_len; ++i) {
 		/* These exemptions are for:
 		 * the model num,
@@ -763,8 +802,7 @@ main(int argc, char *argv[])
 	query_status = start_binary_single_row_query(
 		postgres_connection_downstream,
 		"SELECT * FROM trace \n"
-		"WHERE link_dir = 'Downstream' AND \n"
-		"	(device_id IS NULL OR device_id != 257)\n"
+		"WHERE link_dir = 'Downstream'\n"
 		/* 257 is the address of the other interface on the NIC which we
 		 * don't have. This is probably a slight divergence in the actual
 		 * behaviour we'd see, but close enough. Have to let NULL through
@@ -777,7 +815,7 @@ main(int argc, char *argv[])
 	query_status = start_binary_single_row_query(
 		postgres_connection_upstream,
 		"SELECT * FROM trace \n"
-		"WHERE link_dir = 'Upstream' AND completer_id != 257 \n"
+		"WHERE link_dir = 'Upstream'\n"
 		"ORDER BY packet ASC;\n");
 	if (query_status != 0) {
 		return query_status;

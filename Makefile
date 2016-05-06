@@ -73,6 +73,8 @@ LIBS := glib-2.0 pixman-1
 LDLIBS := -lz -lexecinfo -lelf -lpixman-1 -lpcre
 LDLIBS := $(LDLIBS) -lutil -lglib-2.0 -liconv -lintl -lm -lthr
 
+CFLAGS := $(CFLAGS) -O3
+
 ifeq ($(PCIE_DEBUG),1)
 CFLAGS := $(CFLAGS) -DPCIE_DEBUG
 endif
