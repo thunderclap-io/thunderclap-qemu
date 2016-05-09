@@ -12,6 +12,7 @@
  * Contributions after 2012-01-13 are licensed under the terms of the
  * GNU GPL, version 2 or (at your option) any later version.
  */
+#include "pcie-debug.h"
 
 #include "exec/memory.h"
 #include "exec/address-spaces.h"
@@ -985,6 +986,7 @@ static void memory_region_initfn(Object *obj)
 static uint64_t unassigned_mem_read(void *opaque, hwaddr addr,
                                     unsigned size)
 {
+    PDBG("Unassigned mem read " TARGET_FMT_plx, addr);
 #ifdef DEBUG_UNASSIGNED
     printf("Unassigned mem read " TARGET_FMT_plx "\n", addr);
 #endif
@@ -1008,6 +1010,7 @@ static void unassigned_mem_write(void *opaque, hwaddr addr,
 static bool unassigned_mem_accepts(void *opaque, hwaddr addr,
                                    unsigned size, bool is_write)
 {
+	PDBG("Unassigned memory.");
     return false;
 }
 
@@ -1025,6 +1028,7 @@ bool memory_region_access_valid(MemoryRegion *mr,
     int access_size, i;
 
     if (!mr->ops->valid.unaligned && (addr & (size - 1))) {
+		PDBG("Unaligned access attempt.\n");
         return false;
     }
 
@@ -1046,6 +1050,8 @@ bool memory_region_access_valid(MemoryRegion *mr,
     for (i = 0; i < size; i += access_size) {
         if (!mr->ops->valid.accepts(mr->opaque, addr + i, access_size,
                                     is_write)) {
+			PDBG("Memory region does not accept %s access to addr 0x%lx of %d"
+				" bytes", is_write ? "write" : "read", addr + i, access_size);
             return false;
         }
     }

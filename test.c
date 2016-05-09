@@ -252,6 +252,7 @@ get_postgres_cpl_status(const PGresult *result)
 		return be32toh(*(uint32_t *)PQgetvalue(result, 0, field_num));		\
 	}
 
+POSTGRES_INT_FIELD(pk);
 POSTGRES_INT_FIELD(packet);
 POSTGRES_INT_FIELD(length);
 POSTGRES_INT_FIELD(requester_id);
@@ -320,8 +321,7 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 	int length = -1;
 	enum postgres_tlp_type tlp_type = get_postgres_tlp_type(result);
 
-	DEBUG_PRINTF("%d.\n", get_postgres_packet(result));
-	
+	/*DEBUG_PRINTF("%d.\n", get_postgres_packet(result));*/
 	switch (tlp_type) {
 	case PG_CFG_RD_0:
 	case PG_CFG_WR_0:
@@ -343,6 +343,10 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 		config_dword2->ext_reg_num = reg >> 8;
 		config_dword2->reg_num = (reg & uint32_mask(8)) >> 2;
 		length = 12;
+		if (tlp_type == PG_CFG_WR_0 && reg >= 0x10 && reg <= 0x24) {
+			/*PDBG("pk: %d; packet: %d",*/
+				/*get_postgres_pk(result), get_postgres_packet(result));*/
+		}
 		if (tlp_type == PG_CFG_RD_0 && (reg == 0x30 || reg > 0x3C)) {
 			/* ROM bar and capability list. */
 			ignore_next_postgres_completion = true;
@@ -368,6 +372,17 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 		compl_dword2->tag = get_postgres_tag(result);
 		compl_dword2->loweraddress = get_postgres_lwr_addr(result);
 		length = (12 + data_length);
+		break;
+	case PG_IO_WR:
+		header0->fmt = TLPFMT_3DW_NODATA;
+		header0->type = IO;
+		header_req->requester_id = get_postgres_requester_id(result);
+		header_req->tag = get_postgres_tag(result);
+		header_req->lastbe = 0;
+		header_req->firstbe = get_postgres_first_be(result);
+		*dword2 = get_postgres_address(result);
+		data_length = 4;
+		length = 16;
 		break;
 	case PG_MSG_D:
 		/*DEBUG_PRINTF("MsgD TLP");*/
@@ -395,9 +410,6 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 		*dword2 = get_postgres_address(result);
 		data_length = get_postgres_length(result) * 4;
 		length = 12 + data_length;
-		if ((*dword2 >> 24) == 0xE2) { /* Option ROM */
-			ignore_next_postgres_completion = true;
-		}
 		break;
 	default:
 		PDBG("ERROR! Unknown TLP type: %s",
@@ -428,14 +440,17 @@ static inline bool
 should_receive_tlp_for_result(PGresult *result)
 {
 	uint32_t device_id = get_postgres_device_id(result);
+	uint64_t address = get_postgres_address(result);
 	if (get_postgres_tlp_type(result) == PG_CFG_WR_0 && device_id == 257 &&
 		get_postgres_register(result) == 0x30) {
 		second_card_region = bswap32(get_postgres_data(result)) >> 24;
-		PDBG("!!! Setting second card region: 0x%x", second_card_region);
+		/*PDBG("!!! Setting second card region: 0x%x", second_card_region);*/
 	}
-	return (device_id != 257 &&
-		(second_card_region == -1 ||
-		 (get_postgres_address(result) >> 24) != second_card_region));
+	/* 0xE2 is the ROM region -- we have to intercept, because the region
+	 * never gets assigned, and the whole simulation falls over. */
+	return ((address >> 24) != 0xE2) &&
+		(device_id != 257 && (second_card_region == -1 ||
+		 (address >> 24) != second_card_region));
 }
 
 /* tlp_len is length of the buffer in bytes. */
@@ -455,7 +470,7 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	assert(result != NULL);
 
 	TLPDoubleWord *tlp_dword = (TLPDoubleWord *)tlp;
-	DEBUG_PRINTF("Simulating receiving ");
+	/*DEBUG_PRINTF("Simulating receiving ");*/
 	ret_value = tlp_from_postgres(result, tlp_dword, tlp_len);
 
 	PQclear(result);
@@ -507,7 +522,7 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	int buffer_len = 64 * sizeof(TLPQuadWord);
 	assert(tlp_len <= buffer_len);
 	memset(expected, 0, buffer_len);
-	DEBUG_PRINTF("Simulating sending ");
+	/*DEBUG_PRINTF("Simulating sending ");*/
 
 	while (!should_send_tlp_for_result(result)) {
 		PQclear(result);
@@ -998,6 +1013,7 @@ main(int argc, char *argv[])
 
 		switch (dword0->type) {
 		case M:
+			assert(dir == TLPD_READ); /* Unimplemented. */
 			assert(dword0->length == 1);
 			/* This isn't in the spec, but seems to be all we've found in our
 			 * trace. */
@@ -1007,11 +1023,11 @@ main(int argc, char *argv[])
 			for (i = 0; i < 4; ++i) {
 				if ((request_dword1->firstbe >> i) & 1) {
 					++bytecount;
-					io_mem_read(
+					assert(io_mem_read(
 						pci_memory,
 						tlp_in[2],
 						(uint64_t *)((uint8_t *)tlp_out_body + i),
-						1);
+						1) == false);
 				}
 			}
 
@@ -1070,10 +1086,21 @@ main(int argc, char *argv[])
 
 			break;
 		case IO:
-			type_string = "IO";
+			assert(dir == TLPD_WRITE);
+			assert(request_dword1->firstbe == 0xf); /* Only seen trace. */
+
+			assert(io_mem_write(get_system_io(), tlp_in[2], tlp_in[3], 4)
+				== false);
+
+			create_completion_header(tlp_out, dir, device_id,
+				TLPCS_SUCCESSFUL_COMPLETION, 4, requester_id, req_bits->tag);
+
+			send_result = send_tlp(tlp_out_quadword, send_length);
+			assert(send_result != 1);
+
 			break;
 		case CPL:
-			type_string = "Completion";
+			assert(false);
 			break;
 		default:
 			type_string = "Unknown";

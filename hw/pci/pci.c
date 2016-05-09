@@ -1032,10 +1032,13 @@ static pcibus_t pci_bar_address(PCIDevice *d,
 {
     pcibus_t new_addr, last_addr;
     int bar = pci_bar(d, reg);
+	/*PDBG("bar offset %x", bar);*/
     uint16_t cmd = pci_get_word(d->config + PCI_COMMAND);
 
     if (type & PCI_BASE_ADDRESS_SPACE_IO) {
+		/*PDBG("Mapping IO Space.");*/
         if (!(cmd & PCI_COMMAND_IO)) {
+			/*PDBG("Quitting, as IO is not enabled.");*/
             return PCI_BAR_UNMAPPED;
         }
         new_addr = pci_get_long(d->config + bar) & ~(size - 1);
@@ -1100,19 +1103,26 @@ static void pci_update_mappings(PCIDevice *d)
     int i;
     pcibus_t new_addr;
 
+	/*PDBG("Updating mapping.");*/
+
     for(i = 0; i < PCI_NUM_REGIONS; i++) {
         r = &d->io_regions[i];
 
         /* this region isn't registered */
-        if (!r->size)
+        if (!r->size) {
+			/*PDBG("Region %d is unregistered.", i);*/
             continue;
+		}
 
         new_addr = pci_bar_address(d, i, r->type, r->size);
 
         /* This bar isn't changed */
-        if (new_addr == r->addr)
+        if (new_addr == r->addr) {
+			/*PDBG("Region %d is unchanged from address 0x%lx", i, new_addr);*/
             continue;
+		}
 
+		PDBG("Updating mapping %d => 0x%lx.", i, new_addr);
         /* now do the real mapping */
         if (r->addr != PCI_BAR_UNMAPPED) {
             trace_pci_update_mappings_del(d, pci_bus_num(d->bus),
@@ -1165,7 +1175,9 @@ uint32_t pci_default_read_config(PCIDevice *d,
 
 void pci_default_write_config(PCIDevice *d, uint32_t addr, uint32_t val_in, int l)
 {
-	/*PDBG("Write %d of 0x%x <= 0x%x", l, addr, val_in);*/
+	if (addr >= 0x10 && addr <= 0x24) {
+		/*PDBG("Write %d of 0x%x <= 0x%x", l, addr, val_in);*/
+	}
     int i, was_irq_disabled = pci_irq_disabled(d);
     uint32_t val = val_in;
 
@@ -1173,8 +1185,10 @@ void pci_default_write_config(PCIDevice *d, uint32_t addr, uint32_t val_in, int 
         uint8_t wmask = d->wmask[addr + i];
         uint8_t w1cmask = d->w1cmask[addr + i];
         assert(!(wmask & w1cmask));
-		/*PDBG("Write 0x%x <= 0x%x; wmask 0x%x; w1c mask 0x%x",*/
-			/*addr + i, val, wmask, w1cmask);*/
+		if ((addr + i) >= 0x10 && (addr + i) <= 0x24) {
+			/*PDBG("Write 0x%x (BAR %d) <= 0x%x; wmask 0x%x; w1c mask 0x%x",*/
+				/*addr + i, ((addr + i) - 0x10) / 4,val, wmask, w1cmask);*/
+		}
         d->config[addr + i] = (d->config[addr + i] & ~wmask) | (val & wmask);
         d->config[addr + i] &= ~(val & w1cmask); /* W1C: Write 1 to Clear */
     }
