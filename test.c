@@ -321,7 +321,9 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 	int length = -1;
 	enum postgres_tlp_type tlp_type = get_postgres_tlp_type(result);
 
-	/*DEBUG_PRINTF("%d.\n", get_postgres_packet(result));*/
+#ifdef PRINT_IDS
+	DEBUG_PRINTF("%d.\n", get_postgres_packet(result));
+#endif
 	switch (tlp_type) {
 	case PG_CFG_RD_0:
 	case PG_CFG_WR_0:
@@ -434,11 +436,13 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 /* We also use this to intercept BAR settings so that we don't send memory
  * read requests we don't have adequate responses to. */
 
-int32_t second_card_region = -1;
+static int32_t second_card_region = -1;
+static int32_t skip_sending = 0;
 
 static inline bool
 should_receive_tlp_for_result(PGresult *result)
 {
+	bool skip = false;
 	uint32_t device_id = get_postgres_device_id(result);
 	uint64_t address = get_postgres_address(result);
 	if (get_postgres_tlp_type(result) == PG_CFG_WR_0 && device_id == 257 &&
@@ -447,8 +451,15 @@ should_receive_tlp_for_result(PGresult *result)
 		/*PDBG("!!! Setting second card region: 0x%x", second_card_region);*/
 	}
 	/* 0xE2 is the ROM region -- we have to intercept, because the region
-	 * never gets assigned, and the whole simulation falls over. */
-	return ((address >> 24) != 0xE2) &&
+	 * never gets assigned, and the whole simulation falls over.  We have to
+	 * signal to skip a completion too.*/
+	if ((address >> 24) == 0xE2) {
+		++skip_sending;
+		assert(skip_sending >= 0);
+		skip = true;
+	}
+
+	return !skip &&
 		(device_id != 257 && (second_card_region == -1 ||
 		 (address >> 24) != second_card_region));
 }
@@ -470,7 +481,9 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	assert(result != NULL);
 
 	TLPDoubleWord *tlp_dword = (TLPDoubleWord *)tlp;
-	/*DEBUG_PRINTF("Simulating receiving ");*/
+#ifdef PRINT_IDS
+	DEBUG_PRINTF("Simulating receiving ");
+#endif
 	ret_value = tlp_from_postgres(result, tlp_dword, tlp_len);
 
 	PQclear(result);
@@ -503,7 +516,13 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 static inline bool
 should_send_tlp_for_result(PGresult *result)
 {
-	return get_postgres_completer_id(result) != 257;
+	bool skip = false;
+	/* Consume a completion for a packet that is in the trace, but not sent */
+	if (skip_sending != 0) {
+		skip = true;
+		--skip_sending;
+	}
+	return !skip && get_postgres_completer_id(result) != 257;
 }
 
 /* tlp is a pointer to the tlp, tlp_len is the length of the tlp in bytes. */
@@ -522,7 +541,9 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	int buffer_len = 64 * sizeof(TLPQuadWord);
 	assert(tlp_len <= buffer_len);
 	memset(expected, 0, buffer_len);
-	/*DEBUG_PRINTF("Simulating sending ");*/
+#ifdef PRINT_IDS
+	DEBUG_PRINTF("Simulating sending ");
+#endif
 
 	while (!should_send_tlp_for_result(result)) {
 		PQclear(result);

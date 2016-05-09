@@ -1122,7 +1122,7 @@ static void pci_update_mappings(PCIDevice *d)
             continue;
 		}
 
-		PDBG("Updating mapping %d => 0x%lx.", i, new_addr);
+		/*PDBG("Updating mapping %d => 0x%lx.", i, new_addr);*/
         /* now do the real mapping */
         if (r->addr != PCI_BAR_UNMAPPED) {
             trace_pci_update_mappings_del(d, pci_bus_num(d->bus),
