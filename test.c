@@ -376,7 +376,7 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 		length = (12 + data_length);
 		break;
 	case PG_IO_WR:
-		header0->fmt = TLPFMT_3DW_NODATA;
+		header0->fmt = TLPFMT_3DW_DATA;
 		header0->type = IO;
 		header_req->requester_id = get_postgres_requester_id(result);
 		header_req->tag = get_postgres_tag(result);
@@ -464,13 +464,27 @@ should_receive_tlp_for_result(PGresult *result)
 		 (address >> 24) != second_card_region));
 }
 
+#ifdef POSTGRES
+#define		ID_BUFFER_SIZE		8
+static uint32_t last_ids[ID_BUFFER_SIZE];
+static int recvd_count = 0;
+
+static void
+print_last_recvd_packet_ids()
+{
+	for (int i = (recvd_count - ID_BUFFER_SIZE); i < recvd_count; ++i) {
+		PDBG("%d", last_ids[(i % ID_BUFFER_SIZE)]);
+	}
+}
+
+#endif
+
 /* tlp_len is length of the buffer in bytes. */
 /* Return -1 if 1024 attempts to poll the buffer fail. */
 int
 wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 {
 #ifdef POSTGRES
-	static int recvd_count = 0;
 	int ret_value;
 	/* TODO: Check we don't buffer overrun. */
 	PGresult *result = PQgetResult(postgres_connection_downstream);
@@ -485,6 +499,8 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	DEBUG_PRINTF("Simulating receiving ");
 #endif
 	ret_value = tlp_from_postgres(result, tlp_dword, tlp_len);
+	last_ids[(recvd_count % ID_BUFFER_SIZE)] = get_postgres_packet(result);
+	++recvd_count;
 
 	PQclear(result);
 	return ret_value;
@@ -557,6 +573,7 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	if (response != tlp_len) {
 		PDBG("Trying to send tlp of length %d. Exected %d. Packet %d. Checked %d.",
 			tlp_len, response, get_postgres_packet(result), sent_count);
+		print_last_recvd_packet_ids();
 		assert(response == tlp_len);
 		match = false;
 	}
@@ -1107,11 +1124,18 @@ main(int argc, char *argv[])
 
 			break;
 		case IO:
-			assert(dir == TLPD_WRITE);
 			assert(request_dword1->firstbe == 0xf); /* Only seen trace. */
 
-			assert(io_mem_write(get_system_io(), tlp_in[2], tlp_in[3], 4)
-				== false);
+			if (dir == TLPD_WRITE) {
+				send_length = 12;
+				assert(io_mem_write(get_system_io(), tlp_in[2], tlp_in[3], 4)
+					== false);
+			} else {
+				send_length = 16;
+				assert(io_mem_read(get_system_io(), tlp_in[2],
+						(uint64_t *)tlp_out_body, 4)
+					== false);
+			}
 
 			create_completion_header(tlp_out, dir, device_id,
 				TLPCS_SUCCESSFUL_COMPLETION, 4, requester_id, req_bits->tag);
