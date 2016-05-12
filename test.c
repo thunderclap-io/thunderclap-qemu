@@ -375,16 +375,22 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 		compl_dword2->loweraddress = get_postgres_lwr_addr(result);
 		length = (12 + data_length);
 		break;
+	case PG_IO_RD:
 	case PG_IO_WR:
-		header0->fmt = TLPFMT_3DW_DATA;
+		if (tlp_type == PG_IO_RD) {
+			header0->fmt = TLPFMT_3DW_NODATA;
+			data_length = 0;
+		} else {
+			header0->fmt = TLPFMT_3DW_DATA;
+			data_length = 4;
+		}
 		header0->type = IO;
 		header_req->requester_id = get_postgres_requester_id(result);
 		header_req->tag = get_postgres_tag(result);
 		header_req->lastbe = 0;
 		header_req->firstbe = get_postgres_first_be(result);
 		*dword2 = get_postgres_address(result);
-		data_length = 4;
-		length = 16;
+		length = (12 + data_length);
 		break;
 	case PG_MSG_D:
 		/*DEBUG_PRINTF("MsgD TLP");*/
@@ -431,13 +437,13 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 	return length;
 }
 
-#endif //ifdef POSTGRES
-
 /* We also use this to intercept BAR settings so that we don't send memory
  * read requests we don't have adequate responses to. */
 
+static int32_t io_region =  -1;
 static int32_t second_card_region = -1;
 static int32_t skip_sending = 0;
+static bool ignore_next_io_interaction = false;
 
 static inline bool
 should_receive_tlp_for_result(PGresult *result)
@@ -464,7 +470,6 @@ should_receive_tlp_for_result(PGresult *result)
 		 (address >> 24) != second_card_region));
 }
 
-#ifdef POSTGRES
 #define		ID_BUFFER_SIZE		8
 static uint32_t last_ids[ID_BUFFER_SIZE];
 static int recvd_count = 0;
@@ -477,7 +482,7 @@ print_last_recvd_packet_ids()
 	}
 }
 
-#endif
+#endif // ifdef POSTGRES
 
 /* tlp_len is length of the buffer in bytes. */
 /* Return -1 if 1024 attempts to poll the buffer fail. */
@@ -501,6 +506,12 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	ret_value = tlp_from_postgres(result, tlp_dword, tlp_len);
 	last_ids[(recvd_count % ID_BUFFER_SIZE)] = get_postgres_packet(result);
 	++recvd_count;
+
+	if (get_postgres_register(result) == 0x18 &&
+		get_postgres_tlp_type(result) == PG_CFG_WR_0 &&
+		get_postgres_device_id(result) == 256) {
+		io_region = tlp_dword[3]; /* Endianness swapped. */
+	}
 
 	PQclear(result);
 	return ret_value;
@@ -1007,7 +1018,7 @@ main(int argc, char *argv[])
 	enum tlp_direction dir;
 	enum tlp_completion_status completion_status;
 	char *type_string;
-	bool print;
+	bool ignore_next_io_completion = false;
 	uint16_t length, device_id, requester_id;
 	uint64_t addr, req_addr;
 
@@ -1037,6 +1048,8 @@ main(int argc, char *argv[])
 	memset(tlp_out, 0, 64 * sizeof(TLPDoubleWord));
 
 	printf("LEDs clear; let's go.\n");
+
+	int card_reg = -1;
 
 	while (1) {
 		/*printf("Waiting for TLP.\n");*/
@@ -1078,8 +1091,6 @@ main(int argc, char *argv[])
 
 			break;
 		case CFG_0:
-			print = false;
-
 			assert(dword0->length == 1);
 			requester_id = request_dword1->requester_id;
 			req_addr = config_request_dword2->ext_reg_num;
@@ -1126,22 +1137,61 @@ main(int argc, char *argv[])
 		case IO:
 			assert(request_dword1->firstbe == 0xf); /* Only seen trace. */
 
+			/*
+			 * The process for interacting with the device over IO is rather
+			 * convoluted.
+			 *
+			 * 1) A packet is sent writing an address to a register.
+			 * 2) A completion happens.
+			 *
+			 * 3) A packet is then sent reading or writing another register.
+			 * 4) The completion for this is effectively for the address that
+			 * was written in 1).
+			 *
+			 * So we need to ignore the completion for the IO packet after the
+			 * completion for 2)
+			 *
+			 */
+
 			if (dir == TLPD_WRITE) {
 				send_length = 12;
 				assert(io_mem_write(get_system_io(), tlp_in[2], tlp_in[3], 4)
 					== false);
+
+				if (card_reg == -1 && tlp_in[2] == io_region) {
+					card_reg = tlp_in[3];
+				}
+				else if (tlp_in[2] == (io_region + 4)) {
+					PDBG("Setting CARD REG 0x%x <= 0x%x",
+						card_reg, tlp_in[3]);
+					card_reg = -1;
+				}
 			} else {
 				send_length = 16;
 				assert(io_mem_read(get_system_io(), tlp_in[2],
 						(uint64_t *)tlp_out_body, 4)
 					== false);
+
+				if (tlp_in[2] == (io_region + 4)) {
+					PDBG("Read CARD REG 0x%x = 0x%x", card_reg, *tlp_out_body);
+					card_reg = -1;
+				}
+			}
+
+			if (ignore_next_io_completion) {
+				ignore_next_io_completion = false;
+				ignore_next_postgres_completion = true;
 			}
 
 			create_completion_header(tlp_out, dir, device_id,
 				TLPCS_SUCCESSFUL_COMPLETION, 4, requester_id, req_bits->tag);
 
+			if (dir == TLPD_WRITE && card_reg == 0x10) {
+				ignore_next_io_completion = true;
+			}
+
 			send_result = send_tlp(tlp_out_quadword, send_length);
-			assert(send_result != 1);
+			assert(send_result != -1);
 
 			break;
 		case CPL:
