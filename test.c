@@ -279,6 +279,9 @@ POSTGRES_BIGINT_FIELD(data);
 
 #ifdef POSTGRES
 static bool ignore_next_postgres_completion;
+static bool mask_next_postgres_completion_data;
+static uint32_t postgres_completion_mask;
+
 /* The capbility list is different for many small reasons, which is why we
  * want this. */
 #endif
@@ -443,7 +446,6 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 static int32_t io_region =  -1;
 static int32_t second_card_region = -1;
 static int32_t skip_sending = 0;
-static bool ignore_next_io_interaction = false;
 
 static inline bool
 should_receive_tlp_for_result(PGresult *result)
@@ -587,6 +589,15 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 		print_last_recvd_packet_ids();
 		assert(response == tlp_len);
 		match = false;
+	}
+
+	if (mask_next_postgres_completion_data) {
+		PDBG("Masking completion.");
+		mask_next_postgres_completion_data = false;
+		TLPDoubleWord *expected_dword = (TLPDoubleWord *)expected;
+		expected_dword[3] = expected_dword[3] & postgres_completion_mask;
+		TLPDoubleWord *tlp_dword = (TLPDoubleWord *)expected;
+		tlp_dword[3] = tlp_dword[3] & postgres_completion_mask;
 	}
 
 	uint8_t *expected_byte = (uint8_t *)expected;
@@ -1020,7 +1031,9 @@ main(int argc, char *argv[])
 	enum tlp_completion_status completion_status;
 	char *type_string;
 	bool ignore_next_io_completion = false;
+	bool mask_next_io_completion_data = false;
 	uint16_t length, device_id, requester_id;
+	uint32_t io_completion_mask;
 	uint64_t addr, req_addr;
 
 	TLPDoubleWord tlp_in[64], tlp_out[64];
@@ -1162,13 +1175,12 @@ main(int argc, char *argv[])
 				assert(io_mem_write(target_region, tlp_in[2], tlp_in[3], 4)
 					== false);
 
-				if (card_reg == -1 && tlp_in[2] == io_region) {
+				if (tlp_in[2] == io_region) {
 					card_reg = tlp_in[3];
 				}
 				else if (tlp_in[2] == (io_region + 4)) {
 					PDBG("Setting CARD REG 0x%x <= 0x%x",
 						card_reg, tlp_in[3]);
-					card_reg = -1;
 				}
 			} else {
 				send_length = 16;
@@ -1178,7 +1190,6 @@ main(int argc, char *argv[])
 
 				if (tlp_in[2] == (io_region + 4)) {
 					PDBG("Read CARD REG 0x%x = 0x%x", card_reg, *tlp_out_body);
-					card_reg = -1;
 				}
 			}
 
@@ -1187,11 +1198,24 @@ main(int argc, char *argv[])
 				ignore_next_postgres_completion = true;
 			}
 
+			if (mask_next_io_completion_data) {
+				mask_next_io_completion_data = true;
+				mask_next_postgres_completion_data = true;
+				postgres_completion_mask = io_completion_mask;
+			}
+
 			create_completion_header(tlp_out, dir, device_id,
 				TLPCS_SUCCESSFUL_COMPLETION, 4, requester_id, req_bits->tag);
 
+			PDBG("card_reg 0x%x", card_reg);
+
 			if (dir == TLPD_WRITE && card_reg == 0x10) {
 				ignore_next_io_completion = true;
+			} else if (dir == TLPD_READ && card_reg == 0x5B50) {
+				PDBG("Reading software semaphore.");
+				mask_next_io_completion_data = true;
+				io_completion_mask = ~2;
+				/* EEPROM semaphore bit */
 			}
 
 			send_result = send_tlp(tlp_out_quadword, send_length);
