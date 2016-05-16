@@ -428,6 +428,7 @@ static void memory_region_write_accessor(MemoryRegion *mr,
     }
     tmp = (*value >> shift) & mask;
     trace_memory_region_ops_write(mr, addr, tmp, size);
+	/*PDBG("Write to %s, %lx", mr->name, addr);*/
     mr->ops->write(mr->opaque, addr, tmp, size);
 }
 
@@ -458,6 +459,8 @@ static void access_with_adjusted_size(hwaddr addr,
     /* FIXME: support unaligned access? */
     access_size = MAX(MIN(size, access_size_max), access_size_min);
     access_mask = -1ULL >> (64 - access_size * 8);
+	/*PDBG("access_size: %d, access_mask: %lx, big_endian: %d",*/
+		/*access_size, access_mask, memory_region_big_endian(mr));*/
     if (memory_region_big_endian(mr)) {
         for (i = 0; i < size; i += access_size) {
             access(mr, addr + i, value, access_size,
@@ -1050,8 +1053,9 @@ bool memory_region_access_valid(MemoryRegion *mr,
     for (i = 0; i < size; i += access_size) {
         if (!mr->ops->valid.accepts(mr->opaque, addr + i, access_size,
                                     is_write)) {
-			PDBG("Memory region does not accept %s access to addr 0x%lx of %d"
-				" bytes", is_write ? "write" : "read", addr + i, access_size);
+			PDBG("Memory region %s does not accept %s access to addr 0x%lx of %d"
+				" bytes", is_write ? "write" : "read", mr->name, addr + i,
+				access_size);
             return false;
         }
     }
@@ -1098,7 +1102,10 @@ static bool memory_region_dispatch_write(MemoryRegion *mr,
                                          uint64_t data,
                                          unsigned size)
 {
+	/*PDBG(".");*/
     if (!memory_region_access_valid(mr, addr, size, true)) {
+		PDBG("Write access to 0x%lx in %s invalid.",
+			addr, mr->name);
         unassigned_mem_write(mr, addr, data, size);
         return true;
     }

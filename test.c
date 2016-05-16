@@ -929,7 +929,7 @@ main(int argc, char *argv[])
 
 	MemoryRegion *pci_memory;
 	pci_memory = g_new(MemoryRegion, 1);
-	memory_region_init(pci_memory, NULL, "pci", UINT64_MAX);
+	memory_region_init(pci_memory, NULL, "my-pci-memory", UINT64_MAX);
 
 	printf("Created pci memory region.\n");
 
@@ -945,6 +945,7 @@ main(int argc, char *argv[])
     q35_host->mch.pci_address_space = pci_memory;
     q35_host->mch.system_memory = get_system_memory();
     q35_host->mch.address_space_io = get_system_io();
+	PDBG("System IO name: %s", get_system_io()->name);
     /*q35_host->mch.below_4g_mem_size = below_4g_mem_size;*/
     /*q35_host->mch.above_4g_mem_size = above_4g_mem_size;*/
     /*q35_host->mch.guest_info = guest_info;*/
@@ -1153,9 +1154,12 @@ main(int argc, char *argv[])
 			 *
 			 */
 
+			MemoryRegion *target_region = memory_region_find(get_system_io(),
+				tlp_in[2], 4).mr;
+
 			if (dir == TLPD_WRITE) {
 				send_length = 12;
-				assert(io_mem_write(get_system_io(), tlp_in[2], tlp_in[3], 4)
+				assert(io_mem_write(target_region, tlp_in[2], tlp_in[3], 4)
 					== false);
 
 				if (card_reg == -1 && tlp_in[2] == io_region) {
@@ -1168,7 +1172,7 @@ main(int argc, char *argv[])
 				}
 			} else {
 				send_length = 16;
-				assert(io_mem_read(get_system_io(), tlp_in[2],
+				assert(io_mem_read(target_region, tlp_in[2],
 						(uint64_t *)tlp_out_body, 4)
 					== false);
 

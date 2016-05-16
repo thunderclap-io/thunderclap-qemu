@@ -25,6 +25,8 @@
  * splitted out ioport related stuffs from vl.c.
  */
 
+#include "pcie-debug.h"
+
 #include "exec/ioport.h"
 #include "trace.h"
 #include "exec/memory.h"
@@ -46,12 +48,14 @@ typedef struct MemoryRegionPortioList {
 
 static uint64_t unassigned_io_read(void *opaque, hwaddr addr, unsigned size)
 {
+	PDBG("Unassigned io read: 0x%lx", addr);
     return -1ULL;
 }
 
 static void unassigned_io_write(void *opaque, hwaddr addr, uint64_t val,
                                 unsigned size)
 {
+	PDBG("Unassigned io write: 0x%lx", addr, val);
 }
 
 const MemoryRegionOps unassigned_io_ops = {
@@ -197,6 +201,7 @@ static uint64_t portio_read(void *opaque, hwaddr addr, unsigned size)
 static void portio_write(void *opaque, hwaddr addr, uint64_t data,
                          unsigned size)
 {
+	PDBG(".");
     MemoryRegionPortioList *mrpio = opaque;
     const MemoryRegionPortio *mrp = find_portio(mrpio, addr, size, true);
 

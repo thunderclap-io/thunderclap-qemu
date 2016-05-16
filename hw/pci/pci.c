@@ -1122,7 +1122,8 @@ static void pci_update_mappings(PCIDevice *d)
             continue;
 		}
 
-		/*PDBG("Updating mapping %d => 0x%lx.", i, new_addr);*/
+		/*PDBG("Updating mapping %s in %s; %d => 0x%lx.", r->memory->name,*/
+		   /*r->address_space->name, i, new_addr);*/
         /* now do the real mapping */
         if (r->addr != PCI_BAR_UNMAPPED) {
             trace_pci_update_mappings_del(d, pci_bus_num(d->bus),
@@ -1133,6 +1134,7 @@ static void pci_update_mappings(PCIDevice *d)
         }
         r->addr = new_addr;
         if (r->addr != PCI_BAR_UNMAPPED) {
+			/*PDBG("Adding mapping.");*/
             trace_pci_update_mappings_add(d, pci_bus_num(d->bus),
                                           PCI_FUNC(d->devfn),
                                           PCI_SLOT(d->devfn),
