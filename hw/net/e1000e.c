@@ -147,22 +147,28 @@ _e1000e_io_get_reg_index(E1000EState *s, uint32_t *idx)
 static uint64_t
 e1000e_io_read(void *opaque, hwaddr addr, unsigned size)
 {
+	/*PDBG("IO Read %lx", addr);*/
     E1000EState *s = opaque;
     uint32_t idx;
     uint64_t val;
 
     switch (addr) {
     case E1000_IOADDR:
+		/*PDBG("Reading ADDR");*/
         trace_e1000e_io_read_addr(s->ioaddr);
         return s->ioaddr;
     case E1000_IODATA:
+		/*PDBG("Reading DATA");*/
         if (_e1000e_io_get_reg_index(s, &idx)) {
             val = e1000e_core_read(&s->core, idx, sizeof(val));
+			/*PDBG("Doing core read of 0x%x", idx);*/
             trace_e1000e_io_read_data(idx, val);
             return val;
-        }
+        } else
+			/*PDBG("Couldn't get reg index :'(");*/
         return 0;
     default:
+		PDBG("Bugger.");
         trace_e1000e_wrn_io_read_unknown(addr);
         return 0;
     }

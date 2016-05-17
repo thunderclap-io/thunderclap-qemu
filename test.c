@@ -592,7 +592,7 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	}
 
 	if (mask_next_postgres_completion_data) {
-		PDBG("Masking completion.");
+		PDBG("Masking.");
 		mask_next_postgres_completion_data = false;
 		TLPDoubleWord *expected_dword = (TLPDoubleWord *)expected;
 		expected_dword[3] = expected_dword[3] & postgres_completion_mask;
@@ -1167,29 +1167,31 @@ main(int argc, char *argv[])
 			 *
 			 */
 
-			MemoryRegion *target_region = memory_region_find(get_system_io(),
-				tlp_in[2], 4).mr;
+			MemoryRegionSection target_section = memory_region_find(
+				get_system_io(), tlp_in[2], 4);
+			MemoryRegion *target_region = target_section.mr;
+			hwaddr rel_addr = target_section.offset_within_region;
 
 			if (dir == TLPD_WRITE) {
 				send_length = 12;
-				assert(io_mem_write(target_region, tlp_in[2], tlp_in[3], 4)
+				assert(io_mem_write(target_region, rel_addr, tlp_in[3], 4)
 					== false);
 
-				if (tlp_in[2] == io_region) {
+				if (rel_addr == 0) {
 					card_reg = tlp_in[3];
 				}
-				else if (tlp_in[2] == (io_region + 4)) {
-					PDBG("Setting CARD REG 0x%x <= 0x%x",
-						card_reg, tlp_in[3]);
+				else if (rel_addr == 4 && card_reg == 0x5b50) {
+					/*PDBG("Setting CARD REG 0x%x <= 0x%x",*/
+						/*card_reg, tlp_in[3]);*/
 				}
 			} else {
 				send_length = 16;
-				assert(io_mem_read(target_region, tlp_in[2],
+				assert(io_mem_read(target_region, rel_addr,
 						(uint64_t *)tlp_out_body, 4)
 					== false);
 
-				if (tlp_in[2] == (io_region + 4)) {
-					PDBG("Read CARD REG 0x%x = 0x%x", card_reg, *tlp_out_body);
+				if (rel_addr == 4 && card_reg == 0x5b50) {
+					/*PDBG("Read CARD REG 0x%x = 0x%x", card_reg, *tlp_out_body);*/
 				}
 			}
 
@@ -1198,23 +1200,15 @@ main(int argc, char *argv[])
 				ignore_next_postgres_completion = true;
 			}
 
-			if (mask_next_io_completion_data) {
-				mask_next_io_completion_data = true;
-				mask_next_postgres_completion_data = true;
-				postgres_completion_mask = io_completion_mask;
-			}
-
 			create_completion_header(tlp_out, dir, device_id,
 				TLPCS_SUCCESSFUL_COMPLETION, 4, requester_id, req_bits->tag);
-
-			PDBG("card_reg 0x%x", card_reg);
 
 			if (dir == TLPD_WRITE && card_reg == 0x10) {
 				ignore_next_io_completion = true;
 			} else if (dir == TLPD_READ && card_reg == 0x5B50) {
-				PDBG("Reading software semaphore.");
-				mask_next_io_completion_data = true;
-				io_completion_mask = ~2;
+				/*PDBG("Reading software semaphore.");*/
+				/*mask_next_postgres_completion_data = true;*/
+				postgres_completion_mask = ~2;
 				/* EEPROM semaphore bit */
 			}
 

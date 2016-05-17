@@ -32,6 +32,7 @@
 * You should have received a copy of the GNU Lesser General Public
 * License along with this library; if not, see <http://www.gnu.org/licenses/>.
 */
+#include "pcie-debug.h"
 
 #include "hw/hw.h"
 #include "hw/pci/pci.h"
@@ -2728,6 +2729,7 @@ mac_low16_read(E1000ECore *core, int index)
 static uint32_t
 mac_swsm_read(E1000ECore *core, int index)
 {
+	/*PDBG("Reading swsm.");*/
     uint32_t val = core->mac[SWSM];
     core->mac[SWSM] = val | 1;
     return val;
@@ -3201,6 +3203,7 @@ e1000e_core_read(E1000ECore *core, hwaddr addr, unsigned size)
 {
     uint64_t val;
     uint16_t index = _e1000e_get_reg_index_with_offset(mac_reg_access, addr);
+	/*PDBG("E1000E Read 0x%x (%d)", addr, index);*/
 
     if (index < NREADOPS && macreg_readops[index]) {
         if (mac_reg_access[index] & MAC_ACCESS_PARTIAL) {
