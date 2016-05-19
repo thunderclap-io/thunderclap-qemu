@@ -344,6 +344,7 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 		header_req->tag = get_postgres_tag(result);
 		header_req->lastbe = get_postgres_last_be(result);
 		header_req->firstbe = get_postgres_first_be(result);
+		assert(PQntuples(result) == 1);
 		config_dword2->device_id = get_postgres_device_id(result);
 		uint32_t reg = get_postgres_register(result);
 		config_dword2->ext_reg_num = reg >> 8;
@@ -444,19 +445,36 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 /* We also use this to intercept BAR settings so that we don't send memory
  * read requests we don't have adequate responses to. */
 
+#define SECOND_CARD_REGION_MEM_INDEX	0
+#define SECOND_CARD_REGION_IO_INDEX		1
+#define SECOND_CARD_REGION_ROM_INDEX	2
+
 static int32_t io_region =  -1;
-static int32_t second_card_region = -1;
+static int32_t second_card_regions[3] = {-1, -1, -1};
 static int32_t skip_sending = 0;
 
 static inline bool
 should_receive_tlp_for_result(PGresult *result)
 {
+	if (PQntuples(result) < 1) {
+		return false;
+	}
 	bool skip = false;
 	uint32_t device_id = get_postgres_device_id(result);
 	uint64_t address = get_postgres_address(result);
-	if (get_postgres_tlp_type(result) == PG_CFG_WR_0 && device_id == 257 &&
-		get_postgres_register(result) == 0x30) {
-		second_card_region = bswap32(get_postgres_data(result)) >> 24;
+	if (get_postgres_tlp_type(result) == PG_CFG_WR_0 && device_id == 257) {
+		uint32_t region = bswap32(get_postgres_data(result)) >> 24;
+		switch(get_postgres_register(result)) {
+		case 0x10:
+			second_card_regions[SECOND_CARD_REGION_MEM_INDEX] = region;
+			break;
+		case 0x18:
+			second_card_regions[SECOND_CARD_REGION_IO_INDEX] = region;
+			break;
+		case 0x30:
+			second_card_regions[SECOND_CARD_REGION_ROM_INDEX] = region;
+			break;
+		}
 		/*PDBG("!!! Setting second card region: 0x%x", second_card_region);*/
 	}
 	/* 0xE2 is the ROM region -- we have to intercept, because the region
@@ -468,9 +486,20 @@ should_receive_tlp_for_result(PGresult *result)
 		skip = true;
 	}
 
-	return !skip &&
-		(device_id != 257 && (second_card_region == -1 ||
-		 (address >> 24) != second_card_region));
+	bool skip_due_to_this_region = false;
+	for (int i = 0; i < 3; ++i) {
+		skip_due_to_this_region = (second_card_regions[i] != -1 &&
+			address != 0 &&
+			(address >> 24) == second_card_regions[i]);
+		/*if (skip_due_to_this_region) {*/
+			/*PDBG("%d: Skipping due to region %d",*/
+				/*get_postgres_packet(result), i);*/
+		/*}*/
+		skip = skip || skip_due_to_this_region;
+		skip_due_to_this_region = false;
+	}
+
+	return !skip && device_id != 257;
 }
 
 #define		ID_BUFFER_SIZE		8
@@ -496,11 +525,14 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	int ret_value;
 	/* TODO: Check we don't buffer overrun. */
 	PGresult *result = PQgetResult(postgres_connection_downstream);
+	
 	while (!should_receive_tlp_for_result(result)) {
 		PQclear(result);
 		result = PQgetResult(postgres_connection_downstream);
+		if (result == NULL) {
+			return -1;
+		}
 	}
-	assert(result != NULL);
 
 	TLPDoubleWord *tlp_dword = (TLPDoubleWord *)tlp;
 #ifdef PRINT_IDS
@@ -510,6 +542,7 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	last_ids[(recvd_count % ID_BUFFER_SIZE)] = get_postgres_packet(result);
 	++recvd_count;
 
+	assert(PQntuples(result) == 1);
 	if (get_postgres_register(result) == 0x18 &&
 		get_postgres_tlp_type(result) == PG_CFG_WR_0 &&
 		get_postgres_device_id(result) == 256) {
@@ -888,7 +921,7 @@ main(int argc, char *argv[])
 		 * don't have. This is probably a slight divergence in the actual
 		 * behaviour we'd see, but close enough. Have to let NULL through
 		 * because NULL != 257 is NULL, which is falsy.. */
-		"ORDER BY packet ASC;");
+		"ORDER BY packet ASC");
 	if (query_status != 0) {
 		return query_status;
 	}
@@ -897,7 +930,7 @@ main(int argc, char *argv[])
 		postgres_connection_upstream,
 		"SELECT * FROM trace \n"
 		"WHERE link_dir = 'Upstream'\n"
-		"ORDER BY packet ASC;\n");
+		"ORDER BY packet ASC");
 	if (query_status != 0) {
 		return query_status;
 	}
