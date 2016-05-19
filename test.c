@@ -1036,7 +1036,6 @@ main(int argc, char *argv[])
 	enum tlp_direction dir;
 	enum tlp_completion_status completion_status;
 	char *type_string;
-	bool first_status_read = true;
 	bool ignore_next_io_completion = false;
 	bool mask_next_io_completion_data = false;
 	uint16_t length, device_id, requester_id;
@@ -1217,9 +1216,7 @@ main(int argc, char *argv[])
 				/*mask_next_postgres_completion_data = true;*/
 				postgres_completion_mask = ~2;
 				/* EEPROM semaphore bit */
-			} else if (dir == TLPD_READ && first_status_read &&
-				card_reg == 0x8) {
-				first_status_read = false;
+			} else if (dir == TLPD_READ && card_reg == 0x8) {
 				mask_next_postgres_completion_data = true;
 				postgres_completion_mask = ~(
 					E1000_STATUS_FD | E1000_STATUS_ASDV_100 |
