@@ -55,6 +55,7 @@
  * pc_q35_init, and I am slowly cannibalising it.
  */
 #include "pcie-debug.h"
+#include "hw/net/e1000_regs.h"
 
 #define TARGET_BERI		1
 #define TARGET_NATIVE	2
@@ -591,12 +592,17 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 		match = false;
 	}
 
+	TLPDoubleWord *expected_dword = (TLPDoubleWord *)expected;
+	TLPDoubleWord *tlp_dword = (TLPDoubleWord *)tlp;
+
 	if (mask_next_postgres_completion_data) {
 		PDBG("Masking.");
 		mask_next_postgres_completion_data = false;
-		TLPDoubleWord *expected_dword = (TLPDoubleWord *)expected;
+		PDBG("Expected (%p) %0x => %0x", &(expected_dword[3]), expected_dword[3],
+			expected_dword[3] & postgres_completion_mask);
 		expected_dword[3] = expected_dword[3] & postgres_completion_mask;
-		TLPDoubleWord *tlp_dword = (TLPDoubleWord *)expected;
+		PDBG("Actual   (%p) %0x => %0x", &(tlp_dword[3]), tlp_dword[3],
+			tlp_dword[3] & postgres_completion_mask);
 		tlp_dword[3] = tlp_dword[3] & postgres_completion_mask;
 	}
 
@@ -1030,6 +1036,7 @@ main(int argc, char *argv[])
 	enum tlp_direction dir;
 	enum tlp_completion_status completion_status;
 	char *type_string;
+	bool first_status_read = true;
 	bool ignore_next_io_completion = false;
 	bool mask_next_io_completion_data = false;
 	uint16_t length, device_id, requester_id;
@@ -1180,9 +1187,9 @@ main(int argc, char *argv[])
 				if (rel_addr == 0) {
 					card_reg = tlp_in[3];
 				}
-				else if (rel_addr == 4 && card_reg == 0x5b50) {
-					/*PDBG("Setting CARD REG 0x%x <= 0x%x",*/
-						/*card_reg, tlp_in[3]);*/
+				else if (rel_addr == 4 && card_reg == 0x8) {
+					PDBG("Setting CARD REG 0x%x <= 0x%x",
+						card_reg, tlp_in[3]);
 				}
 			} else {
 				send_length = 16;
@@ -1190,8 +1197,8 @@ main(int argc, char *argv[])
 						(uint64_t *)tlp_out_body, 4)
 					== false);
 
-				if (rel_addr == 4 && card_reg == 0x5b50) {
-					/*PDBG("Read CARD REG 0x%x = 0x%x", card_reg, *tlp_out_body);*/
+				if (rel_addr == 4 && card_reg == 0x8) {
+					PDBG("Read CARD REG 0x%x = 0x%x", card_reg, *tlp_out_body);
 				}
 			}
 
@@ -1210,6 +1217,13 @@ main(int argc, char *argv[])
 				/*mask_next_postgres_completion_data = true;*/
 				postgres_completion_mask = ~2;
 				/* EEPROM semaphore bit */
+			} else if (dir == TLPD_READ && first_status_read &&
+				card_reg == 0x8) {
+				first_status_read = false;
+				mask_next_postgres_completion_data = true;
+				postgres_completion_mask = ~(
+					E1000_STATUS_FD | E1000_STATUS_ASDV_100 |
+					E1000_STATUS_ASDV_1000);
 			}
 
 			send_result = send_tlp(tlp_out_quadword, send_length);

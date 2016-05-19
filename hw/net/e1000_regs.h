@@ -32,6 +32,8 @@
 #ifndef _E1000_HW_H_
 #define _E1000_HW_H_
 
+#include <stdint.h>
+
 
 /* PCI Device IDs */
 #define E1000_DEV_ID_82542               0x1000
