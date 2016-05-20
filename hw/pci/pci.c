@@ -1172,7 +1172,10 @@ uint32_t pci_default_read_config(PCIDevice *d,
     uint32_t val = 0;
 
     memcpy(&val, d->config + address, len);
-    return le32_to_cpu(val);
+	val = le32_to_cpu(val);
+	/*if (address == 0xc)*/
+		/*PDBG("Read %d bytes of 0x%x. Returning 0x%x", len, address, val);*/
+    return val;
 }
 
 void pci_default_write_config(PCIDevice *d, uint32_t addr, uint32_t val_in, int l)
@@ -1187,10 +1190,25 @@ void pci_default_write_config(PCIDevice *d, uint32_t addr, uint32_t val_in, int 
         uint8_t wmask = d->wmask[addr + i];
         uint8_t w1cmask = d->w1cmask[addr + i];
         assert(!(wmask & w1cmask));
-		if ((addr + i) >= 0x10 && (addr + i) <= 0x24) {
-			/*PDBG("Write 0x%x (BAR %d) <= 0x%x; wmask 0x%x; w1c mask 0x%x",*/
-				/*addr + i, ((addr + i) - 0x10) / 4,val, wmask, w1cmask);*/
-		}
+		/*if ((addr + i) >= 0xc && (addr + i) < (0xc + 4)) {*/
+			/*char *reg;*/
+			/*switch (addr + i) {*/
+			/*case 0xC:*/
+				/*reg = "Cacheline Size";*/
+				/*break;*/
+			/*case (0xC + 1):*/
+				/*reg = "Latency Timer";*/
+				/*break;*/
+			/*case (0xC + 2):*/
+				/*reg = "Header Type";*/
+				/*break;*/
+			/*case (0xC + 3):*/
+				/*reg = "BIST";*/
+				/*break;*/
+			/*}*/
+			/*PDBG("Write %s 0x%x <= 0x%x; wmask 0x%x; w1c mask 0x%x (was 0x%x)",*/
+				/*reg, addr + i, val, wmask, w1cmask, d->config[addr + i]);*/
+		/*}*/
         d->config[addr + i] = (d->config[addr + i] & ~wmask) | (val & wmask);
         d->config[addr + i] &= ~(val & w1cmask); /* W1C: Write 1 to Clear */
     }

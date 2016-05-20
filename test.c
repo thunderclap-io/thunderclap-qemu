@@ -691,6 +691,7 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 			}
 			DEBUG_PRINTF("\n");
 		}
+		print_last_recvd_packet_ids();
 		return -1;
 	}
 
@@ -1168,7 +1169,7 @@ main(int argc, char *argv[])
 					tlp_out_body[0] = pci_host_config_read_common(
 						pci_dev, req_addr, req_addr + 4, 4);
 
-					/*PDBG("Read from %lx, Value 0x%x",*/
+					/*PDBG("CfgRd0 from %lx, Value 0x%x",*/
 						/*req_addr, tlp_out_body[0]);*/
 
 					++received_count;
@@ -1177,8 +1178,13 @@ main(int argc, char *argv[])
 				} else {
 					send_length = 12;
 
-					pci_host_config_write_common(
-						pci_dev, req_addr, req_addr + 4, tlp_in[3], 4);
+					for (i = 0; i < 4; ++i) {
+						if ((request_dword1->firstbe >> i) & 1) {
+							pci_host_config_write_common(
+								pci_dev, req_addr + i, req_addr + 4,
+								tlp_in[3] >> (i * 8), 1);
+						}
+					}
 				}
 			}
 			else {
