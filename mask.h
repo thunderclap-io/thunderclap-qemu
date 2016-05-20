@@ -4,10 +4,10 @@
 #include <assert.h>
 #include <stdint.h>
 
-#define UINT32_MASK(width)		((1 << width) - 1)
+#define UINT32_MASK(width)		((1 << (width)) - 1)
 // Top bit of unshift mask is in position (high - low)
 #define UINT32_MASK_ENABLE_BITS(high, low)		\
-	(UINT32_MASK(high - low + 1) << low)
+	((UINT32_MASK((high) - (low) + 1)) << low)
 
 static inline uint32_t
 uint32_mask(uint32_t width) {

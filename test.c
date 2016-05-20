@@ -474,9 +474,9 @@ should_receive_tlp_for_result(PGresult *result)
 		case 0x10:
 			second_card_regions[SECOND_CARD_REGION_MEM_INDEX] = region;
 			break;
-		/*case 0x18:*/
-			/*second_card_regions[SECOND_CARD_REGION_IO_INDEX] = region;*/
-			/*break;*/
+		case 0x18:
+			second_card_regions[SECOND_CARD_REGION_IO_INDEX] = region;
+			break;
 		case 0x30:
 			second_card_regions[SECOND_CARD_REGION_ROM_INDEX] = region;
 			break;
