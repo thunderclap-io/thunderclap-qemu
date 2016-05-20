@@ -1,2 +1,6 @@
 *.o
 .*
+build*
+*.log
+*.core
+vgcore.*

@@ -451,6 +451,12 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 
 static int32_t io_region =  -1;
 static int32_t second_card_regions[3] = {-1, -1, -1};
+static int32_t second_card_region_mask[3] = {
+	UINT32_MASK_ENABLE_BITS(31, 17),
+	UINT32_MASK_ENABLE_BITS(31, 5),
+	UINT32_MASK_ENABLE_BITS(31, 17)
+};
+
 static int32_t skip_sending = 0;
 
 static inline bool
@@ -463,14 +469,14 @@ should_receive_tlp_for_result(PGresult *result)
 	uint32_t device_id = get_postgres_device_id(result);
 	uint64_t address = get_postgres_address(result);
 	if (get_postgres_tlp_type(result) == PG_CFG_WR_0 && device_id == 257) {
-		uint32_t region = bswap32(get_postgres_data(result)) >> 24;
+		uint32_t region = bswap32(get_postgres_data(result));
 		switch(get_postgres_register(result)) {
 		case 0x10:
 			second_card_regions[SECOND_CARD_REGION_MEM_INDEX] = region;
 			break;
-		case 0x18:
-			second_card_regions[SECOND_CARD_REGION_IO_INDEX] = region;
-			break;
+		/*case 0x18:*/
+			/*second_card_regions[SECOND_CARD_REGION_IO_INDEX] = region;*/
+			/*break;*/
 		case 0x30:
 			second_card_regions[SECOND_CARD_REGION_ROM_INDEX] = region;
 			break;
@@ -488,9 +494,10 @@ should_receive_tlp_for_result(PGresult *result)
 
 	bool skip_due_to_this_region = false;
 	for (int i = 0; i < 3; ++i) {
-		skip_due_to_this_region = (second_card_regions[i] != -1 &&
-			address != 0 &&
-			(address >> 24) == second_card_regions[i]);
+		uint32_t mask = second_card_region_mask[i];
+		skip_due_to_this_region = (
+			second_card_regions[i] != -1 && address != 0 &&
+			(address & mask) == (second_card_regions[i] & mask));
 		/*if (skip_due_to_this_region) {*/
 			/*PDBG("%d: Skipping due to region %d",*/
 				/*get_postgres_packet(result), i);*/
