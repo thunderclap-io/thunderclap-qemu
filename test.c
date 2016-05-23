@@ -733,7 +733,7 @@ static inline void
 create_completion_header(volatile TLPDoubleWord *tlp,
 	enum tlp_direction direction, uint16_t completer_id,
 	enum tlp_completion_status completion_status, uint16_t bytecount,
-	uint16_t requester_id, uint8_t tag)
+	uint16_t requester_id, uint8_t tag, uint8_t loweraddress)
 {
 	// Clear buffer. If passed in a buffer that's too short, this might be an
 	// exploit?
@@ -762,6 +762,7 @@ create_completion_header(volatile TLPDoubleWord *tlp,
 		(volatile struct TLP64CompletionDWord2 *)(tlp) + 2;
 	header2->requester_id = requester_id;
 	header2->tag = tag;
+	header2->loweraddress = loweraddress;
 }
 
 MachineState *current_machine;
@@ -1083,7 +1084,7 @@ main(int argc, char *argv[])
 	bool ignore_next_io_completion = false;
 	bool mask_next_io_completion_data = false;
 	uint16_t length, device_id, requester_id;
-	uint32_t io_completion_mask;
+	uint32_t io_completion_mask, loweraddress;
 	uint64_t addr, req_addr;
 
 	TLPDoubleWord tlp_in[64], tlp_out[64];
@@ -1146,6 +1147,9 @@ main(int argc, char *argv[])
 			for (i = 0; i < 4; ++i) {
 				if ((request_dword1->firstbe >> i) & 1) {
 					PDBG("Reading offset 0x%lx", (rel_addr + i));
+					if (bytecount == 0) {
+						loweraddress = tlp_in[2] + i;
+					}
 					++bytecount;
 					read_error = io_mem_read(
 						target_region,
@@ -1163,7 +1167,7 @@ main(int argc, char *argv[])
 
 			create_completion_header(tlp_out, dir, device_id,
 				TLPCS_SUCCESSFUL_COMPLETION, bytecount, requester_id,
-				req_bits->tag);
+				req_bits->tag, loweraddress);
 
 			send_result = send_tlp(tlp_out_quadword, 16);
 			assert(send_result != -1);
@@ -1212,7 +1216,7 @@ main(int argc, char *argv[])
 
 			create_completion_header(
 				tlp_out, dir, device_id, completion_status, 4,
-				requester_id, req_bits->tag);
+				requester_id, req_bits->tag, 0);
 
 			send_result = send_tlp(tlp_out_quadword, send_length);
 			assert(send_result != -1);
@@ -1272,7 +1276,7 @@ main(int argc, char *argv[])
 #endif
 
 			create_completion_header(tlp_out, dir, device_id,
-				TLPCS_SUCCESSFUL_COMPLETION, 4, requester_id, req_bits->tag);
+				TLPCS_SUCCESSFUL_COMPLETION, 4, requester_id, req_bits->tag, 0);
 
 #ifdef POSTGRES
 			if (dir == TLPD_WRITE && card_reg == 0x10) {
