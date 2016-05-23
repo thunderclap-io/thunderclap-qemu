@@ -583,6 +583,7 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 #endif
 }
 
+#ifdef POSTGRES
 static inline bool
 should_send_tlp_for_result(PGresult *result)
 {
@@ -594,6 +595,7 @@ should_send_tlp_for_result(PGresult *result)
 	}
 	return !skip && get_postgres_completer_id(result) != 257;
 }
+#endif
 
 /* tlp is a pointer to the tlp, tlp_len is the length of the tlp in bytes. */
 /* returns 0 on success. */
@@ -1077,6 +1079,7 @@ main(int argc, char *argv[])
 	enum tlp_direction dir;
 	enum tlp_completion_status completion_status;
 	char *type_string;
+	bool read_error;
 	bool ignore_next_io_completion = false;
 	bool mask_next_io_completion_data = false;
 	uint16_t length, device_id, requester_id;
@@ -1097,6 +1100,10 @@ main(int argc, char *argv[])
 	struct TLP64ConfigReq *config_req = (struct TLP64ConfigReq *)tlp_in;
 	struct TLP64DWord0 *h0bits = &(config_req->header0);
 	struct TLP64RequestDWord1 *req_bits = &(config_req->req_header);
+
+	MemoryRegionSection target_section;
+	MemoryRegion *target_region;
+	hwaddr rel_addr;
 
 	int received_count = 0;
 	write_leds(received_count);
@@ -1132,14 +1139,25 @@ main(int argc, char *argv[])
 
 			bytecount = 0;
 
+			target_section = memory_region_find(pci_memory, tlp_in[2], 4);
+			target_region = target_section.mr;
+			rel_addr = target_section.offset_within_region;
+
 			for (i = 0; i < 4; ++i) {
 				if ((request_dword1->firstbe >> i) & 1) {
+					PDBG("Reading offset 0x%lx", (rel_addr + i));
 					++bytecount;
-					assert(io_mem_read(
-						pci_memory,
-						tlp_in[2],
+					read_error = io_mem_read(
+						target_region,
+						rel_addr + i,
 						(uint64_t *)((uint8_t *)tlp_out_body + i),
-						1) == false);
+						1);
+#ifdef POSTGRES
+					if (read_error) {
+						print_last_recvd_packet_ids();
+					}
+#endif
+					assert(!read_error);
 				}
 			}
 
@@ -1219,10 +1237,9 @@ main(int argc, char *argv[])
 			 *
 			 */
 
-			MemoryRegionSection target_section = memory_region_find(
-				get_system_io(), tlp_in[2], 4);
-			MemoryRegion *target_region = target_section.mr;
-			hwaddr rel_addr = target_section.offset_within_region;
+			target_section = memory_region_find(get_system_io(), tlp_in[2], 4);
+			target_region = target_section.mr;
+			rel_addr = target_section.offset_within_region;
 
 			if (dir == TLPD_WRITE) {
 				send_length = 12;
@@ -1247,14 +1264,17 @@ main(int argc, char *argv[])
 				}
 			}
 
+#ifdef POSTGRES
 			if (ignore_next_io_completion) {
 				ignore_next_io_completion = false;
 				ignore_next_postgres_completion = true;
 			}
+#endif
 
 			create_completion_header(tlp_out, dir, device_id,
 				TLPCS_SUCCESSFUL_COMPLETION, 4, requester_id, req_bits->tag);
 
+#ifdef POSTGRES
 			if (dir == TLPD_WRITE && card_reg == 0x10) {
 				ignore_next_io_completion = true;
 			} else if (dir == TLPD_READ && card_reg == 0x5B50) {
@@ -1268,6 +1288,7 @@ main(int argc, char *argv[])
 					E1000_STATUS_FD | E1000_STATUS_ASDV_100 |
 					E1000_STATUS_ASDV_1000);
 			}
+#endif
 
 			send_result = send_tlp(tlp_out_quadword, send_length);
 			assert(send_result != -1);

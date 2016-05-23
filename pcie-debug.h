@@ -14,7 +14,7 @@
 	fprintf(stderr, __VA_ARGS__);										\
 } while (0)
 #else
-#error "No PCIE DEBUG :'("
+//#error "No PCIE DEBUG :'("
 #define PDBG(...)
 #define DEBUG_PRINTF(...)
 #endif
