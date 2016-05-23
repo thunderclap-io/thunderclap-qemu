@@ -34,6 +34,7 @@
 
 SEP :=, 
 TARGETS = beri$(SEP)native
+TARGET ?= beri
 
 ifndef PCIE_QEMU_CHERI_SDK
 $(error Variable PCIE_QEMU_CHERI_SDK is not set)
