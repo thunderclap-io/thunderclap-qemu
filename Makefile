@@ -88,6 +88,7 @@ OBJDUMP = $(SDK)/bin/objdump
 EXTRA_USR=$(PCIE_QEMU_LIBRARY_ROOT)/usr
 CFLAGS := $(CFLAGS) $(addprefix "-I$(EXTRA_USR)/local/include/",$(LIBS))
 #CFLAGS := $(CFLAGS) --target=mips64-unknown-freebsd
+CFLAGS := $(CFLAGS) -integrated-as
 CFLAGS := $(CFLAGS) --sysroot=$(PCIE_QEMU_SYSROOT)
 CFLAGS := $(CFLAGS) -I$(EXTRA_USR)/local/lib/glib-2.0/include
 CFLAGS := $(CFLAGS) -DTARGET=TARGET_BERI -G0 -mxgot -O2 -ftls-model=local-exec
