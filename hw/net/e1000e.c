@@ -96,6 +96,7 @@ typedef struct {
 static uint64_t
 e1000e_mmio_read(void *opaque, hwaddr addr, unsigned size)
 {
+	/*PDBG("E1000E MMIO Read. %lx", addr);*/
     E1000EState *s = opaque;
     return e1000e_core_read(&s->core, addr, size);
 }

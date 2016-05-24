@@ -3203,7 +3203,7 @@ e1000e_core_read(E1000ECore *core, hwaddr addr, unsigned size)
 {
     uint64_t val;
     uint16_t index = _e1000e_get_reg_index_with_offset(mac_reg_access, addr);
-	/*PDBG("E1000E Read 0x%x (%d)", addr, index);*/
+	/*PDBG("E1000E Read 0x%lx (%d)", addr, index);*/
 
     if (index < NREADOPS && macreg_readops[index]) {
         if (mac_reg_access[index] & MAC_ACCESS_PARTIAL) {

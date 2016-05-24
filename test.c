@@ -414,14 +414,20 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 
 		break;
 	case PG_M_RD_32:
-		header0->fmt = TLPFMT_3DW_NODATA;
+	case PG_M_WR_32:
+		if (tlp_type == PG_IO_RD) {
+			header0->fmt = TLPFMT_3DW_NODATA;
+			data_length = 0;
+		} else {
+			header0->fmt = TLPFMT_3DW_DATA;
+			data_length = 4;
+		}
 		header0->type = M;
 		header_req->requester_id = get_postgres_requester_id(result);
 		header_req->tag = get_postgres_tag(result);
 		header_req->lastbe = get_postgres_last_be(result);
 		header_req->firstbe = get_postgres_first_be(result);
 		*dword2 = get_postgres_address(result);
-		data_length = get_postgres_length(result) * 4;
 		length = 12 + data_length;
 		break;
 	default:
@@ -651,6 +657,7 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	uint8_t *expected_byte = (uint8_t *)expected;
 	uint8_t *actual_byte = (uint8_t *)tlp;
 
+	/* TODO: Use one of the better mechanisms for masking off packets. */
 	for (i = 0; i < tlp_len; ++i) {
 		/* These exemptions are for:
 		 * the model num,
@@ -707,12 +714,14 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	// Stops the TX queue from draining whilst we're filling it.
 	IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 0);
 
-	for (quad_word_index = 0; quad_word_index < (tlp_len / 8);
+	int ceil_tlp_len = tlp_len + 7;
+
+	for (quad_word_index = 0; quad_word_index < (ceil_tlp_len / 8);
 			++quad_word_index) {
 		statusword.word = 0;
 		statusword.bits.startofpacket = (quad_word_index == 0);
 		statusword.bits.endofpacket =
-			((quad_word_index + 1) >= (tlp_len / 8));
+			((quad_word_index + 1) >= (ceil_tlp_len / 8));
 
 		// Write status word.
 		IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_STATUS,
@@ -1133,7 +1142,6 @@ main(int argc, char *argv[])
 
 		switch (dword0->type) {
 		case M:
-			assert(dir == TLPD_READ); /* Unimplemented. */
 			assert(dword0->length == 1);
 			/* This isn't in the spec, but seems to be all we've found in our
 			 * trace. */
@@ -1146,7 +1154,8 @@ main(int argc, char *argv[])
 
 			for (i = 0; i < 4; ++i) {
 				if ((request_dword1->firstbe >> i) & 1) {
-					PDBG("Reading offset 0x%lx", (rel_addr + i));
+					/*PDBG("Reading REG %s offset 0x%lx", target_region->name,*/
+						   /*(rel_addr + i));*/
 					if (bytecount == 0) {
 						loweraddress = tlp_in[2] + i;
 					}
@@ -1159,6 +1168,12 @@ main(int argc, char *argv[])
 #ifdef POSTGRES
 					if (read_error) {
 						print_last_recvd_packet_ids();
+					}
+					if (rel_addr == 0x5B58) {
+						/* Second software semaphore, not present on this
+						 * card.
+						 */
+						ignore_next_postgres_completion = true;
 					}
 #endif
 					assert(!read_error);
