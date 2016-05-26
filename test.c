@@ -1225,8 +1225,9 @@ main(int argc, char *argv[])
 				if (read_error) {
 					print_last_recvd_packet_ids();
 				}
-				if (rel_addr == 0x5B58) {
-					/* Second software semaphore, not present on this
+				if (rel_addr == 0x10 || rel_addr == 0x5B58) {
+					/* 1) EEPROM or Flash
+					 * 2) Second software semaphore, not present on this
 					 * card.
 					 */
 					ignore_next_postgres_completion = true;
