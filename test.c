@@ -451,19 +451,30 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 /* We also use this to intercept BAR settings so that we don't send memory
  * read requests we don't have adequate responses to. */
 
+#define IGNORE_REGION_COUNT				4
+
 #define SECOND_CARD_REGION_MEM_INDEX	0
 #define SECOND_CARD_REGION_IO_INDEX		1
 #define SECOND_CARD_REGION_ROM_INDEX	2
+#define FIRST_CARD_REGION_ROM_INDEX		3
 
 static int32_t io_region =  -1;
-static int32_t second_card_regions[3] = {-1, -1, -1};
-static int32_t second_card_region_mask[3] = {
+static int32_t ignore_regions[IGNORE_REGION_COUNT] = {-1, -1, -1, -1};
+static int32_t ignore_region_mask[IGNORE_REGION_COUNT] = {
 	UINT32_MASK_ENABLE_BITS(31, 17),
 	UINT32_MASK_ENABLE_BITS(31, 5),
+	UINT32_MASK_ENABLE_BITS(31, 17),
 	UINT32_MASK_ENABLE_BITS(31, 17)
 };
 
 static int32_t skip_sending = 0;
+
+static inline bool
+tlp_expects_response(PGresult *result)
+{
+	enum postgres_tlp_type type = get_postgres_tlp_type(result);
+	return type != PG_M_WR_32 && type != PG_MSG_D;
+}
 
 static inline bool
 should_receive_tlp_for_result(PGresult *result)
@@ -474,36 +485,34 @@ should_receive_tlp_for_result(PGresult *result)
 	bool skip = false;
 	uint32_t device_id = get_postgres_device_id(result);
 	uint64_t address = get_postgres_address(result);
-	if (get_postgres_tlp_type(result) == PG_CFG_WR_0 && device_id == 257) {
-		uint32_t region = bswap32(get_postgres_data(result));
-		switch(get_postgres_register(result)) {
-		case 0x10:
-			second_card_regions[SECOND_CARD_REGION_MEM_INDEX] = region;
-			break;
-		case 0x18:
-			second_card_regions[SECOND_CARD_REGION_IO_INDEX] = region;
-			break;
-		case 0x30:
-			second_card_regions[SECOND_CARD_REGION_ROM_INDEX] = region;
-			break;
-		}
+	uint32_t region = bswap32(get_postgres_data(result));
+	if (get_postgres_tlp_type(result) == PG_CFG_WR_0) {
+		if (device_id == 256) {
+			if (get_postgres_register(result) == 0x30) {
+				ignore_regions[FIRST_CARD_REGION_ROM_INDEX] = region;
+			}
+		} else if (device_id == 257) {
+			switch(get_postgres_register(result)) {
+			case 0x10:
+				ignore_regions[SECOND_CARD_REGION_MEM_INDEX] = region;
+				break;
+			case 0x18:
+				ignore_regions[SECOND_CARD_REGION_IO_INDEX] = region;
+				break;
+			case 0x30:
+				ignore_regions[SECOND_CARD_REGION_ROM_INDEX] = region;
+				break;
+			}
 		/*PDBG("!!! Setting second card region: 0x%x", second_card_region);*/
-	}
-	/* 0xE2 is the ROM region -- we have to intercept, because the region
-	 * never gets assigned, and the whole simulation falls over.  We have to
-	 * signal to skip a completion too.*/
-	if ((address >> 24) == 0xE2) {
-		++skip_sending;
-		assert(skip_sending >= 0);
-		skip = true;
+		}
 	}
 
 	bool skip_due_to_this_region = false;
-	for (int i = 0; i < 3; ++i) {
-		uint32_t mask = second_card_region_mask[i];
+	for (int i = 0; i < IGNORE_REGION_COUNT; ++i) {
+		uint32_t mask = ignore_region_mask[i];
 		skip_due_to_this_region = (
-			second_card_regions[i] != -1 && address != 0 &&
-			(address & mask) == (second_card_regions[i] & mask));
+			ignore_regions[i] != -1 && address != 0 &&
+			(address & mask) == (ignore_regions[i] & mask));
 		/*if (skip_due_to_this_region) {*/
 			/*PDBG("%d: Skipping due to region %d",*/
 				/*get_postgres_packet(result), i);*/
@@ -512,19 +521,63 @@ should_receive_tlp_for_result(PGresult *result)
 		skip_due_to_this_region = false;
 	}
 
-	return !skip && device_id != 257;
+	if (device_id == 257) {
+		skip = true;
+	}
+
+	if (skip && tlp_expects_response(result)) {
+		++skip_sending;
+		assert(skip_sending >= 0);
+	}
+
+	return !skip;
 }
 
 #define		ID_BUFFER_SIZE		8
-static uint32_t last_ids[ID_BUFFER_SIZE];
+static uint32_t last_recvd_ids[ID_BUFFER_SIZE];
 static int recvd_count = 0;
+
+static uint32_t last_sent_ids[ID_BUFFER_SIZE];
+static int sent_count = 0;
+
+static void
+print_circular_uint_buffer(uint32_t *buffer, int count, int buffer_size)
+{
+	for (int i = (count - buffer_size); i < count; ++i) {
+		DEBUG_PRINTF("%d\n", buffer[(i % buffer_size)]);
+	}
+}
+
+static inline uint32_t
+circular_buffer_last(uint32_t *buffer, int count, int buffer_size)
+{
+	return buffer[(count - 1) % buffer_size];
+}
+
+static uint32_t
+last_recvd_packet_id()
+{
+	return circular_buffer_last(last_recvd_ids, recvd_count, ID_BUFFER_SIZE);
+}
 
 static void
 print_last_recvd_packet_ids()
 {
-	for (int i = (recvd_count - ID_BUFFER_SIZE); i < recvd_count; ++i) {
-		PDBG("%d", last_ids[(i % ID_BUFFER_SIZE)]);
-	}
+	DEBUG_PRINTF("Last received ids...\n");
+	print_circular_uint_buffer(last_recvd_ids, recvd_count, ID_BUFFER_SIZE);
+}
+
+static uint32_t
+last_sent_packet_id()
+{
+	return circular_buffer_last(last_sent_ids, sent_count, ID_BUFFER_SIZE);
+}
+
+static void
+print_last_sent_packet_ids()
+{
+	DEBUG_PRINTF("Last sent ids...\n");
+	print_circular_uint_buffer(last_sent_ids, sent_count, ID_BUFFER_SIZE);
 }
 
 #endif // ifdef POSTGRES
@@ -540,6 +593,7 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	PGresult *result = PQgetResult(postgres_connection_downstream);
 	
 	while (!should_receive_tlp_for_result(result)) {
+		/*PDBG("Skipping receiving %d", get_postgres_packet(result));*/
 		PQclear(result);
 		result = PQgetResult(postgres_connection_downstream);
 		if (result == NULL) {
@@ -552,7 +606,7 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	DEBUG_PRINTF("Simulating receiving ");
 #endif
 	ret_value = tlp_from_postgres(result, tlp_dword, tlp_len);
-	last_ids[(recvd_count % ID_BUFFER_SIZE)] = get_postgres_packet(result);
+	last_recvd_ids[(recvd_count % ID_BUFFER_SIZE)] = get_postgres_packet(result);
 	++recvd_count;
 
 	assert(PQntuples(result) == 1);
@@ -598,8 +652,9 @@ should_send_tlp_for_result(PGresult *result)
 	if (skip_sending != 0) {
 		skip = true;
 		--skip_sending;
+		/*PDBG("Paying off skip sending.");*/
 	}
-	return !skip && get_postgres_completer_id(result) != 257;
+	return !skip;
 }
 #endif
 
@@ -609,7 +664,8 @@ int
 send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 {
 #ifdef POSTGRES
-	static int sent_count = 0;
+	static int check_count = 0;
+
 	int i, response;
 
 	PGresult *result = PQgetResult(postgres_connection_upstream);
@@ -624,8 +680,21 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 #endif
 
 	while (!should_send_tlp_for_result(result)) {
+		/*PDBG("Skipping sending %d", get_postgres_packet(result));*/
 		PQclear(result);
 		result = PQgetResult(postgres_connection_upstream);
+	}
+
+	last_sent_ids[sent_count % ID_BUFFER_SIZE] = get_postgres_packet(result);
+	++sent_count;
+
+	/*PDBG("Recvd: %d; Sent: %d", last_recvd_packet_id(), last_sent_packet_id());*/
+	if (last_sent_packet_id() < last_recvd_packet_id()) {
+		PDBG("Checked: %d", check_count);
+		print_last_recvd_packet_ids();
+		print_last_sent_packet_ids();
+
+		assert(last_sent_packet_id() > last_recvd_packet_id());
 	}
 
 	response = tlp_from_postgres(result, (TLPDoubleWord *)expected, buffer_len);
@@ -636,6 +705,7 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 		PDBG("Trying to send tlp of length %d. Exected %d. Packet %d. Checked %d.",
 			tlp_len, response, get_postgres_packet(result), sent_count);
 		print_last_recvd_packet_ids();
+		print_last_sent_packet_ids();
 		assert(response == tlp_len);
 		match = false;
 	}
@@ -681,12 +751,12 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 			match = match && (expected_byte[i] == actual_byte[i]);
 		}
 	}
-
+	
 	if (ignore_next_postgres_completion) {
 		match = true;
 		ignore_next_postgres_completion = false;
 	} else {
-		++sent_count;
+		++check_count;
 	}
 
 	if (!match) {
@@ -1089,7 +1159,8 @@ main(int argc, char *argv[])
 	enum tlp_direction dir;
 	enum tlp_completion_status completion_status;
 	char *type_string;
-	bool read_error;
+	bool read_error = false;
+	bool write_error = false;
 	bool ignore_next_io_completion = false;
 	bool mask_next_io_completion_data = false;
 	uint16_t length, device_id, requester_id;
@@ -1156,28 +1227,41 @@ main(int argc, char *argv[])
 				if ((request_dword1->firstbe >> i) & 1) {
 					/*PDBG("Reading REG %s offset 0x%lx", target_region->name,*/
 						   /*(rel_addr + i));*/
-					if (bytecount == 0) {
-						loweraddress = tlp_in[2] + i;
-					}
-					++bytecount;
-					read_error = io_mem_read(
-						target_region,
-						rel_addr + i,
-						(uint64_t *)((uint8_t *)tlp_out_body + i),
-						1);
+					if (dir == TLPD_READ) {
+						if (bytecount == 0) {
+							loweraddress = tlp_in[2] + i;
+						}
+						++bytecount;
+						read_error = io_mem_read(
+							target_region,
+							rel_addr + i,
+							(uint64_t *)((uint8_t *)tlp_out_body + i),
+							1);
 #ifdef POSTGRES
-					if (read_error) {
-						print_last_recvd_packet_ids();
-					}
-					if (rel_addr == 0x5B58) {
-						/* Second software semaphore, not present on this
-						 * card.
-						 */
-						ignore_next_postgres_completion = true;
-					}
+						if (read_error) {
+							print_last_recvd_packet_ids();
+						}
+						if (rel_addr == 0x5B58) {
+							/* Second software semaphore, not present on this
+							 * card.
+							 */
+							ignore_next_postgres_completion = true;
+						}
 #endif
-					assert(!read_error);
+						assert(!read_error);
+					} else { /* dir == TLPD_WRITE */
+						write_error = io_mem_write(
+							target_region,
+							rel_addr + i,
+							*((uint64_t *)((uint8_t *)tlp_in + 12 + i)),
+							1);
+						assert(!write_error);
+					}
 				}
+			}
+
+			if (dir == TLPD_WRITE) {
+				break;
 			}
 
 			create_completion_header(tlp_out, dir, device_id,
