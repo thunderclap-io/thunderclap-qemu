@@ -89,6 +89,9 @@
 #define PG_REPR_TEXTUAL		0
 #define PG_REPR_BINARY		1
 
+#define PG_STATUS_MASK \
+	~(E1000_STATUS_FD | E1000_STATUS_ASDV_100 | E1000_STATUS_ASDV_1000)
+
 static PGconn *postgres_connection_downstream;
 static PGconn *postgres_connection_upstream;
 
@@ -1231,6 +1234,9 @@ main(int argc, char *argv[])
 					 * card.
 					 */
 					ignore_next_postgres_completion = true;
+				} else if (rel_addr == 0x8) {
+					mask_next_postgres_completion_data = true;
+					postgres_completion_mask = PG_STATUS_MASK;
 				}
 #endif
 				assert(!read_error);
@@ -1383,9 +1389,7 @@ main(int argc, char *argv[])
 				/* EEPROM semaphore bit */
 			} else if (dir == TLPD_READ && card_reg == 0x8) {
 				mask_next_postgres_completion_data = true;
-				postgres_completion_mask = ~(
-					E1000_STATUS_FD | E1000_STATUS_ASDV_100 |
-					E1000_STATUS_ASDV_1000);
+				postgres_completion_mask = PG_STATUS_MASK;
 			}
 #endif
 
