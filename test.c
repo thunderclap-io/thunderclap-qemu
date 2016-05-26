@@ -415,7 +415,7 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 		break;
 	case PG_M_RD_32:
 	case PG_M_WR_32:
-		if (tlp_type == PG_IO_RD) {
+		if (tlp_type == PG_M_RD_32) {
 			header0->fmt = TLPFMT_3DW_NODATA;
 			data_length = 0;
 		} else {
@@ -483,6 +483,7 @@ should_receive_tlp_for_result(PGresult *result)
 		return false;
 	}
 	bool skip = false;
+	uint32_t packet = get_postgres_packet(result);
 	uint32_t device_id = get_postgres_device_id(result);
 	uint64_t address = get_postgres_address(result);
 	uint32_t region = bswap32(get_postgres_data(result));
@@ -513,15 +514,15 @@ should_receive_tlp_for_result(PGresult *result)
 		skip_due_to_this_region = (
 			ignore_regions[i] != -1 && address != 0 &&
 			(address & mask) == (ignore_regions[i] & mask));
-		/*if (skip_due_to_this_region) {*/
-			/*PDBG("%d: Skipping due to region %d",*/
-				/*get_postgres_packet(result), i);*/
-		/*}*/
+		if (skip_due_to_this_region) {
+			/*PDBG("%d: Skipping due to region %d", packet, i);*/
+		}
 		skip = skip || skip_due_to_this_region;
 		skip_due_to_this_region = false;
 	}
 
 	if (device_id == 257) {
+		/*PDBG("%d: Skipping due to device id is 257.", packet);*/
 		skip = true;
 	}
 
@@ -760,8 +761,8 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	}
 
 	if (!match) {
-		PDBG("Attempted packet send mismatch (sent %d, packet %d)",
-			sent_count, get_postgres_packet(result));
+		PDBG("Attempted packet send mismatch (checked %d, packet %d)",
+			check_count, get_postgres_packet(result));
 		for (i = 0; i < tlp_len; ++i) {
 			DEBUG_PRINTF("%03d: Exp - 0x%02x; Act - 0x%02x (%p)",
 				i, expected_byte[i], actual_byte[i], &actual_byte[i]);
@@ -1005,22 +1006,14 @@ main(int argc, char *argv[])
 
 	query_status = start_binary_single_row_query(
 		postgres_connection_downstream,
-		"SELECT * FROM trace \n"
-		"WHERE link_dir = 'Downstream'\n"
-		/* 257 is the address of the other interface on the NIC which we
-		 * don't have. This is probably a slight divergence in the actual
-		 * behaviour we'd see, but close enough. Have to let NULL through
-		 * because NULL != 257 is NULL, which is falsy.. */
-		"ORDER BY packet ASC");
+		"SELECT * FROM trace WHERE link_dir = 'Downstream' ORDER BY packet ASC");
 	if (query_status != 0) {
 		return query_status;
 	}
 
 	query_status = start_binary_single_row_query(
 		postgres_connection_upstream,
-		"SELECT * FROM trace \n"
-		"WHERE link_dir = 'Upstream'\n"
-		"ORDER BY packet ASC");
+		"SELECT * FROM trace WHERE link_dir = 'Upstream' ORDER BY packet ASC");
 	if (query_status != 0) {
 		return query_status;
 	}
@@ -1261,6 +1254,7 @@ main(int argc, char *argv[])
 			}
 
 			if (dir == TLPD_WRITE) {
+				/*PDBG("!!! Breaking due to direction '%s'", direction_string);*/
 				break;
 			}
 
