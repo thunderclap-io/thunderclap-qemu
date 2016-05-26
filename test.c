@@ -1216,6 +1216,25 @@ main(int argc, char *argv[])
 			target_region = target_section.mr;
 			rel_addr = target_section.offset_within_region;
 
+			if (dir == TLPD_READ) {
+				read_error = io_mem_read( target_region,
+					rel_addr,
+					(uint64_t *)tlp_out_body,
+					4);
+#ifdef POSTGRES
+				if (read_error) {
+					print_last_recvd_packet_ids();
+				}
+				if (rel_addr == 0x5B58) {
+					/* Second software semaphore, not present on this
+					 * card.
+					 */
+					ignore_next_postgres_completion = true;
+				}
+#endif
+				assert(!read_error);
+			}
+
 			for (i = 0; i < 4; ++i) {
 				if ((request_dword1->firstbe >> i) & 1) {
 					/*PDBG("Reading REG %s offset 0x%lx", target_region->name,*/
@@ -1225,23 +1244,6 @@ main(int argc, char *argv[])
 							loweraddress = tlp_in[2] + i;
 						}
 						++bytecount;
-						read_error = io_mem_read(
-							target_region,
-							rel_addr + i,
-							(uint64_t *)((uint8_t *)tlp_out_body + i),
-							1);
-#ifdef POSTGRES
-						if (read_error) {
-							print_last_recvd_packet_ids();
-						}
-						if (rel_addr == 0x5B58) {
-							/* Second software semaphore, not present on this
-							 * card.
-							 */
-							ignore_next_postgres_completion = true;
-						}
-#endif
-						assert(!read_error);
 					} else { /* dir == TLPD_WRITE */
 						write_error = io_mem_write(
 							target_region,
@@ -1254,7 +1256,6 @@ main(int argc, char *argv[])
 			}
 
 			if (dir == TLPD_WRITE) {
-				/*PDBG("!!! Breaking due to direction '%s'", direction_string);*/
 				break;
 			}
 
