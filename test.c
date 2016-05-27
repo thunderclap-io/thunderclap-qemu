@@ -90,7 +90,8 @@
 #define PG_REPR_BINARY		1
 
 #define PG_STATUS_MASK \
-	~(E1000_STATUS_FD | E1000_STATUS_ASDV_100 | E1000_STATUS_ASDV_1000)
+	~(E1000_STATUS_FD | E1000_STATUS_ASDV_100 | E1000_STATUS_ASDV_1000 \
+		| E1000_STATUS_GIO_MASTER_ENABLE )
 
 static PGconn *postgres_connection_downstream;
 static PGconn *postgres_connection_upstream;
@@ -670,7 +671,7 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 #ifdef POSTGRES
 	static int check_count = 0;
 
-	int i, j, response;
+	int i, response;
 
 	PGresult *result = PQgetResult(postgres_connection_upstream);
 	assert(result != NULL);
@@ -774,14 +775,17 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 			}
 			DEBUG_PRINTF("\n");
 		}
-		for (i = 12; i < tlp_len; ++i) {
-			for (j = 0; j < 8; ++j) {
-				int expected_bit = (expected_byte[i] >> j) & 1;
-				int actual_bit = (actual_byte[i] >> j) & 1;
-				if (expected_bit != actual_bit) {
-					DEBUG_PRINTF("Data bit %03d: Exp - %d; Act - %d\n",
-						(i - 12) * 8 + j, expected_bit, actual_bit);
-				}
+		
+		/*uint32_t expected_data = bswap32(expected_dword[3]);*/
+		/*uint32_t actual_data = bswap32(tlp_dword[3]);*/
+		uint32_t expected_data = expected_dword[3];
+		uint32_t actual_data = tlp_dword[3];
+		for (i = 0; i < 31; ++i) {
+			int expected_bit = (expected_data >> i) & 1;
+			int actual_bit = (actual_data >> i) & 1;
+			if (expected_bit != actual_bit) {
+				DEBUG_PRINTF("Data bit %03d: Exp - %d; Act - %d\n",
+					i, expected_bit, actual_bit);
 			}
 		}
 		print_last_recvd_packet_ids();

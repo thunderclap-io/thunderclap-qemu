@@ -1972,6 +1972,8 @@ _e1000e_core_reset_mac(E1000ECore *core)
 static void
 set_ctrl(E1000ECore *core, int index, uint32_t val)
 {
+	PDBG("Setting CTRL to 0x%x. GIO Master Disable to %d",
+		val, (val >> 2) & 1);
     trace_e1000e_core_ctrl_write(index, val);
 
     /* RST is self clearing */
@@ -2562,6 +2564,7 @@ set_dlen(E1000ECore *core, int index, uint32_t val)
 static void
 set_tctl(E1000ECore *core, int index, uint32_t val)
 {
+	PDBG("Setting TCTL to 0x%x", val);
     E1000E_TxRing txr;
     core->mac[index] = val;
 
@@ -2679,6 +2682,9 @@ set_tidv(E1000ECore *core, int index, uint32_t val)
 static uint32_t
 mac_readreg(E1000ECore *core, int index)
 {
+	if (index == TCTL) {
+		PDBG("Returning TCTL as %x", core->mac[index]);
+	}
     return core->mac[index];
 }
 
