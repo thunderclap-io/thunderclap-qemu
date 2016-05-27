@@ -229,7 +229,7 @@ static void pci_do_device_reset(PCIDevice *dev)
 void pci_device_reset(PCIDevice *dev)
 {
     qdev_reset_all(&dev->qdev);
-    pci_do_device_reset(dev);
+	pci_do_device_reset(dev);
 }
 
 /*

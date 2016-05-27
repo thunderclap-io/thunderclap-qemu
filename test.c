@@ -718,13 +718,13 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	TLPDoubleWord *tlp_dword = (TLPDoubleWord *)tlp;
 
 	if (mask_next_postgres_completion_data) {
-		PDBG("Masking.");
+		/*PDBG("Masking.");*/
 		mask_next_postgres_completion_data = false;
-		PDBG("Expected (%p) %0x => %0x", &(expected_dword[3]), expected_dword[3],
-			expected_dword[3] & postgres_completion_mask);
+		/*PDBG("Expected (%p) %0x => %0x", &(expected_dword[3]), expected_dword[3],*/
+			/*expected_dword[3] & postgres_completion_mask);*/
 		expected_dword[3] = expected_dword[3] & postgres_completion_mask;
-		PDBG("Actual   (%p) %0x => %0x", &(tlp_dword[3]), tlp_dword[3],
-			tlp_dword[3] & postgres_completion_mask);
+		/*PDBG("Actual   (%p) %0x => %0x", &(tlp_dword[3]), tlp_dword[3],*/
+			/*tlp_dword[3] & postgres_completion_mask);*/
 		tlp_dword[3] = tlp_dword[3] & postgres_completion_mask;
 	}
 
@@ -1143,8 +1143,6 @@ main(int argc, char *argv[])
 	object_property_set_bool(OBJECT(dev), true, "realized", &err);
 
 	PCIDevice *pci_dev = PCI_DEVICE(dev);
-	// Use pci_host_config read common to reply to read responses.
-	printf("%x.\n", pci_host_config_read_common(pci_dev, 0, 4, 4));
 
 #ifndef POSTGRES
 	physmem = open_io_region(PCIEPACKET_REGION_BASE, PCIEPACKET_REGION_LENGTH);
@@ -1351,12 +1349,10 @@ main(int argc, char *argv[])
 				assert(io_mem_write(target_region, rel_addr, tlp_in[3], 4)
 					== false);
 
+				/*PDBG("Setting CARD REG 0x%x <= 0x%x", card_reg, tlp_in[3]);*/
+
 				if (rel_addr == 0) {
 					card_reg = tlp_in[3];
-				}
-				else if (rel_addr == 4 && card_reg == 0x8) {
-					PDBG("Setting CARD REG 0x%x <= 0x%x",
-						card_reg, tlp_in[3]);
 				}
 			} else {
 				send_length = 16;
@@ -1364,9 +1360,7 @@ main(int argc, char *argv[])
 						(uint64_t *)tlp_out_body, 4)
 					== false);
 
-				if (rel_addr == 4 && card_reg == 0x8) {
-					PDBG("Read CARD REG 0x%x = 0x%x", card_reg, *tlp_out_body);
-				}
+				/*PDBG("Read CARD REG 0x%x = 0x%x", card_reg, *tlp_out_body);*/
 			}
 
 #ifdef POSTGRES
