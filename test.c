@@ -670,7 +670,7 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 #ifdef POSTGRES
 	static int check_count = 0;
 
-	int i, response;
+	int i, j, response;
 
 	PGresult *result = PQgetResult(postgres_connection_upstream);
 	assert(result != NULL);
@@ -718,13 +718,13 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	TLPDoubleWord *tlp_dword = (TLPDoubleWord *)tlp;
 
 	if (mask_next_postgres_completion_data) {
-		/*PDBG("Masking.");*/
+		PDBG("Masking.");
 		mask_next_postgres_completion_data = false;
-		/*PDBG("Expected (%p) %0x => %0x", &(expected_dword[3]), expected_dword[3],*/
-			/*expected_dword[3] & postgres_completion_mask);*/
+		PDBG("Expected (%p) %0x => %0x", &(expected_dword[3]), expected_dword[3],
+			expected_dword[3] & postgres_completion_mask);
 		expected_dword[3] = expected_dword[3] & postgres_completion_mask;
-		/*PDBG("Actual   (%p) %0x => %0x", &(tlp_dword[3]), tlp_dword[3],*/
-			/*tlp_dword[3] & postgres_completion_mask);*/
+		PDBG("Actual   (%p) %0x => %0x", &(tlp_dword[3]), tlp_dword[3],
+			tlp_dword[3] & postgres_completion_mask);
 		tlp_dword[3] = tlp_dword[3] & postgres_completion_mask;
 	}
 
@@ -773,6 +773,16 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 				DEBUG_PRINTF(" !");
 			}
 			DEBUG_PRINTF("\n");
+		}
+		for (i = 12; i < tlp_len; ++i) {
+			for (j = 0; j < 8; ++j) {
+				int expected_bit = (expected_byte[i] >> j) & 1;
+				int actual_bit = (actual_byte[i] >> j) & 1;
+				if (expected_bit != actual_bit) {
+					DEBUG_PRINTF("Data bit %03d: Exp - %d; Act - %d\n",
+						(i - 12) * 8 + j, expected_bit, actual_bit);
+				}
+			}
 		}
 		print_last_recvd_packet_ids();
 		return -1;
@@ -1218,6 +1228,9 @@ main(int argc, char *argv[])
 			rel_addr = target_section.offset_within_region;
 
 			if (dir == TLPD_READ) {
+				PDBG("Reading region %s offset 0x%lx", target_region->name,
+					rel_addr);
+
 				read_error = io_mem_read( target_region,
 					rel_addr,
 					(uint64_t *)tlp_out_body,
@@ -1226,15 +1239,22 @@ main(int argc, char *argv[])
 				if (read_error) {
 					print_last_recvd_packet_ids();
 				}
-				if (rel_addr == 0x10 || rel_addr == 0x5B58) {
+
+				if (rel_addr == 0x0) {
+					mask_next_postgres_completion_data = true;
+					postgres_completion_mask = ~uint32_mask_enable_bits(19, 19);
+					PDBG("%x", postgres_completion_mask);
+					/* 19 is apparently a software controllable IO pin, so I
+					 * don't think we particularly care. */
+				} else if (rel_addr == 0x8) {
+					mask_next_postgres_completion_data = true;
+					postgres_completion_mask = PG_STATUS_MASK;
+				} else if (rel_addr == 0x10 || rel_addr == 0x5B58) {
 					/* 1) EEPROM or Flash
 					 * 2) Second software semaphore, not present on this
 					 * card.
 					 */
 					ignore_next_postgres_completion = true;
-				} else if (rel_addr == 0x8) {
-					mask_next_postgres_completion_data = true;
-					postgres_completion_mask = PG_STATUS_MASK;
 				}
 #endif
 				assert(!read_error);
@@ -1242,8 +1262,6 @@ main(int argc, char *argv[])
 
 			for (i = 0; i < 4; ++i) {
 				if ((request_dword1->firstbe >> i) & 1) {
-					/*PDBG("Reading REG %s offset 0x%lx", target_region->name,*/
-						   /*(rel_addr + i));*/
 					if (dir == TLPD_READ) {
 						if (bytecount == 0) {
 							loweraddress = tlp_in[2] + i;
