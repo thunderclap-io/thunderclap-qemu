@@ -34,7 +34,7 @@
 
 SEP :=, 
 TARGETS = beri$(SEP)native
-TARGET ?= beri
+TARGET ?= native
 
 ifndef PCIE_QEMU_CHERI_SDK
 $(error Variable PCIE_QEMU_CHERI_SDK is not set)
@@ -67,6 +67,12 @@ else
 endif
 
 TARGET_DIR=build-$(TARGET)
+
+BACKEND_beri = pcie-altera-beri.c
+BACKEND_native = pcie-postgres.c
+BACKEND_nios = pcie-nios.c
+
+
 
 LDFLAGS := -static #-target mips64-unknown-freebsd #-G0
 LIBS := glib-2.0 pixman-1
@@ -119,7 +125,7 @@ CFLAGS := $(CFLAGS) -D NEED_CPU_H -D TARGET_X86_64 -D CONFIG_BSD
 CFLAGS := $(CFLAGS) -D_GNU_SOURCE # To pull in pipe2 -- seems dodgy
 
 DONT_FIND_TEMPLATES := $(shell grep "include \".*\.c\"" -Roh . | sort | uniq | sed 's/include /! -name /g')
-SOURCES := $(shell find . -name "*.c" $(DONT_FIND_TEMPLATES) | sed 's|./||')
+SOURCES := $(shell find . -name "*.c" $(DONT_FIND_TEMPLATES) ! -name "pcie-*.c" | sed 's|./||') $(BACKEND_$(TARGET))
 O_FILES := $(addprefix $(TARGET_DIR)/,$(SOURCES:.c=.o))
 HEADERS := $(shell find . -name "*.h")
 
