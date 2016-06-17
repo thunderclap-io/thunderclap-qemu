@@ -66,6 +66,11 @@ extern uint32_t postgres_completion_mask;
 #define PG_REPR_TEXTUAL		0
 #define PG_REPR_BINARY		1
 
+unsigned long
+read_hw_counter()
+{
+	return 0;
+}
 
 void
 print_backtrace(int signum)

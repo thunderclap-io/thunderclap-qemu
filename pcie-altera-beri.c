@@ -27,6 +27,17 @@ pcie_hardware_init(int argc, char **argv, volatile uint8_t **physmem)
 	return 0;
 }
 
+unsigned long
+read_hw_counter()
+{
+	unsigned long retval;
+	asm volatile("rdhwr %0, $2"
+		: "=r"(retval));
+	return retval;
+}
+
+
+
 /* tlp_len is length of the buffer in bytes. */
 /* Return -1 if 1024 attempts to poll the buffer fail. */
 int

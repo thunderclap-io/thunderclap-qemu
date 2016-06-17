@@ -55,17 +55,22 @@
  * pc_q35_init, and I am slowly cannibalising it.
  */
 #include "pcie-debug.h"
+#ifndef DUMMY
 #include "hw/net/e1000_regs.h"
+#endif
 
 #define TARGET_BERI		1
 #define TARGET_NATIVE	2
 
+#ifndef BAREMETAL
 #include <execinfo.h>
 #include <stdio.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <sys/endian.h>
+#endif
 
+#ifndef DUMMY
 #include "qom/object.h"
 #include "hw/pci/pci.h"
 #include "hw/pci/pci_bus.h"
@@ -73,12 +78,40 @@
 #include "hw/pci-host/q35.h"
 #include "qapi/qmp/qerror.h"
 #include "qemu/config-file.h"
+#endif
 
+#ifdef BAREMETAL
+#include "baremetalsupport.h"
+#include "log.h"
+#endif
 #include "pcie.h"
 #include "pciefpga.h"
 #include "beri-io.h"
 #include "mask.h"
 #include "pcie-backend.h"
+
+char *log_strings[] = {
+ 	"TIME: ",
+	". Since last: ",
+	"Recieved TLP with requester id: ",
+	"Sending DWord: ",
+	"Packet sent.",
+	"Received other packet.",
+	"Received explicitly unknown packet.",
+	"Received Config Write packet.",
+	"Received Config Read packet."
+};
+
+#define LS_TIME 0
+#define LS_TIME_DELTA 1
+#define LS_REQUESTER_ID 2
+#define LS_SENDING_DWORD 3
+#define LS_PACKET_SENT 4
+#define LS_RECV_OTHER 5
+#define LS_RECV_UNKNOWN 6
+#define LS_RECV_CONFIG_WRITE 7
+#define LS_RECV_CONFIG_READ 8
+
 
 
 #ifdef POSTGRES
@@ -97,7 +130,7 @@ print_last_recvd_packet_ids();
 
 #endif
 
-
+#ifndef DUMMY
 static DeviceClass
 *qdev_get_device_class(const char **driver, Error **errp)
 {
@@ -127,7 +160,7 @@ static DeviceClass
 
     return dc;
 }
-
+#endif
 
 static inline void
 create_completion_header(volatile TLPDoubleWord *tlp,
@@ -204,6 +237,7 @@ main(int argc, char *argv[])
 
 	printf("Starting.\n");
 	/*const char *driver = "e1000-82540em";*/
+#ifndef DUMMY
 	const char *driver = "e1000e";
 	const char *id = "the-e1000e";
 
@@ -212,7 +246,6 @@ main(int argc, char *argv[])
     DeviceState *dev;
     Error *err = NULL;
 
-    int init = pcie_hardware_init(argc, argv, &physmem);
 
 	/* This needs to be called, otherwise the types are never registered. */
 	module_call_init(MODULE_INIT_QOM);
@@ -326,7 +359,11 @@ main(int argc, char *argv[])
 	PCIDevice *pci_dev = PCI_DEVICE(dev);
 	// Use pci_host_config read common to reply to read responses.
 	printf("%x.\n", pci_host_config_read_common(pci_dev, 0, 4, 4));
+#endif // not DUMMY
 
+    int init = pcie_hardware_init(argc, argv, &physmem);
+    if (init)
+    	return init;
 
 	int i, tlp_in_len = 0, tlp_out_len, send_length, send_result, bytecount;
 	enum tlp_direction dir;
@@ -355,9 +392,11 @@ main(int argc, char *argv[])
 	struct TLP64DWord0 *h0bits = &(config_req->header0);
 	struct TLP64RequestDWord1 *req_bits = &(config_req->req_header);
 
+#ifndef DUMMY
 	MemoryRegionSection target_section;
 	MemoryRegion *target_region;
 	hwaddr rel_addr;
+#endif
 
 	int received_count = 0;
 	write_leds(received_count);
@@ -391,16 +430,22 @@ main(int argc, char *argv[])
 			 * trace. */
 
 			bytecount = 0;
-
+#ifndef DUMMY
 			target_section = memory_region_find(pci_memory, tlp_in[2], 4);
 			target_region = target_section.mr;
 			rel_addr = target_section.offset_within_region;
+#endif
 
 			if (dir == TLPD_READ) {
+#ifdef DUMMY
+				read_error = false;
+				tlp_out_body[0] = 0xBEDEBEDE;
+#else
 				read_error = io_mem_read( target_region,
 					rel_addr,
 					(uint64_t *)tlp_out_body,
 					4);
+#endif
 #ifdef POSTGRES
 				if (read_error) {
 					print_last_recvd_packet_ids();
@@ -429,11 +474,15 @@ main(int argc, char *argv[])
 						}
 						++bytecount;
 					} else { /* dir == TLPD_WRITE */
+#ifdef DUMMY
+						write_error = false;
+#else
 						write_error = io_mem_write(
 							target_region,
 							rel_addr + i,
 							*((uint64_t *)((uint8_t *)tlp_in + 12 + i)),
 							1);
+#endif
 						assert(!write_error);
 					}
 				}
@@ -465,10 +514,12 @@ main(int argc, char *argv[])
 
 				if (dir == TLPD_READ) {
 					send_length = 16;
-
+#ifdef DUMMY
+					tlp_out_body[0] = 0xBEDEBEDE;
+#else
 					tlp_out_body[0] = pci_host_config_read_common(
 						pci_dev, req_addr, req_addr + 4, 4);
-
+#endif
 					/*PDBG("CfgRd0 from %lx, Value 0x%x",*/
 						/*req_addr, tlp_out_body[0]);*/
 
@@ -480,9 +531,11 @@ main(int argc, char *argv[])
 
 					for (i = 0; i < 4; ++i) {
 						if ((request_dword1->firstbe >> i) & 1) {
+#ifndef DUMMY
 							pci_host_config_write_common(
 								pci_dev, req_addr + i, req_addr + 4,
 								tlp_in[3] >> (i * 8), 1);
+#endif
 						}
 					}
 				}
@@ -518,13 +571,15 @@ main(int argc, char *argv[])
 			 * completion for 2)
 			 *
 			 */
-
+#ifndef DUMMY
 			target_section = memory_region_find(get_system_io(), tlp_in[2], 4);
 			target_region = target_section.mr;
 			rel_addr = target_section.offset_within_region;
+#endif
 
 			if (dir == TLPD_WRITE) {
 				send_length = 12;
+#ifndef DUMMY
 				assert(io_mem_write(target_region, rel_addr, tlp_in[3], 4)
 					== false);
 
@@ -537,9 +592,11 @@ main(int argc, char *argv[])
 				}
 			} else {
 				send_length = 16;
+#else
 				assert(io_mem_read(target_region, rel_addr,
 						(uint64_t *)tlp_out_body, 4)
 					== false);
+#endif
 
 				if (rel_addr == 4 && card_reg == 0x8) {
 					PDBG("Read CARD REG 0x%x = 0x%x", card_reg, *tlp_out_body);
