@@ -139,10 +139,10 @@ ACDS_VERSION := 16.0
 # Define path to the application ELF. 
 # It may be used by the makefile fragments so is defined before including them. 
 # 
-ELF := pcie_traffic.elf
+ELF := nios-bare.elf
 
 # Paths to C, C++, and assembly source files.
-C_SRCS += main.c
+C_SRCS += main.c ../pcie-altera-nios.c
 CXX_SRCS :=
 ASM_SRCS :=
 
@@ -180,7 +180,7 @@ CRT0 :=
 SYS_LIB :=
 
 # Define path to the root of the BSP.
-BSP_ROOT_DIR := ../pcie_traffic_bsp/
+BSP_ROOT_DIR := ../../nios_bare_bsp/
 
 # List of application specific include directories, library directories and library names
 APP_INCLUDE_DIRS :=

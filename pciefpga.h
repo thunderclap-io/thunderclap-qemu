@@ -10,10 +10,17 @@
 #define PCIEPACKETRECEIVER_STATUS			2	// start of packet, end of packet
 #define PCIEPACKETRECEIVER_DATA				0	// reading will dequeue the 64-bit word
 
+#ifdef BERI
 #define PCIEPACKETTRANSMITTER_0_BASE	0x50101800LL	//
 #define PCIEPACKETRECEIVER_0_BASE	0x50101000LL	//
-
 #define PCIEPACKET_REGION_BASE		0x50101000LL
 #define PCIEPACKET_REGION_LENGTH	0x00001000LL
+
+#else
+#include "system.h"
+#define PCIEPACKET_REGION_BASE		PCIEPACKETRECEIVER_0_BASE
+#define PCIEPACKET_REGION_LENGTH	0x800LL
+
+#endif
 
 #endif

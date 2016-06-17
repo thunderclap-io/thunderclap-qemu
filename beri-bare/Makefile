@@ -16,7 +16,7 @@ ASFLAGS=-EB -march=mips64 -mabi=64 -G0 -ggdb
 
 #CC=/usr/groups/ecad/mips/sde-6.06/bin/sde-gcc
 CC=$(CLANG)
-CFLAGS=-gdwarf-2 -c -fno-pic -target mips64 -integrated-as -EB -I. -I..
+CFLAGS=-gdwarf-2 -c -fno-pic -target mips64 -integrated-as -EB -I. -I.. -I../baremetal
 #-Werror=all -target cheri-unknown-freebsd -integrated-as
 CFLAGS+=-O2 -ffunction-sections -fno-builtin -DBAREMETAL -DDUMMY -DBERI
 
@@ -47,6 +47,9 @@ test.o:
 
 pcie-altera-beri.o:
 	$(CC) $(CFLAGS) -o $@ ../pcie-altera-beri.c
+
+baremetalsupport.o:
+	$(CC) $(CFLAGS) -o $@ ../baremetal/baremetalsupport.c
 
 test.mem:
 

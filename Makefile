@@ -98,6 +98,7 @@ CFLAGS := $(CFLAGS) -integrated-as
 CFLAGS := $(CFLAGS) --sysroot=$(PCIE_QEMU_SYSROOT)
 CFLAGS := $(CFLAGS) -I$(EXTRA_USR)/local/lib/glib-2.0/include
 CFLAGS := $(CFLAGS) -DTARGET=TARGET_BERI -G0 -mxgot -O2 -ftls-model=local-exec
+CFLAGS := $(CFLAGS) -DBERIBSD -DBERI
 LDFLAGS := $(LDFLAGS) --sysroot=$(PCIE_QEMU_SYSROOT)
 LDFLAGS := $(LDFLAGS) -L$(EXTRA_USR)/local/lib
 else ifeq ($(TARGET),native)

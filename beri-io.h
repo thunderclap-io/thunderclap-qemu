@@ -31,7 +31,7 @@ static inline void IOWR64(uint64_t base, uint64_t offset, uint64_t data)
 }
 
 
-
+#ifdef BERI
 typedef uint64_t alt_timestamp_type;
 
 static inline alt_timestamp_type alt_timestamp(void)
@@ -49,5 +49,6 @@ static inline void alt_timestamp_start(void)
 {
 	return;
 }
+#endif
 
 #endif
