@@ -4,3 +4,10 @@ build*
 *.log
 *.core
 vgcore.*
+*.mif
+*.objdump
+*.dump
+*.map
+*.elf
+*.mem
+*~
