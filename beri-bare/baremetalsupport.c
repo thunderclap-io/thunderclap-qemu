@@ -146,4 +146,23 @@ readUARTChar()
 	out = (char)i;
 	return out;
 }
+
+
+int usleep(useconds_t usec)
+{
+	unsigned long start_counter = read_hw_counter();
+	uint64_t sleep_clocks = (((uint64_t) usec)*1000000LL)/CLOCKS_PER_SEC;
+	while ((read_hw_counter() - ((uint64_t) start_counter))<sleep_clocks)
+	{
+	}
+	return 0;
+}
+
+void *memset(void *s, int c, size_t n)
+{
+	uint8_t *p = (uint8_t *) s;
+	for (int i=0; i<n; i++)
+		p[i] = (uint8_t) c;
+}
+
 #endif

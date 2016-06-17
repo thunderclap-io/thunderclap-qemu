@@ -1,8 +1,14 @@
 #ifndef MASK_H
 #define MASK_H
 
+#ifdef BAREMETAL
+#include "baremetalsupport.h"
+#else
 #include <assert.h>
+#endif
 #include <stdint.h>
+
+
 
 #define UINT32_MASK(width)		((1 << (width)) - 1)
 // Top bit of unshift mask is in position (high - low)

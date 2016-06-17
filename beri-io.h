@@ -4,6 +4,7 @@
 volatile uint8_t *open_io_region(uint64_t address, uint64_t length);
 
 extern volatile uint8_t *physmem;
+extern volatile uint8_t *led_phys_mem;
 
 static inline volatile uint32_t IORD(uint64_t base, uint64_t offset)
 {

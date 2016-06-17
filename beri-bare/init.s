@@ -131,7 +131,7 @@ all_threads:
 		mtlo	$at
 		
 		# Invoke test function test() provided by individual tests.
-		dla   $25, test
+		dla   $25, main
 		
 		mfc0 $k0, $16, 1	# config1 register
 		andi $k0, $k0, 0x40	# CP2 available bit

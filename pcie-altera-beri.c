@@ -8,11 +8,13 @@
 void
 initialise_leds()
 {
-#ifdef BERI
 #define LED_BASE		0x7F006000LL
 #define LED_LEN			0x1
 
+#ifdef BERIBSD
 		led_phys_mem = open_io_region(LED_BASE, LED_LEN);
+#else
+		led_phys_mem = (volatile uint8_t *) LED_BASE;
 
 #undef LED_LEN
 #undef LED_BASE
@@ -22,7 +24,11 @@ initialise_leds()
 int
 pcie_hardware_init(int argc, char **argv, volatile uint8_t **physmem)
 {
+#ifdef BERIBSD
 	*physmem = open_io_region(PCIEPACKET_REGION_BASE, PCIEPACKET_REGION_LENGTH);
+#else
+	*physmem = (volatile uint8_t *) PCIEPACKET_REGION_BASE;
+#endif
 	initialise_leds();
 	return 0;
 }

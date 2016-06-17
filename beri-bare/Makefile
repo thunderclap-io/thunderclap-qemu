@@ -16,7 +16,7 @@ ASFLAGS=-EB -march=mips64 -mabi=64 -G0 -ggdb
 
 #CC=/usr/groups/ecad/mips/sde-6.06/bin/sde-gcc
 CC=$(CLANG)
-CFLAGS=-gdwarf-2 -c -fno-pic -target mips64 -integrated-as -EB
+CFLAGS=-gdwarf-2 -c -fno-pic -target mips64 -integrated-as -EB -I. -I..
 #-Werror=all -target cheri-unknown-freebsd -integrated-as
 CFLAGS+=-O2 -ffunction-sections -fno-builtin -DBAREMETAL -DDUMMY -DBERI
 
@@ -33,7 +33,7 @@ LIB_OBJ=lib.o
 .PHONY: all
 all: test.dump test.mif
 
-REMOTE_FILES := test.c baremetalsupport.h pcie.h pciefpga.h beri-io.h mask.h
+REMOTE_FILES := ../test.c baremetalsupport.h ../pcie.h ../pciefpga.h beri-io.h mask.h
 REMOTE_FILES := $(REMOTE_FILES) baremetalsupport.c beri-io.c log.h log.c
 REMOTE_FILE_PATH := vica:iommu/beri-fake-peripherals/root/e1000e/
 REMOTE_FILE_PATHS := $(addprefix $(REMOTE_FILE_PATH),$(REMOTE_FILES))
@@ -43,6 +43,10 @@ copy-files:
 	rsync $(REMOTE_FILE_PATHS) .
 
 test.o:
+	$(CC) $(CFLAGS) -o $@ ../test.c
+
+pcie-altera-beri.o:
+	$(CC) $(CFLAGS) -o $@ ../pcie-altera-beri.c
 
 test.mem:
 
@@ -52,7 +56,7 @@ $(INIT_OBJ):
 
 $(LIB_OBJ):
 
-%.elf: $(LIB_OBJ) baremetalsupport.o beri-io.o log.o %.o $(INIT_OBJ)
+%.elf: $(LIB_OBJ) baremetalsupport.o beri-io.o log.o pcie-altera-beri.o %.o $(INIT_OBJ)
 	$(LD) -EB -G0 -T $(LDSCRIPT) $^ -o $@ -m elf64bmip -M > test.map
 # elf64-tradbigmips
 

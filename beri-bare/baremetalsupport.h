@@ -31,4 +31,25 @@ void write_uint_64_hex(uint64_t n, char pad);
 void write_int_32(int32_t n, char pad);
 void write_int_64(uint64_t n, char pad);
 
+unsigned long read_hw_counter();
+
+typedef uint64_t useconds_t;
+typedef uint64_t size_t;
+int usleep(useconds_t usec);
+
+void *memset(void *s, int c, size_t n);
+
+static inline int
+puts(const char *str)
+{
+	writeString((char *) str);
+	writeUARTChar('\n');
+}
+
+static inline int
+putchar(int c)
+{
+	writeUARTChar(c);
+}
+
 #endif

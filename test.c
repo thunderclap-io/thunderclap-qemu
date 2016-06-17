@@ -198,7 +198,9 @@ create_completion_header(volatile TLPDoubleWord *tlp,
 	header2->loweraddress = loweraddress;
 }
 
+#ifndef BAREMETAL
 MachineState *current_machine;
+#endif
 volatile uint8_t *led_phys_mem;
 
 
@@ -213,7 +215,7 @@ write_leds(uint8_t data)
 int
 blink_main(int argc, char *argv[])
 {
-	printf("It's blinky time!\n");
+	puts("It's blinky time!");
 #ifdef BERI
 	initialise_leds();
 
@@ -223,7 +225,9 @@ blink_main(int argc, char *argv[])
 		write_leds(led_value);
 		led_value = ~led_value;
 		putchar('.');
+#ifndef BAREMETAL
 		fflush(stdout);
+#endif
 		usleep(100000);
 	}
 #endif
@@ -235,7 +239,7 @@ int
 main(int argc, char *argv[])
 {
 
-	printf("Starting.\n");
+	puts("Starting.");
 	/*const char *driver = "e1000-82540em";*/
 #ifndef DUMMY
 	const char *driver = "e1000e";
@@ -408,7 +412,7 @@ main(int argc, char *argv[])
 
 	memset(tlp_out, 0, 64 * sizeof(TLPDoubleWord));
 
-	printf("LEDs clear; let's go.\n");
+	puts("LEDs clear; let's go.");
 
 	int card_reg = -1;
 
@@ -590,17 +594,20 @@ main(int argc, char *argv[])
 					PDBG("Setting CARD REG 0x%x <= 0x%x",
 						card_reg, tlp_in[3]);
 				}
+#endif
 			} else {
 				send_length = 16;
+#ifdef DUMMY
+				tlp_out_body[0] = 0xBEDEBEDE;
 #else
 				assert(io_mem_read(target_region, rel_addr,
 						(uint64_t *)tlp_out_body, 4)
 					== false);
-#endif
 
 				if (rel_addr == 4 && card_reg == 0x8) {
 					PDBG("Read CARD REG 0x%x = 0x%x", card_reg, *tlp_out_body);
 				}
+#endif
 			}
 
 #ifdef POSTGRES
