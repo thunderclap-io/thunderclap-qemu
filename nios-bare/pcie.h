@@ -38,6 +38,7 @@ typedef union {
 		uint32_t byteenable:8;
 		uint32_t startofpacket:1;
 		uint32_t endofpacket:1;
+		uint32_t pad2:6;
 		//uint64_t pad2:22;
 		//uint64_t startofpacket55:8;
 		//uint64_t endofpacketEE:8;
