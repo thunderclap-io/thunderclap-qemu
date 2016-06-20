@@ -103,6 +103,10 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	do {
 		pciestatus.word = IORD(PCIEPACKETRECEIVER_0_BASE,
 			PCIEPACKETRECEIVER_STATUS);
+		// start at the beginning of the buffer once we get start of packet
+		if (pciestatus.bits.startofpacket) {
+			i = 0;
+		}
 		pciedata1 = IORD(PCIEPACKETRECEIVER_0_BASE,PCIEPACKETRECEIVER_UPPER32);
 		pciedata0 = IORD(PCIEPACKETRECEIVER_0_BASE,PCIEPACKETRECEIVER_LOWER32DEQ);
 		tlp[i++] = pciedata0;
@@ -111,6 +115,7 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 			PDBG("ERROR: TLP Larger than buffer.");
 			return -1;
 		}
+		write_uint_32_hex(pciestatus.word, ' ');
 	} while (!pciestatus.bits.endofpacket);
 
 	return (i * 4);

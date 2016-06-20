@@ -62,6 +62,10 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	do {
 		pciestatus.word = IORD64(PCIEPACKETRECEIVER_0_BASE,
 			PCIEPACKETRECEIVER_STATUS);
+		// start at the beginning of the buffer once we get start of packet
+		if (pciestatus.bits.startofpacket) {
+			i = 0;
+		}
 		pciedata = IORD64(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_DATA);
 		tlp[i++] = pciedata;
 		if ((i * 8) > tlp_len) {
