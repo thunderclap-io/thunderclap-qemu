@@ -92,26 +92,28 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 {
 	/* Real approach: no POSTGRES */
 	volatile PCIeStatus pciestatus;
-	volatile TLPQuadWord pciedata;
+	volatile TLPDoubleWord pciedata1, pciedata0;
 	volatile int ready;
 	int i = 0; // i is "length of TLP so far received in doublewords.
 
 	do {
-		ready = IORD64(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_READY);
+		ready = IORD(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_READY);
 	} while (ready == 0);
 
 	do {
-		pciestatus.word = IORD64(PCIEPACKETRECEIVER_0_BASE,
+		pciestatus.word = IORD(PCIEPACKETRECEIVER_0_BASE,
 			PCIEPACKETRECEIVER_STATUS);
-		pciedata = IORD64(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_DATA);
-		tlp[i++] = pciedata;
+		pciedata1 = IORD(PCIEPACKETRECEIVER_0_BASE,PCIEPACKETRECEIVER_UPPER32);
+		pciedata0 = IORD(PCIEPACKETRECEIVER_0_BASE,PCIEPACKETRECEIVER_LOWER32DEQ);
+		tlp[i++] = pciedata0;
+		tlp[i++] = pciedata1;
 		if ((i * 8) > tlp_len) {
 			PDBG("ERROR: TLP Larger than buffer.");
 			return -1;
 		}
 	} while (!pciestatus.bits.endofpacket);
 
-	return (i * 8);
+	return (i * 4);
 
 }
 
@@ -122,11 +124,12 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 {
 	int quad_word_index;
 	volatile PCIeStatus statusword;
+	TLPDoubleWord upperword=0;
 
 	assert(tlp_len / 8 < 64);
 
 	// Stops the TX queue from draining whilst we're filling it.
-	IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 0);
+	IOWR(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 0);
 
 	int ceil_tlp_len = tlp_len + 7;
 
@@ -137,15 +140,23 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 		statusword.bits.endofpacket =
 			((quad_word_index + 1) >= (ceil_tlp_len / 8));
 
+		if ((quad_word_index+1) >= tlp_len)
+			upperword = 0;
+		else
+			upperword = tlp[quad_word_index+1];
+
 		// Write status word.
-		IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_STATUS,
+		IOWR(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_STATUS,
 			statusword.word);
-		// Write data
-		IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_DATA,
+		// write upper 32 bits
+		IOWR(PCIEPACKETTRANSMITTER_0_BASE,PCIEPACKETTRANSMITTER_UPPER32,
+			upperword);
+		// write lower 32 bits and send word
+		IOWR(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_LOWER32SEND,
 			tlp[quad_word_index]);
 	}
 	// Release queued data
-	IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 1);
+	IOWR(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 1);
 
 	return 0;
 }

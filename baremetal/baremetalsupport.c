@@ -135,7 +135,7 @@ writeUARTChar(char c)
 	//Code for SOPC Builder serial output
 	while ((IO_RD32(MIPS_PHYS_TO_UNCACHED(CHERI_JTAG_UART_BASE)+4) &
 	    0xFFFF) == 0) {
-		asm("add $v0, $v0, $0");
+//		asm("add $v0, $v0, $0");
 	}
 	//int i;
 	//for (i=0;i<10000;i++);

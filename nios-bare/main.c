@@ -30,7 +30,7 @@
 #define COMPLETER_ID 0xC400
 
 
-int displayTLP(TLPWord *tlp, int tlpLen)
+int displayTLP(TLPDoubleWord *tlp, int tlpLen)
 {
 	int i=0, j=0;
 	TLPHeader0 h0;
@@ -73,13 +73,13 @@ int displayTLP(TLPWord *tlp, int tlpLen)
  * buffer: pointer to TLP
  * bufferLen: length of TLP in bytes
  */
-
-int sendTLP(TLPWord *buffer, int bufferLen)
+#if 0
+int sendTLP(TLPDoubleWord *buffer, int bufferLen)
 {
 	int i;
 	int sop=1, eop=0;
 	volatile PCIeStatus statusword;
-	TLPWord upperword=0;
+	TLPDoubleWord upperword=0;
 
 	assert(bufferLen/4<64);
 	// stop the tx queue from draining as we fill it
@@ -110,10 +110,11 @@ int sendTLP(TLPWord *buffer, int bufferLen)
 	IOWR(PCIEPACKETTRANSMITTER_0_BASE,3,1);
 	return 0;
 }
+#endif
 
-int memoryResponseTLP(TLPWord *tlpIn, int tlpLen)
+int memoryResponseTLP(TLPDoubleWord *tlpIn, int tlpLen)
 {
-	TLPWord tlpOut[64];
+	TLPDoubleWord tlpOut[64];
 	TLPHeader0 *h0;
 	TLPHeaderCompl0 *h1;
 	TLPHeaderCompl1 *h2;
@@ -152,13 +153,13 @@ int memoryResponseTLP(TLPWord *tlpIn, int tlpLen)
 	h2->bits.tag = in1.bits.tag;
 	h2->bits.loweraddress = 0;
 
-	sendTLP(tlpOut, 4*sizeof(TLPWord));
+	sendTLP(tlpOut, 4*sizeof(TLPDoubleWord));
 	printf("Sent memoryResponse TLP %08x, %08x, %08x\n", h0->word, h1->word, h2->word);
 
 	return 0;
 }
 
-int parseInboundTLP(TLPWord *tlpIn, int tlpLen)
+int parseInboundTLP(TLPDoubleWord *tlpIn, int tlpLen)
 {
 
 //	displayTLP(tlpIn, tlpLen);
@@ -187,11 +188,11 @@ int parseInboundTLP(TLPWord *tlpIn, int tlpLen)
  * tlpLen: length of buffer in bytes
  * returned: number of bytes received
  */
-
-int waitForTLP(TLPWord *tlp, int tlpLen)
+#if 0
+int waitForTLP(TLPDoubleWord *tlp, int tlpLen)
 {
 	volatile PCIeStatus pciestatus;
-	volatile TLPWord pciedata1, pciedata0;
+	volatile TLPDoubleWord pciedata1, pciedata0;
 	volatile int ready;
 	int i=0;
 
@@ -222,7 +223,7 @@ int waitForTLP(TLPWord *tlp, int tlpLen)
 
 	return i*4;
 }
-
+#endif
 /* Make a memory request to the host, fetching a single 32 bit word.
  * Parameters:
  * address: 64 bit address to request
@@ -233,7 +234,7 @@ int waitForTLP(TLPWord *tlp, int tlpLen)
 
 MemoryResponse memoryRequest(uint64_t address, uint64_t timeout)
 {
-	TLPWord tlp[64];
+	TLPDoubleWord tlp[64];
 	TLPHeader0 h0;
 	TLPHeaderReq h1;
 	TLPHeaderCompl0 c1;
@@ -306,9 +307,9 @@ MemoryResponse memoryRequest(uint64_t address, uint64_t timeout)
 int main()
 {
   volatile int ready;
-  volatile TLPWord pciedata1, pciedata0;
+  volatile TLPDoubleWord pciedata1, pciedata0;
   volatile PCIeStatus pciestatus;
-  TLPWord tlp[64];
+  TLPDoubleWord tlp[64];
   int i=0,j=0;
   Address addr=0, startAddr=0, lastAddr;
   MemoryResponse r;
@@ -333,9 +334,9 @@ int main()
   IOWR(PCIEPACKETTRANSMITTER_0_BASE,1,0xbeebfade);
   IOWR(PCIEPACKETTRANSMITTER_0_BASE,0,0xfacebead);
 */
-  TLPWord mrd64[] = { 0x20000001, 0x01000c0f, 0x1, 0};
+  TLPDoubleWord mrd64[] = { 0x20000001, 0x01000c0f, 0x1, 0};
 
-  TLPWord vendor_broadcast[] = { 0x33000001, 0x0100be7e, 0x0000cafe, 0};
+  TLPDoubleWord vendor_broadcast[] = { 0x33000001, 0x0100be7e, 0x0000cafe, 0};
 
   i=0;
   addr=0*1024*1024;

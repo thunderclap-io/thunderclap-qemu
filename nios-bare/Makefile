@@ -4,7 +4,7 @@
 
 # List of include directories for -I compiler option (-I added when used).
 # Includes the BSP.
-ALT_INCLUDE_DIRS :=
+ALT_INCLUDE_DIRS := . .. ../baremetal
 
 # List of library directories for -L linker option (-L added when used).
 # Includes the BSP.
@@ -29,7 +29,7 @@ ALT_LDDEPS :=
 MAKEABLE_LIBRARY_ROOT_DIRS :=
 
 # Generic flags passed to the compiler for different types of input files.
-ALT_CFLAGS :=
+ALT_CFLAGS := -DBAREMETAL -DDUMMY
 ALT_CXXFLAGS :=
 ALT_CPPFLAGS :=
 ALT_ASFLAGS :=
@@ -142,7 +142,8 @@ ACDS_VERSION := 16.0
 ELF := nios-bare.elf
 
 # Paths to C, C++, and assembly source files.
-C_SRCS += main.c ../pcie-altera-nios.c
+C_SRCS += ../test.c ../pcie-altera-nios.c ../baremetal/baremetalsupport.c \
+		  log.c
 CXX_SRCS :=
 ASM_SRCS :=
 
@@ -163,7 +164,7 @@ CREATE_ELF_DERIVED_FILES := 0
 CREATE_LINKER_MAP := 1
 
 # Common arguments for ALT_CFLAGSs
-APP_CFLAGS_DEFINED_SYMBOLS :=
+APP_CFLAGS_DEFINED_SYMBOLS := -DPCIETXRX32
 APP_CFLAGS_UNDEFINED_SYMBOLS :=
 APP_CFLAGS_OPTIMIZATION := -O0
 APP_CFLAGS_DEBUG_LEVEL := -g
