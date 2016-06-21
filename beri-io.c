@@ -34,18 +34,27 @@
  * SUCH DAMAGE.
  */
 
-#include <stdint.h>
+#ifdef BAREMETAL
+#include "parameters.h"
+#else
 #include <inttypes.h>
 #include <unistd.h>
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #include <stdio.h>
+#endif
+
+#include <stdint.h>
+#include "beri-io.h"
 
 volatile uint8_t *physmem = 0;
 
 volatile uint8_t *open_io_region(uint64_t address, uint64_t length)
 {
+#ifdef BAREMETAL
+	return (uint8_t *)(MIPS_XKPHYS_UNCACHED_BASE + address);
+#else
     int fd = 0;
     volatile uint8_t *mapped = 0;
 
@@ -60,4 +69,5 @@ volatile uint8_t *open_io_region(uint64_t address, uint64_t length)
         exit(2);
     }
     return mapped;
+#endif
 }

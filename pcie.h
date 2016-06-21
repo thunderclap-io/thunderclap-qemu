@@ -1,6 +1,8 @@
 #ifndef PCIE_H
 #define PCIE_H
 
+#include <stdint.h>
+
 typedef uint64_t TLPQuadWord;
 typedef uint32_t TLPDoubleWord;
 

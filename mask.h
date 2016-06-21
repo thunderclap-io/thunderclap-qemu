@@ -1,7 +1,12 @@
 #ifndef MASK_H
 #define MASK_H
 
-#include <assert.h>
+#include "baremetalsupport.h"
+
+#ifndef BAREMETAL
+#include "assert.h"
+#endif
+
 #include <stdint.h>
 
 #define UINT32_MASK(width)		((1 << (width)) - 1)

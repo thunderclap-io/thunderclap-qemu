@@ -54,22 +54,30 @@
  * appropriate busses set up -- the main initialisation function is called
  * pc_q35_init, and I am slowly cannibalising it.
  */
+
 #include "pcie-debug.h"
+#ifndef DUMMY
 #include "hw/net/e1000_regs.h"
+#endif
 
 #define TARGET_BERI		1
 #define TARGET_NATIVE	2
 
+#ifndef BAREMETAL
 #include <execinfo.h>
 #include <stdio.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <sys/endian.h>
+#endif
+
+#include <stdbool.h>
 
 #ifdef POSTGRES
 #include <libpq-fe.h>
 #endif
 
+#ifndef DUMMY
 #include "qom/object.h"
 #include "hw/pci/pci.h"
 #include "hw/pci/pci_bus.h"
@@ -77,12 +85,44 @@
 #include "hw/pci-host/q35.h"
 #include "qapi/qmp/qerror.h"
 #include "qemu/config-file.h"
+#endif
 
+#include "baremetalsupport.h"
 #include "pcie.h"
 #include "pciefpga.h"
 #include "beri-io.h"
 #include "mask.h"
+#include "log.h"
 
+
+char *log_strings[] = {
+ 	"TIME: ",
+	". Since last: ",
+	"Recieved TLP with requester id: ",
+	"Sending DWord: ",
+	"Packet sent.",
+	"Received other packet.",
+	"Received explicitly unknown packet.",
+	"Received Config Write packet.",
+	"Received Config Read packet.",
+	"Sending TLP of length: ",
+	"Actual tag: ",
+	"Raw tag:    "
+
+};
+
+#define LS_TIME 0
+#define LS_TIME_DELTA 1
+#define LS_REQUESTER_ID 2
+#define LS_SENDING_DWORD 3
+#define LS_PACKET_SENT 4
+#define LS_RECV_OTHER 5
+#define LS_RECV_UNKNOWN 6
+#define LS_RECV_CONFIG_WRITE 7
+#define LS_RECV_CONFIG_READ 8
+#define LS_SEND_LENGTH 9
+#define LS_ACTUAL_TAG 10
+#define LS_RAW_TAG 11
 
 #ifdef POSTGRES
 
@@ -105,6 +145,7 @@ close_connections()
 
 #endif
 
+#ifndef BAREMETAL
 void
 print_backtrace(int signum)
 {
@@ -121,7 +162,41 @@ print_backtrace(int signum)
 	
 	free(backtrace_lines);
 }
+#endif
 
+
+static unsigned long
+read_hw_counter()
+{
+#ifdef BERI
+	unsigned long retval;
+	asm volatile("rdhwr %0, $2"
+		: "=r"(retval));
+	return retval;
+#else
+	return 0;
+#endif
+}
+
+static inline void
+record_time()
+{
+	bool has_last_time;
+	uint32_t time;
+	uint64_t last_time;
+
+	time = read_hw_counter();
+    has_last_time = last_data_for_string(LS_TIME, &last_time);
+
+	log(LS_TIME, LIF_UINT_32, time, !has_last_time);
+
+	if (has_last_time) {
+		log(LS_TIME_DELTA, LIF_INT_32, time - last_time, true);
+	}
+}
+
+
+#ifndef DUMMY
 static DeviceClass
 *qdev_get_device_class(const char **driver, Error **errp)
 {
@@ -151,6 +226,7 @@ static DeviceClass
 
     return dc;
 }
+#endif
 
 #ifdef POSTGRES
 
@@ -282,14 +358,9 @@ POSTGRES_INT_FIELD(lwr_addr);
 POSTGRES_BIGINT_FIELD(address);
 POSTGRES_BIGINT_FIELD(data);
 
-#ifdef POSTGRES
 static bool ignore_next_postgres_completion;
 static bool mask_next_postgres_completion_data;
 static uint32_t postgres_completion_mask;
-
-/* The capbility list is different for many small reasons, which is why we
- * want this. */
-#endif
 
 /* Generates a TLP given a PGresult that has as row 0 a record from the trace
  * table. Returns the length of the TLP in bytes. */
@@ -590,7 +661,7 @@ print_last_sent_packet_ids()
 /* tlp_len is length of the buffer in bytes. */
 /* Return -1 if 1024 attempts to poll the buffer fail. */
 int
-wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
+wait_for_tlp(TLPQuadWord *tlp, int tlp_len)
 {
 #ifdef POSTGRES
 	int ret_value;
@@ -624,9 +695,9 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	PQclear(result);
 	return ret_value;
 #else /* Real approach: no POSTGRES */
-	volatile PCIeStatus pciestatus;
-	volatile TLPQuadWord pciedata;
-	volatile int ready;
+	PCIeStatus pciestatus;
+	TLPQuadWord pciedata;
+	int ready;
 	int i = 0; // i is "length of TLP so far received in doublewords.
 
 	do {
@@ -638,8 +709,9 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 			PCIEPACKETRECEIVER_STATUS);
 		pciedata = IORD64(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_DATA);
 		tlp[i++] = pciedata;
+
 		if ((i * 8) > tlp_len) {
-			PDBG("ERROR: TLP Larger than buffer.");
+			writeString("TLP RECV OVERFLOW\r\n");
 			return -1;
 		}
 	} while (!pciestatus.bits.endofpacket);
@@ -666,7 +738,7 @@ should_send_tlp_for_result(PGresult *result)
 /* tlp is a pointer to the tlp, tlp_len is the length of the tlp in bytes. */
 /* returns 0 on success. */
 int
-send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
+send_tlp(TLPQuadWord *tlp, int tlp_len)
 {
 #ifdef POSTGRES
 	static int check_count = 0;
@@ -795,7 +867,9 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	return 0;
 #else
 	int quad_word_index;
-	volatile PCIeStatus statusword;
+	PCIeStatus statusword;
+
+	log(LS_SEND_LENGTH, LIF_INT_32, tlp_len, true);
 
 	assert(tlp_len / 8 < 64);
 
@@ -817,17 +891,21 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 		// Write data
 		IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_DATA,
 			tlp[quad_word_index]);
+		log(LS_SENDING_DWORD, LIF_UINT_64_HEX, tlp[quad_word_index], true);
 	}
 	// Release queued data
 	IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 1);
+
+	record_time();
+	log(LS_PACKET_SENT, LIF_NONE, 0, true);
 
 	return 0;
 #endif
 }
 
 
-static inline void
-create_completion_header(volatile TLPDoubleWord *tlp,
+static void
+create_completion_header(TLPDoubleWord *tlp,
 	enum tlp_direction direction, uint16_t completer_id,
 	enum tlp_completion_status completion_status, uint16_t bytecount,
 	uint16_t requester_id, uint8_t tag, uint8_t loweraddress)
@@ -838,7 +916,7 @@ create_completion_header(volatile TLPDoubleWord *tlp,
 	tlp[1] = 0;
 	tlp[2] = 0;
 
-	volatile struct TLP64DWord0 *header0 = (volatile struct TLP64DWord0 *)(tlp);
+	struct TLP64DWord0 *header0 = (struct TLP64DWord0 *)(tlp);
 	if (direction == TLPD_READ
 		&& completion_status == TLPCS_SUCCESSFUL_COMPLETION) {
 		header0->fmt = TLPFMT_3DW_DATA;
@@ -849,26 +927,31 @@ create_completion_header(volatile TLPDoubleWord *tlp,
 	}
 	header0->type = CPL;
 
-	volatile struct TLP64CompletionDWord1 *header1 =
-		(volatile struct TLP64CompletionDWord1 *)(tlp) + 1;
+	struct TLP64CompletionDWord1 *header1 =
+		(struct TLP64CompletionDWord1 *)(tlp) + 1;
 	header1->completer_id = completer_id;
 	header1->status = completion_status;
 	header1->bytecount = bytecount;
 
-	volatile struct TLP64CompletionDWord2 *header2 =
-		(volatile struct TLP64CompletionDWord2 *)(tlp) + 2;
+	struct TLP64CompletionDWord2 *header2 =
+		(struct TLP64CompletionDWord2 *)(tlp) + 2;
 	header2->requester_id = requester_id;
 	header2->tag = tag;
 	header2->loweraddress = loweraddress;
+
+	log(LS_RAW_TAG, LIF_UINT_32_HEX, tag, true);
+	log(LS_ACTUAL_TAG, LIF_UINT_32_HEX, header2->tag, true);
 }
 
+#ifndef DUMMY
 MachineState *current_machine;
+#endif
+
 volatile uint8_t *led_phys_mem;
 
 void
 initialise_leds()
 {
-#ifdef BERI
 #define LED_BASE		0x7F006000LL
 #define LED_LEN			0x1
 
@@ -876,35 +959,14 @@ initialise_leds()
 
 #undef LED_LEN
 #undef LED_BASE
-#endif
 }
 
 static inline void
-write_leds(uint8_t data)
+write_leds(uint32_t data)
 {
 #ifdef BERI
 	*led_phys_mem = ~data;
 #endif
-}
-
-int
-blink_main(int argc, char *argv[])
-{
-	printf("It's blinky time!\n");
-#ifdef BERI
-	initialise_leds();
-
-	uint8_t led_value = 0x55; // 0b0101
-
-	while (1) {
-		write_leds(led_value);
-		led_value = ~led_value;
-		putchar('.');
-		fflush(stdout);
-		usleep(100000);
-	}
-#endif
-	return 0;
 }
 
 #ifdef POSTGRES
@@ -998,10 +1060,18 @@ start_binary_single_row_query(PGconn *connection, const char *query)
 
 #endif
 
+#ifdef BAREMETAL
+int
+test()
+#else
 int
 main(int argc, char *argv[])
+#endif
 {
 	int connection_status, query_status;
+
+	set_strings(log_strings);
+
 #ifdef POSTGRES
 	if (argc != 2) {
 		printf("Usage: %s CONNECTION_STRING\n", argv[0]);
@@ -1037,8 +1107,9 @@ main(int argc, char *argv[])
 
 #endif
 
-	printf("Starting.\n");
+	writeString("Starting.\n");
 	/*const char *driver = "e1000-82540em";*/
+#ifndef DUMMY
 	const char *driver = "e1000e";
 	const char *id = "the-e1000e";
 
@@ -1157,13 +1228,14 @@ main(int argc, char *argv[])
 	object_property_set_bool(OBJECT(dev), true, "realized", &err);
 
 	PCIDevice *pci_dev = PCI_DEVICE(dev);
+#endif // not DUMMY
 
 #ifndef POSTGRES
 	physmem = open_io_region(PCIEPACKET_REGION_BASE, PCIEPACKET_REGION_LENGTH);
 	initialise_leds();
 #endif
 
-	int i, tlp_in_len = 0, tlp_out_len, send_length, send_result, bytecount;
+	int i, j, tlp_in_len = 0, tlp_out_len, send_length, send_result, bytecount;
 	enum tlp_direction dir;
 	enum tlp_completion_status completion_status;
 	char *type_string;
@@ -1175,10 +1247,12 @@ main(int argc, char *argv[])
 	uint32_t io_completion_mask, loweraddress;
 	uint64_t addr, req_addr;
 
-	TLPDoubleWord tlp_in[64], tlp_out[64];
+	TLPQuadWord tlp_in_quadword[32];
+	TLPQuadWord tlp_out_quadword[32];
+
+	TLPDoubleWord *tlp_in = (TLPDoubleWord *)tlp_in_quadword;
+	TLPDoubleWord *tlp_out = (TLPDoubleWord *)tlp_out_quadword;
 	TLPDoubleWord *tlp_out_body = (tlp_out + 3);
-	TLPQuadWord *tlp_in_quadword = (TLPQuadWord *)tlp_in;
-	TLPQuadWord *tlp_out_quadword = (TLPQuadWord *)tlp_out;
 
 	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)tlp_in;
 	struct TLP64RequestDWord1 *request_dword1 =
@@ -1190,30 +1264,29 @@ main(int argc, char *argv[])
 	struct TLP64DWord0 *h0bits = &(config_req->header0);
 	struct TLP64RequestDWord1 *req_bits = &(config_req->req_header);
 
+#ifndef DUMMY
 	MemoryRegionSection target_section;
 	MemoryRegion *target_region;
 	hwaddr rel_addr;
+#endif
 
 	int received_count = 0;
 	write_leds(received_count);
 
-	tlp_in[0] = 0xDEADBEE0;
-	tlp_in[1] = 0xDEADBEE1;
-	tlp_in[2] = 0xDEADBEE2;
-	tlp_in[3] = 0xDEADBEE3;
+	int sent_count = 1;
 
-	memset(tlp_out, 0, 64 * sizeof(TLPDoubleWord));
+	for (i = 0; i < 64; ++i) {
+		tlp_in[i] = 0xDEADBEE0 + (i & 0xF);
+		tlp_out[i] = 0xDEADBEE0 + (i & 0xF);
+	}
 
-	printf("LEDs clear; let's go.\n");
+	writeString("LEDs clear; let's go.\n");
 
 	int card_reg = -1;
 
 	while (1) {
-		/*printf("Waiting for TLP.\n");*/
-		/*putchar('.');*/
-		/*fflush(stdout);*/
-		tlp_in_len = wait_for_tlp(tlp_in_quadword, sizeof(tlp_in));
-		/*printf("Received TLP.\n");*/
+		tlp_in_len = wait_for_tlp(tlp_in_quadword, sizeof(tlp_in_quadword));
+		record_time();
 
 		dir = ((dword0->fmt & 2) >> 1);
 		const char *direction_string = (dir == TLPD_READ) ? "read" : "write";
@@ -1221,24 +1294,32 @@ main(int argc, char *argv[])
 
 		switch (dword0->type) {
 		case M:
+			log(LS_RECV_OTHER, LIF_NONE, 0, true);
 			assert(dword0->length == 1);
 			/* This isn't in the spec, but seems to be all we've found in our
 			 * trace. */
 
 			bytecount = 0;
 
+#ifndef DUMMY
 			target_section = memory_region_find(pci_memory, tlp_in[2], 4);
 			target_region = target_section.mr;
 			rel_addr = target_section.offset_within_region;
+#endif
 
 			if (dir == TLPD_READ) {
 				PDBG("Reading region %s offset 0x%lx", target_region->name,
 					rel_addr);
 
+#ifdef DUMMY
+				read_error = false;
+				tlp_out_body[0] = 0xBEDEBEDE;
+#else
 				read_error = io_mem_read( target_region,
 					rel_addr,
 					(uint64_t *)tlp_out_body,
 					4);
+#endif
 #ifdef POSTGRES
 				if (read_error) {
 					print_last_recvd_packet_ids();
@@ -1272,11 +1353,15 @@ main(int argc, char *argv[])
 						}
 						++bytecount;
 					} else { /* dir == TLPD_WRITE */
+#ifdef DUMMY
+						write_error = false;
+#else
 						write_error = io_mem_write(
 							target_region,
 							rel_addr + i,
 							*((uint64_t *)((uint8_t *)tlp_in + 12 + i)),
 							1);
+#endif
 						assert(!write_error);
 					}
 				}
@@ -1286,9 +1371,13 @@ main(int argc, char *argv[])
 				break;
 			}
 
+			/*create_completion_header(tlp_out, dir, device_id,*/
+				/*TLPCS_SUCCESSFUL_COMPLETION, bytecount, requester_id,*/
+				/*req_bits->tag, loweraddress);*/
 			create_completion_header(tlp_out, dir, device_id,
 				TLPCS_SUCCESSFUL_COMPLETION, bytecount, requester_id,
-				req_bits->tag, loweraddress);
+				sent_count++, loweraddress);
+
 
 			send_result = send_tlp(tlp_out_quadword, 16);
 			assert(send_result != -1);
@@ -1297,6 +1386,9 @@ main(int argc, char *argv[])
 		case CFG_0:
 			assert(dword0->length == 1);
 			requester_id = request_dword1->requester_id;
+
+			/*log(LS_REQUESTER_ID, LIF_UINT_32_HEX, requester_id, true);*/
+
 			req_addr = config_request_dword2->ext_reg_num;
 			req_addr = (req_addr << 6) | config_request_dword2->reg_num;
 			req_addr <<= 2;
@@ -1307,10 +1399,15 @@ main(int argc, char *argv[])
 				device_id = config_request_dword2->device_id;
 
 				if (dir == TLPD_READ) {
+					log(LS_RECV_CONFIG_READ, LIF_NONE, 0, true);
 					send_length = 16;
 
+#ifdef DUMMY
+					tlp_out_body[0] = 0xBEDEBEDE;
+#else
 					tlp_out_body[0] = pci_host_config_read_common(
 						pci_dev, req_addr, req_addr + 4, 4);
+#endif
 
 					/*PDBG("CfgRd0 from %lx, Value 0x%x",*/
 						/*req_addr, tlp_out_body[0]);*/
@@ -1319,13 +1416,16 @@ main(int argc, char *argv[])
 					write_leds(received_count);
 
 				} else {
+					log(LS_RECV_CONFIG_WRITE, LIF_NONE, 0, true);
 					send_length = 12;
 
 					for (i = 0; i < 4; ++i) {
 						if ((request_dword1->firstbe >> i) & 1) {
+#ifndef DUMMY
 							pci_host_config_write_common(
 								pci_dev, req_addr + i, req_addr + 4,
 								tlp_in[3] >> (i * 8), 1);
+#endif
 						}
 					}
 				}
@@ -1333,17 +1433,24 @@ main(int argc, char *argv[])
 			else {
 				completion_status = TLPCS_UNSUPPORTED_REQUEST;
 				send_length = 12;
+				writeString("UNSUPPORTED REQUEST! DEVICE ID ");
+				write_uint_32_hex(config_request_dword2->device_id, '0');
+				writeString("\r\n");
 			}
 
+			/*create_completion_header(*/
+				/*tlp_out, dir, device_id, completion_status, 4,*/
+				/*requester_id, req_bits->tag, 0);*/
 			create_completion_header(
 				tlp_out, dir, device_id, completion_status, 4,
-				requester_id, req_bits->tag, 0);
+				requester_id, sent_count++, 0);
 
 			send_result = send_tlp(tlp_out_quadword, send_length);
 			assert(send_result != -1);
 
 			break;
 		case IO:
+			log(LS_RECV_OTHER, LIF_NONE, 0, true);
 			assert(request_dword1->firstbe == 0xf); /* Only seen trace. */
 
 			/*
@@ -1362,12 +1469,15 @@ main(int argc, char *argv[])
 			 *
 			 */
 
+#ifndef DUMMY
 			target_section = memory_region_find(get_system_io(), tlp_in[2], 4);
 			target_region = target_section.mr;
 			rel_addr = target_section.offset_within_region;
+#endif
 
 			if (dir == TLPD_WRITE) {
 				send_length = 12;
+#ifndef DUMMY
 				assert(io_mem_write(target_region, rel_addr, tlp_in[3], 4)
 					== false);
 
@@ -1376,11 +1486,16 @@ main(int argc, char *argv[])
 				if (rel_addr == 0) {
 					card_reg = tlp_in[3];
 				}
+#endif
 			} else {
 				send_length = 16;
+#ifdef DUMMY
+				tlp_out_body[0] = 0xBEDEBEDE;
+#else
 				assert(io_mem_read(target_region, rel_addr,
 						(uint64_t *)tlp_out_body, 4)
 					== false);
+#endif
 
 				/*PDBG("Read CARD REG 0x%x = 0x%x", card_reg, *tlp_out_body);*/
 			}
@@ -1391,9 +1506,11 @@ main(int argc, char *argv[])
 				ignore_next_postgres_completion = true;
 			}
 #endif
+			/*create_completion_header(tlp_out, dir, device_id,*/
+				/*TLPCS_SUCCESSFUL_COMPLETION, 4, requester_id, req_bits->tag, 0);*/
 
 			create_completion_header(tlp_out, dir, device_id,
-				TLPCS_SUCCESSFUL_COMPLETION, 4, requester_id, req_bits->tag, 0);
+				TLPCS_SUCCESSFUL_COMPLETION, 4, requester_id, sent_count++, 0);
 
 #ifdef POSTGRES
 			if (dir == TLPD_WRITE && card_reg == 0x10) {
@@ -1417,6 +1534,7 @@ main(int argc, char *argv[])
 			assert(false);
 			break;
 		default:
+			log(LS_RECV_UNKNOWN, LIF_NONE, 0, true);
 			type_string = "Unknown";
 		}
 	}

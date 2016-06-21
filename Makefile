@@ -36,6 +36,9 @@ SEP :=,
 TARGETS = beri$(SEP)native
 TARGET ?= beri
 
+DUMMY ?= 0
+BAREMETAL ?= 0
+
 ifndef PCIE_QEMU_CHERI_SDK
 $(error Variable PCIE_QEMU_CHERI_SDK is not set)
 endif
@@ -106,7 +109,7 @@ CFLAGS := $(CFLAGS) -DPOSTGRES -I$(shell pg_config --includedir)
 LDFLAGS := $(LDFLAGS) -L$(shell pg_config --libdir)
 LDLIBS := $(LDLIBS) -lpq -lssl -lcrypto
 endif #POSTGRES
-endif
+endif # target native
 
 CFLAGS := $(CFLAGS) -g
 CFLAGS := $(CFLAGS) -Itcg/tci -Islirp

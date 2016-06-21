@@ -1,9 +1,10 @@
 #ifndef DEBUG_H
 #define DEBUG_H
 
+#ifdef PCIE_DEBUG
+
 #include <stdio.h>
 
-#ifdef PCIE_DEBUG
 #define PDBG(...)				do {									\
 	fprintf(stderr, "%s(%s:%d): ", __func__, __FILE__, __LINE__);		\
 	fprintf(stderr, __VA_ARGS__);										\
