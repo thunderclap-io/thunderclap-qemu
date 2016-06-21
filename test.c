@@ -106,9 +106,6 @@ char *log_strings[] = {
 	"Received Config Write packet.",
 	"Received Config Read packet.",
 	"Sending TLP of length: ",
-	"Actual tag: ",
-	"Raw tag:    "
-
 };
 
 #define LS_TIME 0
@@ -121,8 +118,6 @@ char *log_strings[] = {
 #define LS_RECV_CONFIG_WRITE 7
 #define LS_RECV_CONFIG_READ 8
 #define LS_SEND_LENGTH 9
-#define LS_ACTUAL_TAG 10
-#define LS_RAW_TAG 11
 
 #ifdef POSTGRES
 
@@ -938,9 +933,6 @@ create_completion_header(TLPDoubleWord *tlp,
 	header2->requester_id = requester_id;
 	header2->tag = tag;
 	header2->loweraddress = loweraddress;
-
-	log(LS_RAW_TAG, LIF_UINT_32_HEX, tag, true);
-	log(LS_ACTUAL_TAG, LIF_UINT_32_HEX, header2->tag, true);
 }
 
 #ifndef DUMMY
@@ -1252,7 +1244,7 @@ main(int argc, char *argv[])
 
 	TLPDoubleWord *tlp_in = (TLPDoubleWord *)tlp_in_quadword;
 	TLPDoubleWord *tlp_out = (TLPDoubleWord *)tlp_out_quadword;
-	TLPDoubleWord *tlp_out_body = (tlp_out + 3);
+	TLPDoubleWord *tlp_out_body = (tlp_out + 4);
 
 	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)tlp_in;
 	struct TLP64RequestDWord1 *request_dword1 =
@@ -1371,12 +1363,9 @@ main(int argc, char *argv[])
 				break;
 			}
 
-			/*create_completion_header(tlp_out, dir, device_id,*/
-				/*TLPCS_SUCCESSFUL_COMPLETION, bytecount, requester_id,*/
-				/*req_bits->tag, loweraddress);*/
 			create_completion_header(tlp_out, dir, device_id,
 				TLPCS_SUCCESSFUL_COMPLETION, bytecount, requester_id,
-				sent_count++, loweraddress);
+				req_bits->tag, loweraddress);
 
 
 			send_result = send_tlp(tlp_out_quadword, 16);
@@ -1400,7 +1389,7 @@ main(int argc, char *argv[])
 
 				if (dir == TLPD_READ) {
 					log(LS_RECV_CONFIG_READ, LIF_NONE, 0, true);
-					send_length = 16;
+					send_length = 20;
 
 #ifdef DUMMY
 					tlp_out_body[0] = 0xBEDEBEDE;
@@ -1438,12 +1427,9 @@ main(int argc, char *argv[])
 				writeString("\r\n");
 			}
 
-			/*create_completion_header(*/
-				/*tlp_out, dir, device_id, completion_status, 4,*/
-				/*requester_id, req_bits->tag, 0);*/
 			create_completion_header(
 				tlp_out, dir, device_id, completion_status, 4,
-				requester_id, sent_count++, 0);
+				requester_id, req_bits->tag, 0);
 
 			send_result = send_tlp(tlp_out_quadword, send_length);
 			assert(send_result != -1);
@@ -1506,11 +1492,8 @@ main(int argc, char *argv[])
 				ignore_next_postgres_completion = true;
 			}
 #endif
-			/*create_completion_header(tlp_out, dir, device_id,*/
-				/*TLPCS_SUCCESSFUL_COMPLETION, 4, requester_id, req_bits->tag, 0);*/
-
 			create_completion_header(tlp_out, dir, device_id,
-				TLPCS_SUCCESSFUL_COMPLETION, 4, requester_id, sent_count++, 0);
+				TLPCS_SUCCESSFUL_COMPLETION, 4, requester_id, req_bits->tag, 0);
 
 #ifdef POSTGRES
 			if (dir == TLPD_WRITE && card_reg == 0x10) {
