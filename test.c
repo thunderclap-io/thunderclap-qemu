@@ -87,7 +87,11 @@
 #include "log.h"
 #endif
 #include "pcie.h"
+
+#ifndef POSTGRES
 #include "pciefpga.h"
+#endif
+
 #include "beri-io.h"
 #include "mask.h"
 #include "pcie-backend.h"
