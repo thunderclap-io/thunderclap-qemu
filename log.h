@@ -27,6 +27,9 @@ char *log_strings[] = {
 #define LS_RECV_UNKNOWN 6
 #define LS_RECV_CONFIG_WRITE 7
 #define LS_RECV_CONFIG_READ 8
+#define LS_SEND_LENGTH 9
+#define LS_ACTUAL_TAG 10
+#define LS_RAW_TAG 11
 
 
 enum log_item_format {
