@@ -4,6 +4,7 @@
 #include "pcie-debug.h"
 #include "pciefpga.h"
 #include "beri-io.h"
+#include "log.h"
 
 void
 initialise_leds()
@@ -70,7 +71,7 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 		tlp[i++] = pciedata;
 		if ((i * 8) > tlp_len) {
 //			PDBG("ERROR: TLP Larger than buffer.");
-			writeString("TLP RECV OVERFLOW\r\n");
+			puts("TLP RECV OVERFLOW\r\n");
 			return -1;
 		}
 	} while (!pciestatus.bits.endofpacket);

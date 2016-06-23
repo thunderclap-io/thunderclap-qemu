@@ -46,4 +46,24 @@ void print_log();
  */
 bool last_data_for_string(int string_id, uint64_t *data);
 
+
+static inline void
+record_time()
+{
+       bool has_last_time;
+       uint32_t time;
+       uint64_t last_time;
+
+       time = read_hw_counter();
+       has_last_time = last_data_for_string(LS_TIME, &last_time);
+
+       log(LS_TIME, LIF_UINT_32, time, !has_last_time);
+
+       if (has_last_time) {
+               log(LS_TIME_DELTA, LIF_INT_32, time - last_time, true);
+       }
+}
+
+
+
 #endif
