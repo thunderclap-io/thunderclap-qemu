@@ -112,7 +112,8 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 		tlp[i++] = pciedata0;
 		tlp[i++] = pciedata1;
 		if ((i * 8) > tlp_len) {
-			PDBG("ERROR: TLP Larger than buffer.");
+			writeString("TLP RECV OVERFLOW\r\n");
+//			PDBG("ERROR: TLP Larger than buffer.");
 			return -1;
 		}
 		write_uint_32_hex(pciestatus.word, ' ');
@@ -130,6 +131,8 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	int quad_word_index;
 	volatile PCIeStatus statusword;
 	TLPDoubleWord upperword=0;
+
+	log(LS_SEND_LENGTH, LIF_INT_32, tlp_len, true);
 
 	assert(tlp_len / 8 < 64);
 
@@ -162,6 +165,9 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	}
 	// Release queued data
 	IOWR(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 1);
+
+	record_time();
+	log(LS_PACKET_SENT, LIF_NONE, 0, true);
 
 	return 0;
 }

@@ -70,6 +70,8 @@
 #include <sys/endian.h>
 #endif
 
+#include <stdbool.h>
+
 #ifndef DUMMY
 #include "qom/object.h"
 #include "hw/pci/pci.h"
@@ -120,7 +122,9 @@ bool mask_next_postgres_completion_data;
 uint32_t postgres_completion_mask;
 
 #define PG_STATUS_MASK \
-	~(E1000_STATUS_FD | E1000_STATUS_ASDV_100 | E1000_STATUS_ASDV_1000)
+	~(E1000_STATUS_FD | E1000_STATUS_ASDV_100 | E1000_STATUS_ASDV_1000 \
+		| E1000_STATUS_GIO_MASTER_ENABLE )
+
 
 /* The capbility list is different for many small reasons, which is why we
  * want this. */
@@ -205,39 +209,19 @@ volatile uint8_t *led_phys_mem;
 
 
 static inline void
-write_leds(uint8_t data)
+write_leds(uint32_t data)
 {
 #ifdef BERI
 	*led_phys_mem = ~data;
 #endif
 }
 
-int
-blink_main(int argc, char *argv[])
-{
-	puts("It's blinky time!");
-#ifdef BERI
-	initialise_leds();
-
-	uint8_t led_value = 0x55; // 0b0101
-
-	while (1) {
-		write_leds(led_value);
-		led_value = ~led_value;
-		putchar('.');
-#ifndef BAREMETAL
-		fflush(stdout);
-#endif
-		usleep(100000);
-	}
-#endif
-	return 0;
-}
-
 
 int
 main(int argc, char *argv[])
 {
+
+	set_strings(log_strings);
 
 	puts("Starting.");
 	/*const char *driver = "e1000-82540em";*/
@@ -381,10 +365,16 @@ main(int argc, char *argv[])
 	uint32_t io_completion_mask, loweraddress;
 	uint64_t addr, req_addr;
 
-	TLPDoubleWord tlp_in[64], tlp_out[64];
-	TLPDoubleWord *tlp_out_body = (tlp_out + 3);
-	TLPQuadWord *tlp_in_quadword = (TLPQuadWord *)tlp_in;
-	TLPQuadWord *tlp_out_quadword = (TLPQuadWord *)tlp_out;
+//	TLPDoubleWord tlp_in[64], tlp_out[64];
+//	TLPDoubleWord *tlp_out_body = (tlp_out + 3);
+//	TLPQuadWord *tlp_in_quadword = (TLPQuadWord *)tlp_in;
+//	TLPQuadWord *tlp_out_quadword = (TLPQuadWord *)tlp_out;
+	TLPQuadWord tlp_in_quadword[32];
+	TLPQuadWord tlp_out_quadword[32];
+
+	TLPDoubleWord *tlp_in = (TLPDoubleWord *)tlp_in_quadword;
+	TLPDoubleWord *tlp_out = (TLPDoubleWord *)tlp_out_quadword;
+	TLPDoubleWord *tlp_out_body = (tlp_out + 4);
 
 	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)tlp_in;
 	struct TLP64RequestDWord1 *request_dword1 =
@@ -409,8 +399,12 @@ main(int argc, char *argv[])
 	tlp_in[1] = 0xDEADBEE1;
 	tlp_in[2] = 0xDEADBEE2;
 	tlp_in[3] = 0xDEADBEE3;
+	int sent_count = 1;
 
-	memset(tlp_out, 0, 64 * sizeof(TLPDoubleWord));
+//	memset(tlp_out, 0, 64 * sizeof(TLPDoubleWord));
+	for (i = 0; i < 64; ++i) {
+		tlp_in[i] = 0xDEADBEE0 + (i & 0xF);
+		tlp_out[i] = 0xDEADBEE0 + (i & 0xF);
 
 	puts("LEDs clear; let's go.");
 
@@ -420,8 +414,10 @@ main(int argc, char *argv[])
 		/*printf("Waiting for TLP.\n");*/
 		/*putchar('.');*/
 		/*fflush(stdout);*/
-		tlp_in_len = wait_for_tlp(tlp_in_quadword, sizeof(tlp_in));
+		//tlp_in_len = wait_for_tlp(tlp_in_quadword, sizeof(tlp_in));
 		/*printf("Received TLP.\n");*/
+		tlp_in_len = wait_for_tlp(tlp_in_quadword, sizeof(tlp_in_quadword));
+		record_time();
 
 		dir = ((dword0->fmt & 2) >> 1);
 		const char *direction_string = (dir == TLPD_READ) ? "read" : "write";
@@ -429,6 +425,7 @@ main(int argc, char *argv[])
 
 		switch (dword0->type) {
 		case M:
+			log(LS_RECV_OTHER, LIF_NONE, 0, true);
 			assert(dword0->length == 1);
 			/* This isn't in the spec, but seems to be all we've found in our
 			 * trace. */
@@ -454,7 +451,17 @@ main(int argc, char *argv[])
 				if (read_error) {
 					print_last_recvd_packet_ids();
 				}
-				if (rel_addr == 0x10 || rel_addr == 0x5B58) {
+
+				if (rel_addr == 0x0) {
+					mask_next_postgres_completion_data = true;
+					postgres_completion_mask = ~uint32_mask_enable_bits(19, 19);
+					PDBG("%x", postgres_completion_mask);
+					/* 19 is apparently a software controllable IO pin, so I
+					 * don't think we particularly care. */
+				} else if (rel_addr == 0x8) {
+					mask_next_postgres_completion_data = true;
+					postgres_completion_mask = PG_STATUS_MASK;
+				} else if (rel_addr == 0x10 || rel_addr == 0x5B58) {
 					/* 1) EEPROM or Flash
 					 * 2) Second software semaphore, not present on this
 					 * card.
@@ -507,6 +514,9 @@ main(int argc, char *argv[])
 		case CFG_0:
 			assert(dword0->length == 1);
 			requester_id = request_dword1->requester_id;
+
+			/*log(LS_REQUESTER_ID, LIF_UINT_32_HEX, requester_id, true);*/
+
 			req_addr = config_request_dword2->ext_reg_num;
 			req_addr = (req_addr << 6) | config_request_dword2->reg_num;
 			req_addr <<= 2;
@@ -517,7 +527,8 @@ main(int argc, char *argv[])
 				device_id = config_request_dword2->device_id;
 
 				if (dir == TLPD_READ) {
-					send_length = 16;
+					log(LS_RECV_CONFIG_READ, LIF_NONE, 0, true);
+					send_length = 20;
 #ifdef DUMMY
 					tlp_out_body[0] = 0xBEDEBEDE;
 #else
@@ -531,6 +542,7 @@ main(int argc, char *argv[])
 					write_leds(received_count);
 
 				} else {
+					log(LS_RECV_CONFIG_WRITE, LIF_NONE, 0, true);
 					send_length = 12;
 
 					for (i = 0; i < 4; ++i) {
@@ -547,6 +559,9 @@ main(int argc, char *argv[])
 			else {
 				completion_status = TLPCS_UNSUPPORTED_REQUEST;
 				send_length = 12;
+				writeString("UNSUPPORTED REQUEST! DEVICE ID ");
+				write_uint_32_hex(config_request_dword2->device_id, '0');
+				writeString("\r\n");
 			}
 
 			create_completion_header(
@@ -558,6 +573,7 @@ main(int argc, char *argv[])
 
 			break;
 		case IO:
+			log(LS_RECV_OTHER, LIF_NONE, 0, true);
 			assert(request_dword1->firstbe == 0xf); /* Only seen trace. */
 
 			/*
@@ -587,12 +603,10 @@ main(int argc, char *argv[])
 				assert(io_mem_write(target_region, rel_addr, tlp_in[3], 4)
 					== false);
 
+				PDBG("Setting CARD REG 0x%x <= 0x%x", card_reg, tlp_in[3]);
+
 				if (rel_addr == 0) {
 					card_reg = tlp_in[3];
-				}
-				else if (rel_addr == 4 && card_reg == 0x8) {
-					PDBG("Setting CARD REG 0x%x <= 0x%x",
-						card_reg, tlp_in[3]);
 				}
 #endif
 			} else {
@@ -604,9 +618,7 @@ main(int argc, char *argv[])
 						(uint64_t *)tlp_out_body, 4)
 					== false);
 
-				if (rel_addr == 4 && card_reg == 0x8) {
-					PDBG("Read CARD REG 0x%x = 0x%x", card_reg, *tlp_out_body);
-				}
+				/*PDBG("Read CARD REG 0x%x = 0x%x", card_reg, *tlp_out_body);*/
 #endif
 			}
 
@@ -642,6 +654,7 @@ main(int argc, char *argv[])
 			assert(false);
 			break;
 		default:
+			log(LS_RECV_UNKNOWN, LIF_NONE, 0, true);
 			type_string = "Unknown";
 		}
 	}

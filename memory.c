@@ -14,6 +14,8 @@
  */
 #include "pcie-debug.h"
 
+#include <assert.h>
+
 #include "exec/memory.h"
 #include "exec/address-spaces.h"
 #include "exec/ioport.h"
@@ -2007,12 +2009,18 @@ void address_space_destroy(AddressSpace *as)
 
 bool io_mem_read(MemoryRegion *mr, hwaddr addr, uint64_t *pval, unsigned size)
 {
+#ifdef DUMMY
+	assert(false); /* Attempting mem read when DUMMY defined! */
+#endif
     return memory_region_dispatch_read(mr, addr, pval, size);
 }
 
 bool io_mem_write(MemoryRegion *mr, hwaddr addr,
                   uint64_t val, unsigned size)
 {
+#ifdef DUMMY
+	assert(false); /* Attempting mem write when DUMMY defined! */
+#endif
     return memory_region_dispatch_write(mr, addr, val, size);
 }
 

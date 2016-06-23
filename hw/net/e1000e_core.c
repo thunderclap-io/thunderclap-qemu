@@ -1972,6 +1972,8 @@ _e1000e_core_reset_mac(E1000ECore *core)
 static void
 set_ctrl(E1000ECore *core, int index, uint32_t val)
 {
+	PDBG("Setting CTRL to 0x%x. GIO Master Disable to %d",
+		val, (val >> 2) & 1);
     trace_e1000e_core_ctrl_write(index, val);
 
     /* RST is self clearing */
@@ -2562,6 +2564,7 @@ set_dlen(E1000ECore *core, int index, uint32_t val)
 static void
 set_tctl(E1000ECore *core, int index, uint32_t val)
 {
+	PDBG("Setting TCTL to 0x%x", val);
     E1000E_TxRing txr;
     core->mac[index] = val;
 
@@ -2679,6 +2682,9 @@ set_tidv(E1000ECore *core, int index, uint32_t val)
 static uint32_t
 mac_readreg(E1000ECore *core, int index)
 {
+	if (index == TCTL) {
+		PDBG("Returning TCTL as %x", core->mac[index]);
+	}
     return core->mac[index];
 }
 
@@ -2729,7 +2735,6 @@ mac_low16_read(E1000ECore *core, int index)
 static uint32_t
 mac_swsm_read(E1000ECore *core, int index)
 {
-	/*PDBG("Reading swsm.");*/
     uint32_t val = core->mac[SWSM];
     core->mac[SWSM] = val | 1;
     return val;
@@ -3203,7 +3208,7 @@ e1000e_core_read(E1000ECore *core, hwaddr addr, unsigned size)
 {
     uint64_t val;
     uint16_t index = _e1000e_get_reg_index_with_offset(mac_reg_access, addr);
-	PDBG("E1000E Read 0x%lx (%d)", addr, index);
+	/*PDBG("E1000E Read 0x%lx (%d)", addr, index);*/
 
     if (index < NREADOPS && macreg_readops[index]) {
         if (mac_reg_access[index] & MAC_ACCESS_PARTIAL) {
@@ -3211,7 +3216,7 @@ e1000e_core_read(E1000ECore *core, hwaddr addr, unsigned size)
         }
         val = macreg_readops[index](core, index);
         trace_e1000e_core_read(index << 2, size, val);
-		PDBG("Returning 0x%x (%d)", val, val);
+		/*PDBG("Returning 0x%x (%d)", val, val);*/
         return val;
     } else {
         trace_e1000e_wrn_regs_read_unknown(index << 2, size);
@@ -3246,6 +3251,8 @@ _e1000e_core_prepare_eeprom(E1000ECore      *core,
     core->eeprom[EEPROM_CHECKSUM_REG] = checksum;
 }
 
+static void _e1000e_core_initialize_regs(E1000ECore *core);
+
 void
 e1000e_core_pci_realize(E1000ECore      *core,
                        const uint16_t *eeprom_templ,
@@ -3257,6 +3264,7 @@ e1000e_core_pci_realize(E1000ECore      *core,
     core->autoneg_timer = timer_new_ms(QEMU_CLOCK_VIRTUAL,
                                        _e1000e_autoneg_timer, core);
     _e1000e_intrmgr_pci_realize(core);
+	_e1000e_core_initialize_regs(core);
 
     for (i = 0; i < E1000E_NUM_QUEUES; i++) {
         net_tx_pkt_init(&core->tx[i].tx_pkt,
@@ -3344,7 +3352,7 @@ static const uint32_t mac_reg_init[] = {
     [RXUDP]       = 0x319,
     [CTRL] =    E1000_CTRL_FD | E1000_CTRL_SWDPIN2 | E1000_CTRL_SWDPIN0 |
                 E1000_CTRL_SPD_1000 | E1000_CTRL_SLU | E1000_CTRL_ADVD3WUC,
-    [STATUS] =  E1000_STATUS_ASDV_1000 | E1000_STATUS_LU,
+    [STATUS] =  E1000_STATUS_ASDV_1000 /*| E1000_STATUS_LU*/,
     [PSRCTL]  = (2 << E1000_PSRCTL_BSIZE0_SHIFT) |
                 (4 << E1000_PSRCTL_BSIZE1_SHIFT) |
                 (4 << E1000_PSRCTL_BSIZE2_SHIFT),
@@ -3362,27 +3370,33 @@ static const uint32_t mac_reg_init[] = {
     [TDFTS]   = 0x600,
     [POEMB]   = 0x30D,
     [PBS]     = 0x028,
-    [MANC]    = E1000_MANC_DIS_IP_CHK_ARP,
+	[MANC]    = E1000_MANC_RMCP_EN,
     [FACTPS]  = E1000_FACTPS_LAN0_ON | 0x20000000,
-    [SWSM]    = 1,
+    [SWSM]    = 0,
     [RXCSUM]  = E1000_RXCSUM_IPOFLD | E1000_RXCSUM_TUOFLD,
     [ITR]     = _E1000E_MIN_XITR,
     [EITR...EITR + E1000E_MSIX_VEC_NUM - 1] = _E1000E_MIN_XITR,
 };
+
+static void
+_e1000e_core_initialize_regs(E1000ECore *core)
+{
+    memset(core->phy, 0, sizeof core->phy);
+    memmove(core->phy, phy_reg_init, sizeof phy_reg_init);
+	memset(core->mac, 0, sizeof core->mac);
+	memmove(core->mac, mac_reg_init, sizeof mac_reg_init);
+}
 
 void
 e1000e_core_reset(E1000ECore *core)
 {
     int i;
 
-    timer_del(core->autoneg_timer);
+	timer_del(core->autoneg_timer);
 
     _e1000e_intrmgr_reset(core);
 
-    memset(core->phy, 0, sizeof core->phy);
-    memmove(core->phy, phy_reg_init, sizeof phy_reg_init);
-    memset(core->mac, 0, sizeof core->mac);
-    memmove(core->mac, mac_reg_init, sizeof mac_reg_init);
+	_e1000e_core_initialize_regs(core);
 
     core->rxbuf_min_shift = 1 + E1000_RING_DESC_LEN_SHIFT;
 
