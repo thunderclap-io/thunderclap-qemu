@@ -33,7 +33,7 @@
 # SUCH DAMAGE.
 
 SEP :=, 
-TARGETS = beribsd$(SEP)postgres
+TARGETS = beribsd$(SEP)postgres$(SEP)beribare$(SEP)niosbare
 TARGET ?= postgres
 
 ifndef PCIE_QEMU_CHERI_SDK
