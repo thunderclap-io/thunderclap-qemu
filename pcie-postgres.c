@@ -49,7 +49,7 @@
 #include "qapi/qmp/qerror.h"
 #include "qemu/config-file.h"
 
-#include <libpq-fe.h>
+#include "libpq-fe.h"
 
 #include "pcie.h"
 #include "mask.h"
