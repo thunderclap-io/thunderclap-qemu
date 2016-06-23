@@ -129,7 +129,7 @@ CFLAGS := $(CFLAGS) -D_GNU_SOURCE # To pull in pipe2 -- seems dodgy
 
 DONT_FIND_TEMPLATES := $(shell grep "include \".*\.c\"" -Roh . | sort | uniq | sed 's/include /! -name /g')
 SOURCES := $(shell find . -name "*.c" $(DONT_FIND_TEMPLATES) \
-	! -name "pcie-*.c" \( -path niosbare -o -path beribare \) -prune \
+	\( -path niosbare -o -path beribare \) -prune ! -name "pcie-*.c" \
 	| sed 's|./||') $(BACKEND_$(TARGET))
 O_FILES := $(addprefix $(TARGET_DIR)/,$(SOURCES:.c=.o))
 HEADERS := $(shell find . -name "*.h")
@@ -137,7 +137,7 @@ HEADERS := $(shell find . -name "*.h")
 $(TARGET_DIR)/test: $(O_FILES)
 	@echo "Targets were $(O_FILES)"
 	@echo "Linking..."
-	@$(CC) $(LDFLAGS) -o $@ $^ $(LOADLIBES) $(LDLIBS)
+	@$(CC) $(LDFLAGS) -o $@ $^ $(LOADLIBS) $(LDLIBS)
 
 $(TARGET_DIR)/test-no-source.dump: $(TARGET_DIR)/test
 	$(OBJDUMP) -Cdz $< > $@
