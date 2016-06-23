@@ -87,7 +87,7 @@ CFLAGS := $(CFLAGS) -DPCIE_DEBUG
 endif
 
 # if TARGET=beribsd or beribare
-ifeq ($(TARGET),$(filter $(TARGET),beribsd,beribare))
+ifeq ($(TARGET),$(filter $(TARGET),beribsd beribare))
 $(info Building for BERI)
 SDK = $(PCIE_QEMU_CHERI_SDK)/sdk
 CC = $(SDK)/bin/clang
