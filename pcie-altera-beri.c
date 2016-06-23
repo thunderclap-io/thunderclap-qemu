@@ -4,6 +4,7 @@
 #include "pcie-debug.h"
 #include "pciefpga.h"
 #include "beri-io.h"
+#include "pcie-backend.h"
 #include "log.h"
 
 void
