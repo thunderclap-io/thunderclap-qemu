@@ -33,8 +33,8 @@
 # SUCH DAMAGE.
 
 SEP :=, 
-TARGETS = beri$(SEP)native
-TARGET ?= native
+TARGETS = beribsd$(SEP)postgres
+TARGET ?= postgres
 
 ifndef PCIE_QEMU_CHERI_SDK
 $(error Variable PCIE_QEMU_CHERI_SDK is not set)
@@ -58,7 +58,7 @@ ifeq (,$(findstring $(filter-out $(SEP), $(TARGET))$(SEP), $(TARGETS)$(SEP)))
 $(error $(TARGET) is not a valid target: choices are $(TARGETS))
 endif
 
-ifeq ($(TARGET),native)
+ifeq ($(TARGET),postgres)
 	POSTGRES ?=1
 	PCIE_DEBUG ?=1
 else
@@ -68,9 +68,10 @@ endif
 
 TARGET_DIR=build-$(TARGET)
 
-BACKEND_beri = pcie-altera-beri.c
-BACKEND_native = pcie-postgres.c
-BACKEND_nios = pcie-nios.c
+BACKEND_beribsd = pcie-altera-beri.c
+BACKEND_beribare = pcie-altera-beri.c
+BACKEND_postgres = pcie-postgres.c
+BACKEND_niosbare = pcie-nios.c
 
 
 
@@ -85,7 +86,8 @@ ifeq ($(PCIE_DEBUG),1)
 CFLAGS := $(CFLAGS) -DPCIE_DEBUG
 endif
 
-ifeq ($(TARGET),beri)
+# if TARGET=beribsd or beribare
+ifeq ($(TARGET),$(filter $(TARGET),beribsd,beribare))
 $(info Building for BERI)
 SDK = $(PCIE_QEMU_CHERI_SDK)/sdk
 CC = $(SDK)/bin/clang
@@ -101,8 +103,8 @@ CFLAGS := $(CFLAGS) -DTARGET=TARGET_BERI -G0 -mxgot -O2 -ftls-model=local-exec
 CFLAGS := $(CFLAGS) -DBERIBSD -DBERI
 LDFLAGS := $(LDFLAGS) --sysroot=$(PCIE_QEMU_SYSROOT)
 LDFLAGS := $(LDFLAGS) -L$(EXTRA_USR)/local/lib
-else ifeq ($(TARGET),native)
-$(info Building native)
+else ifeq ($(TARGET),postgres)
+$(info Building postgres)
 CC = clang
 OBJDUMP = objdump
 CFLAGS := $(CFLAGS) $(shell pkg-config --cflags $(LIBS))
