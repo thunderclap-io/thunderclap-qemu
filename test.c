@@ -82,19 +82,20 @@
 #include "qemu/config-file.h"
 #endif
 
+#include "pcie-backend.h"
+#include "log.h"
+
 #ifdef BAREMETAL
 #include "baremetalsupport.h"
-#include "log.h"
 #endif
 #include "pcie.h"
 
 #ifndef POSTGRES
 #include "pciefpga.h"
+#include "beri-io.h"
 #endif
 
-#include "beri-io.h"
 #include "mask.h"
-#include "pcie-backend.h"
 
 
 #ifdef POSTGRES

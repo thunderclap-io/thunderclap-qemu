@@ -46,14 +46,14 @@ struct log_entry {
 	bool						trailing_new_line;
 };
 
-static char **log_strings;
+static char **log_strings_dict;
 static struct log_entry log_entries[LOG_LENGTH];
 static int next_log_record = 0;
 
 void
 set_strings(char *strings[])
 {
-	log_strings = strings;
+	log_strings_dict = strings;
 }
 
 void
@@ -78,7 +78,7 @@ print_log()
 	for (int i = 0; i < next_log_record; ++i) {
 		struct log_entry entry = log_entries[i];
 		if (entry.string_id >= 0) {
-			writeString(log_strings[entry.string_id]);
+			writeString(log_strings_dict[entry.string_id]);
 		}
 		switch (entry.format) {
 		case LIF_BOOL:
