@@ -6,7 +6,7 @@
 
 #define LOG_LENGTH 64
 
-char *log_strings[] = {
+static char *log_strings[] = {
         "TIME: ",
         ". Since last: ",
         "Recieved TLP with requester id: ",
