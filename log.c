@@ -35,7 +35,9 @@
  */
 
 #include "log.h"
+#ifdef BAREMETAL
 #include "baremetalsupport.h"
+#endif
 
 struct log_entry {
 	int							string_id;

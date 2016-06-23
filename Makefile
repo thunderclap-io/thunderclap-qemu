@@ -128,11 +128,16 @@ CFLAGS := $(CFLAGS) -D NEED_CPU_H -D TARGET_X86_64 -D CONFIG_BSD
 CFLAGS := $(CFLAGS) -D_GNU_SOURCE # To pull in pipe2 -- seems dodgy
 
 DONT_FIND_TEMPLATES := $(shell grep "include \".*\.c\"" -Roh . | sort | uniq | sed 's/include /! -name /g')
-SOURCES := $(shell find . -name "*.c" $(DONT_FIND_TEMPLATES) \
-	\( -path niosbare -o -path beribare \) -prune ! -name "pcie-*.c" \
+$(info DONT_FIND_TEMPLATES=$(DONT_FIND_TEMPLATES) )
+SOURCES := $(shell find . \
+	! -name "pcie-*.c" $(DONT_FIND_TEMPLATES) -name "*.c" \
+	| sed '/niosbare/d' \
+	| sed '/beribare/d' \
 	| sed 's|./||') $(BACKEND_$(TARGET))
 O_FILES := $(addprefix $(TARGET_DIR)/,$(SOURCES:.c=.o))
 HEADERS := $(shell find . -name "*.h")
+
+$(info Sources are $(SOURCES) )
 
 $(TARGET_DIR)/test: $(O_FILES)
 	@echo "Targets were $(O_FILES)"
