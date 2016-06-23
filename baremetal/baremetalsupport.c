@@ -127,6 +127,20 @@ write_int_64(uint64_t n, char pad)
 	writeNumber(19, 10, true, n, pad);
 }
 
+void
+writeHex(unsigned long long n)
+{
+	unsigned int i;
+	for(i = 0;i < 16; ++i)
+	{
+		unsigned long long hexDigit = (n & 0xF000000000000000L) >> 60L;
+//		unsigned long hexDigit = (n & 0xF0000000L) >> 28L;
+		char hexDigitChar = (hexDigit < 10) ? ('0' + hexDigit) : ('A' + hexDigit - 10);
+		writeUARTChar(hexDigitChar);
+		n = n << 4;
+	}
+}
+
 #ifdef BAREMETAL
 
 void
@@ -151,21 +165,6 @@ writeString(char* s)
 		++s;
 	}
 }
-
-void
-writeHex(unsigned long long n)
-{
-	unsigned int i;
-	for(i = 0;i < 16; ++i)
-	{
-		unsigned long long hexDigit = (n & 0xF000000000000000L) >> 60L;
-//		unsigned long hexDigit = (n & 0xF0000000L) >> 28L;
-		char hexDigitChar = (hexDigit < 10) ? ('0' + hexDigit) : ('A' + hexDigit - 10);
-		writeUARTChar(hexDigitChar);
-		n = n << 4;
-	}
-}
-
 
 char
 readUARTChar()
@@ -201,4 +200,22 @@ void *memset(void *s, int c, size_t n)
 		p[i] = (uint8_t) c;
 }
 
+#else
+
+void
+writeUARTChar(char c)
+{
+	putchar(c);
+}
+
+void writeString(char* s)
+{
+	puts(s);
+}
+
+char
+readUARTChar()
+{
+	return (char) getchar();
+}
 #endif

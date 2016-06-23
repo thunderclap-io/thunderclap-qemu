@@ -387,6 +387,7 @@ main(int argc, char *argv[])
 	for (i = 0; i < 64; ++i) {
 		tlp_in[i] = 0xDEADBEE0 + (i & 0xF);
 		tlp_out[i] = 0xDEADBEE0 + (i & 0xF);
+	}
 
 	puts("LEDs clear; let's go.");
 
