@@ -95,6 +95,7 @@ OBJDUMP = $(SDK)/bin/objdump
 #CC=/home/cr437/cheri-sdk/sdk/bin/gcc
 EXTRA_USR=$(PCIE_QEMU_LIBRARY_ROOT)/usr
 CFLAGS := $(CFLAGS) $(addprefix "-I$(EXTRA_USR)/local/include/",$(LIBS))
+CFLAGS := $(CFLAGS) -I$(EXTRA_USR)/include
 #CFLAGS := $(CFLAGS) --target=mips64-unknown-freebsd
 CFLAGS := $(CFLAGS) -integrated-as
 CFLAGS := $(CFLAGS) --sysroot=$(PCIE_QEMU_SYSROOT)
