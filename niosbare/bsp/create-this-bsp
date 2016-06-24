@@ -6,7 +6,7 @@ BSP_TYPE=hal
 BSP_DIR=.
 SOPC_DIR=./
 SOPC_FILE=./pcie_de_gen1_x4_ast64.sopcinfo
-NIOS2_BSP_ARGS="--default_sys_timer timer_0"
+NIOS2_BSP_ARGS="--default_sys_timer timer_0 --set hal.timestamp_timer timer_0"
 CPU_NAME=
 
 if [ -n "$CPU_NAME" ]; then
