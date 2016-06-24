@@ -41,6 +41,7 @@
 #include "pcie-debug.h"
 #include "pciefpga.h"
 #include "beri-io.h"
+#include "log.h"
 
 #include "sys/alt_timestamp.h"
 
