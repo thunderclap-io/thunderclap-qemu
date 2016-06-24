@@ -46,13 +46,14 @@ CLANG=$(SDK_BIN)/clang --sysroot $(SYSROOT)/ -B $(SDK_BIN) -isystem $(CLANG_INC)
 #AS=mips64-as
 AS=$(BINUTILS)/bin/mips64-as
 #ASFLAGS=-g -c -fno-pic -target mips64 -integrated-as -EB -fverbose-asm
-ASFLAGS=-EB -march=mips64 -mabi=64 -G0 -ggdb
+ASFLAGS=-EB -march=mips64 -mabi=64 -G0 -ggdb -Iberibare
 
 #CC=/usr/groups/ecad/mips/sde-6.06/bin/sde-gcc
 CC=$(CLANG)
 CFLAGS=-gdwarf-2 -c -fno-pic -target mips64 -integrated-as -EB
 #-Werror=all -target cheri-unknown-freebsd -integrated-as
 CFLAGS+=-O2 -ffunction-sections -fno-builtin
+CFLAGS+=-DBAREMETAL -DDUMMY -DBERI -Ibaremetalsupport -Iberibare
 
 #LD=mips64-ld
 LD=$(BINUTILS)/bin/mips64-ld
@@ -60,9 +61,9 @@ LD=$(BINUTILS)/bin/mips64-ld
 OBJCOPY=$(BINUTILS)/bin/mips64-objcopy
 OBJDUMP=$(BINUTILS)/bin/mips64-objdump
 
-LDSCRIPT=script.ld
-INIT_OBJ=init.o
-LIB_OBJ=lib.o
+LDSCRIPT=beribare/script.ld
+INIT_OBJ=beribare/init.o
+LIB_OBJ=beribare/lib.o
 
 all: test.dump test.mif
 
@@ -77,7 +78,7 @@ $(INIT_OBJ):
 $(LIB_OBJ):
 
 %.elf: $(LIB_OBJ) %.o $(INIT_OBJ)
-	$(LD) -EB -G0 -T $(LDSCRIPT) $^ -o $@ -m elf64bmip -M > test.map
+	$(LD) -Lberibare -EB -G0 -T $(LDSCRIPT) $^ -o $@ -m elf64bmip -M > test.map
 # elf64-tradbigmips
 
 %.mem: %.elf
