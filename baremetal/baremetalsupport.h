@@ -34,6 +34,8 @@ void write_int_64(uint64_t n, char pad);
 unsigned long read_hw_counter();
 
 typedef uint64_t useconds_t;
+
+#ifndef NIOS
 typedef uint64_t size_t;
 int usleep(useconds_t usec);
 
@@ -51,5 +53,6 @@ putchar(int c)
 {
 	writeUARTChar(c);
 }
+#endif
 
 #endif

@@ -35,6 +35,7 @@
  */
 
 #include <stdint.h>
+#include <stddef.h>
 #include "baremetalsupport.h"
 
 static inline unsigned long long
@@ -141,7 +142,7 @@ writeHex(unsigned long long n)
 	}
 }
 
-#ifdef BAREMETAL
+#if defined(BAREMETAL) && defined(BERI)
 
 void
 writeUARTChar(char c)

@@ -34,10 +34,12 @@
  * SUCH DAMAGE.
  */
 
-#include "log.h"
+#include <stdint.h>
+#include <stddef.h>
 #ifdef BAREMETAL
 #include "baremetalsupport.h"
 #endif
+#include "log.h"
 
 struct log_entry {
 	int							string_id;

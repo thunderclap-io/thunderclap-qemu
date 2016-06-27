@@ -54,6 +54,9 @@
  * appropriate busses set up -- the main initialisation function is called
  * pc_q35_init, and I am slowly cannibalising it.
  */
+
+#include <stdint.h>
+#include <stdbool.h>
 #include "pcie-debug.h"
 #ifndef DUMMY
 #include "hw/net/e1000_regs.h"

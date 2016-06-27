@@ -291,7 +291,7 @@ MemoryResponse memoryRequest(uint64_t address, uint64_t timeout)
 
 				else
 					response.data32 = 0xdeaddead;
-				//printf("Matched completion %d, status=%x, data=%08x ", tagSent, response.status, response.data32);
+				printf("Matched completion %d, status=%x, data=%08x ", tagSent, response.status, response.data32);
 				return response;
 			}
 		}
@@ -347,8 +347,8 @@ int main()
   	addrH = (uint32_t) (addr>>32LL);
   	addrL = (uint32_t) (addr & 0xFFFFFFFFLL);
 //	sendTLP(tlp,j*4);
-//	sendTLP(mrd64, sizeof(mrd64));
-//	sendTLP(vendor_broadcast, sizeof(vendor_broadcast));
+	sendTLP(mrd64, sizeof(mrd64));
+	sendTLP(vendor_broadcast, sizeof(vendor_broadcast));
 //	i = waitForTLP(tlp, sizeof(tlp));
 //	parseInboundTLP(tlp,i);
   	r = memoryRequest(addr,100000);
