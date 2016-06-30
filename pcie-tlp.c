@@ -122,6 +122,9 @@ parse_memory_response(volatile TLPDoubleWord *tlp, uint32_t tlp_length,
 
 		memcpy(response_buffer, payload, worst_buffer_length);
 		return 0;
+	} else if (header0->fmt = TLPFMT_3DW_NODATA) {
+		// successful write completion
+		return 0;
 	}
 
 	// should never reach here
