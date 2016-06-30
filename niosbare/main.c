@@ -24,12 +24,13 @@
 #include "altera_avalon_timer.h"
 #include "pcie.h"
 #include "pciefpga.h"
+#include "pcietlp.h"
 
 #define ENDIAN_SWAP(x) (((x & 0xFF)<<24) | ((x & 0xFF00)<<8) | ((x & 0xFF0000)>>8) | ((x & 0xFF000000)>>24))
 
 #define COMPLETER_ID 0xC400
 
-
+#if 0
 int displayTLP(TLPDoubleWord *tlp, int tlpLen)
 {
 	int i=0, j=0;
@@ -224,6 +225,7 @@ int waitForTLP(TLPDoubleWord *tlp, int tlpLen)
 	return i*4;
 }
 #endif
+#endif
 /* Make a memory request to the host, fetching a single 32 bit word.
  * Parameters:
  * address: 64 bit address to request
@@ -232,21 +234,24 @@ int waitForTLP(TLPDoubleWord *tlp, int tlpLen)
  * MemoryResponse structure containing details of response packet
  */
 
-MemoryResponse memoryRequest(uint64_t address, uint64_t timeout)
+int memoryRequest(uint64_t address, uint64_t timeout)
 {
 	TLPDoubleWord tlp[64];
-	TLPHeader0 h0;
+/*	TLPHeader0 h0;
 	TLPHeaderReq h1;
 	TLPHeaderCompl0 c1;
-	TLPHeaderCompl1 c2;
+	TLPHeaderCompl1 c2;*/
 	static unsigned int tag=0;
 	unsigned int tagSent = 0;
 	int receivedCount = 0;
 	int tlpLen = 0;
 	alt_timestamp_type startTime = 0;
 	uint64_t timeoutCycles = (alt_timestamp_freq() * timeout) / 1000000000LL;
-	MemoryResponse response;
+	int response;
+	uint32_t data_buffer[256];
+	int status=0;
 
+/*
 	h0.word = 0;
 	h0.bits.type = MemoryReq;
 	h0.bits.length = 1;
@@ -269,16 +274,35 @@ MemoryResponse memoryRequest(uint64_t address, uint64_t timeout)
 		tlp[2] = (address & 0xFFFFFFFF);
 		tlpLen = 3*4;
 	}
+*/
+	tlpLen = create_memory_request(tlp, sizeof(tlp), TLPD_READ, 0 /* completer_id */,
+		COMPLETER_ID /* requester id */, tag, 0 /* loweraddress */,
+		data_buffer, sizeof(data_buffer));
 
 	startTime = alt_timestamp();
-	sendTLP(tlp,tlpLen);
+	send_tlp(tlp,tlpLen);
 	tag = (tag+1) % 32;
 
 
 	do {
-		receivedCount = waitForTLP(tlp, sizeof(tlp));
+		enum tlp_completion_status completion_status=0;
+		uint16_t completer_id=0, requester_id=0;
+		uint8_t tag=0;
+		uint32_t returned_length=0;
+		receivedCount = wait_for_tlp(tlp, sizeof(tlp));
 		if (receivedCount < 3*4)
 			continue;
+
+		status = parse_memory_response(tlp, receivedCount,
+			data_buffer, sizeof(data_buffer),
+			&completion_status, &completer_id, &requester_id,
+			&tag, &returned_length);
+
+		if (status==0 && completion_status == TLPCS_SUCCESSFUL_COMPLETION && tag == tagSent) {
+			printf("Matched completion %d, status=%x, data=%08x ", tagSent, completion_status, data_buffer[0]);
+			return status;
+		}
+/*
 		h0.word = tlp[0];
 		c1.word = tlp[1];
 		c2.word = tlp[2];
@@ -295,12 +319,12 @@ MemoryResponse memoryRequest(uint64_t address, uint64_t timeout)
 				return response;
 			}
 		}
-
+*/
 	} while(alt_timestamp()<(startTime+timeoutCycles));
 
-	response.status = RequestTimeout;
+//	response.status = RequestTimeout;
 
-	return response;
+	return status;
 
 }
 
@@ -311,10 +335,10 @@ int main()
   volatile PCIeStatus pciestatus;
   TLPDoubleWord tlp[64];
   int i=0,j=0;
-  Address addr=0, startAddr=0, lastAddr;
-  MemoryResponse r;
-  TLPCompletionStatus lastCompletion=RequestTimeout;
-  Address delta = 4*1024;
+  uint64_t addr=0, startAddr=0, lastAddr;
+  int r;
+  enum tlp_completion_status lastCompletion=TLPCS_REQUEST_TIMEOUT;
+  uint64_t delta = 4*1024;
 
 
   printf("Hello from Nios II!\n");
@@ -347,24 +371,24 @@ int main()
   	addrH = (uint32_t) (addr>>32LL);
   	addrL = (uint32_t) (addr & 0xFFFFFFFFLL);
 //	sendTLP(tlp,j*4);
-	sendTLP(mrd64, sizeof(mrd64));
-	sendTLP(vendor_broadcast, sizeof(vendor_broadcast));
+	send_tlp(mrd64, sizeof(mrd64));
+	send_tlp(vendor_broadcast, sizeof(vendor_broadcast));
 //	i = waitForTLP(tlp, sizeof(tlp));
 //	parseInboundTLP(tlp,i);
   	r = memoryRequest(addr,100000);
-  	if (r.status != lastCompletion)
+  	if (r != lastCompletion)
   	{
 	  	uint32_t startAddrH, startAddrL;
 	  	startAddrH = (uint32_t) (startAddr>>32LL);
 	  	startAddrL = (uint32_t) (startAddr & 0xFFFFFFFFLL);
 
-	  	Address lastAddr = addr-delta;
+	  	uint64_t lastAddr = addr-delta;
 	  	uint32_t lastAddrH, lastAddrL;
 	  	lastAddrH = (uint32_t) (lastAddr>>32LL);
 	  	lastAddrL = (uint32_t) (lastAddr & 0xFFFFFFFFLL);
 
   		printf("Range %08x_%08x to %08x_%08x, status %d\n", startAddrH, startAddrL, lastAddrH, lastAddrL, lastCompletion);
-  		lastCompletion = r.status;
+  		lastCompletion = r;
   		startAddr = addr;
   	}
 //  	if (r.status!=UR)

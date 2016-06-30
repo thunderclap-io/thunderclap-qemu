@@ -143,7 +143,8 @@ ELF := nios-bare.elf
 
 # Paths to C, C++, and assembly source files.
 C_SRCS += pcie-altera-nios.c baremetal/baremetalsupport.c \
-		  log.c test.c pcie-tlp.c
+		  log.c pcietlp.c \
+		  niosbare/main.c
 CXX_SRCS :=
 ASM_SRCS :=
 

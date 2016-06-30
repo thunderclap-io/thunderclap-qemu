@@ -1,14 +1,17 @@
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdlib.h>
 #include "pcie.h"
 
-inline void
+uint32_t
 create_memory_request(volatile TLPDoubleWord *tlp, uint32_t buffer_length,
 	enum tlp_direction direction, uint16_t completer_id,
 	uint16_t requester_id, uint8_t tag, uint8_t loweraddress,
 	uint64_t memory_address, uint32_t memory_length)
 {
+#ifndef BAREMETAL
 	assert( buffer_length>=16 );
+#endif
 
 	uint32_t tlp_len;
 	// Clear buffer before we start filling bits in
@@ -26,7 +29,7 @@ create_memory_request(volatile TLPDoubleWord *tlp, uint32_t buffer_length,
 	struct TLP64RequestDWord1 *header1 = (struct TLP64RequestDWord1 *)(tlp) + 1;
 	header1->requester_id = completer_id;
 	header1->tag = tag;
-	// only support word accesses currently
+	// XXX: only support word accesses currently
 	header1->firstbe = 0xf;
 	header1->lastbe = 0;
 	
@@ -59,6 +62,7 @@ create_memory_request(volatile TLPDoubleWord *tlp, uint32_t buffer_length,
 			tlp_len += memory_length;
 		}
 	}
+	return tlp_len;
 }
 
 // Interpret a memory response we already received as a packet
