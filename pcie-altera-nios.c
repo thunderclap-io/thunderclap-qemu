@@ -117,12 +117,15 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 //			PDBG("ERROR: TLP Larger than buffer.");
 			return -1;
 		}
+/*
 		write_uint_32_hex(pciestatus.word, ' ');
 		write_uint_32(pciestatus.bits.pad1, ' '); putchar('P');
 		write_uint_32(pciestatus.bits.byteenable, ' '); putchar('N');
 		write_uint_32(pciestatus.bits.startofpacket, ' '); putchar('S');
 		write_uint_32(pciestatus.bits.endofpacket, ' '); putchar('Z');
 		write_uint_32(pciestatus.bits.pad2, ' '); putchar('p');
+		write_uint_32(i,' '); putchar('i');
+*/
 	} while (!pciestatus.bits.endofpacket);
 
 	return (i * 4);

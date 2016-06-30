@@ -142,8 +142,8 @@ ACDS_VERSION := 16.0
 ELF := nios-bare.elf
 
 # Paths to C, C++, and assembly source files.
-C_SRCS += test.c pcie-altera-nios.c baremetal/baremetalsupport.c \
-		  log.c
+C_SRCS += pcie-altera-nios.c baremetal/baremetalsupport.c \
+		  log.c test.c pcie-tlp.c
 CXX_SRCS :=
 ASM_SRCS :=
 
