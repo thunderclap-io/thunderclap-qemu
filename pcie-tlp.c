@@ -26,20 +26,39 @@ create_memory_request(volatile TLPDoubleWord *tlp, uint32_t buffer_length,
 	struct TLP64RequestDWord1 *header1 = (struct TLP64RequestDWord1 *)(tlp) + 1;
 	header1->requester_id = completer_id;
 	header1->tag = tag;
+	// only support word accesses currently
 	header1->firstbe = 0xf;
 	header1->lastbe = 0;
 	
-	if (memory_address >= (1LL<<32)) {
-		header0->fmt = TLPFMT_4DW_NODATA;
-		tlp[2] = (memory_address>>32);
-		tlp[3] = (memory_address & 0xFFFFFFFF);
-		tlp_len = 4*4;
-	} else {
-		header0->fmt = TLPFMT_3DW_NODATA;
-		tlp[2] = (memory_address & 0xFFFFFFFF);
-		tlp_len = 3*4;
-	}
+	if (direction == TLPD_READ)	{
 
+		if (memory_address >= (1LL<<32)) {
+			header0->fmt = TLPFMT_4DW_NODATA;
+			tlp[2] = (memory_address>>32);
+			tlp[3] = (memory_address & 0xFFFFFFFF);
+			tlp_len = 4*4;
+		} else {
+			header0->fmt = TLPFMT_3DW_NODATA;
+			tlp[2] = (memory_address & 0xFFFFFFFF);
+			tlp_len = 3*4;
+		}
+	} else {
+		// build a write
+		if (memory_address >= (1LL<<32)) {
+			header0->fmt = TLPFMT_4DW_DATA;
+			tlp[2] = (memory_address>>32);
+			tlp[3] = (memory_address & 0xFFFFFFFF);
+			tlp_len = 4*4;
+			memcpy(tlp+4, memory_address, (memory_length+3)/4);
+			tlp_len += memory_length;
+		} else {
+			header0->fmt = TLPFMT_3DW_DATA;
+			tlp[2] = (memory_address & 0xFFFFFFFF);
+			tlp_len = 3*4;
+			memcpy(tlp+3, memory_address, (memory_length+3)/4);
+			tlp_len += memory_length;
+		}
+	}
 }
 
 // Interpret a memory response we already received as a packet
