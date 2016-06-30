@@ -35,6 +35,7 @@
 SEP :=, 
 TARGETS = beribsd$(SEP)postgres$(SEP)beribare$(SEP)niosbare
 TARGET ?= postgres
+DUMMY ?=0
 
 ifndef PCIE_QEMU_CHERI_SDK
 $(error Variable PCIE_QEMU_CHERI_SDK is not set)
@@ -82,6 +83,11 @@ LDLIBS := $(LDLIBS) -lutil -lglib-2.0 -liconv -lintl -lm -lthr
 
 CFLAGS := $(CFLAGS) -O3
 
+ifeq ($(DUMMY),1)
+CFLAGS := $(CFLAGS) -DDUMMY
+TARGET_DIR :=$(TARGET_DIR)-dummy
+endif
+
 ifeq ($(PCIE_DEBUG),1)
 CFLAGS := $(CFLAGS) -DPCIE_DEBUG
 endif
@@ -128,20 +134,21 @@ CFLAGS := $(CFLAGS) -D NEED_CPU_H -D TARGET_X86_64 -D CONFIG_BSD
 #CFLAGS := $(CFLAGS) -Wno-error=initializer-overrides
 CFLAGS := $(CFLAGS) -D_GNU_SOURCE # To pull in pipe2 -- seems dodgy
 
+ifeq ($(DUMMY),1)
+SOURCES := test.c log.c beri-io.c baremetal/baremetalsupport.c
+SOURCES += $(BACKEND_$(TARGET))
+else
 DONT_FIND_TEMPLATES := $(shell grep "include \".*\.c\"" -Roh . | sort | uniq | sed 's/include /! -name /g')
-$(info DONT_FIND_TEMPLATES=$(DONT_FIND_TEMPLATES) )
 SOURCES := $(shell find . \
 	! -name "pcie-*.c" $(DONT_FIND_TEMPLATES) -name "*.c" \
 	| sed '/niosbare/d' \
 	| sed '/beribare/d' \
 	| sed 's|./||') $(BACKEND_$(TARGET))
+endif
 O_FILES := $(addprefix $(TARGET_DIR)/,$(SOURCES:.c=.o))
 HEADERS := $(shell find . -name "*.h")
 
-$(info Sources are $(SOURCES) )
-
 $(TARGET_DIR)/test: $(O_FILES)
-	@echo "Targets were $(O_FILES)"
 	@echo "Linking..."
 	@$(CC) $(LDFLAGS) -o $@ $^ $(LOADLIBS) $(LDLIBS)
 
@@ -152,8 +159,9 @@ $(TARGET_DIR)/test.dump: $(TARGET_DIR)/test
 	$(OBJDUMP) -ChdS $< > $@
 
 $(TARGET_DIR)/%.o: %.c
-	mkdir -p $(dir $@)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
+	@echo "Bulding $<..."
+	@mkdir -p $(dir $@)
+	@$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
 
 # Cancel implicit rule
 %.o : %.c

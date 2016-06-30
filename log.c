@@ -48,20 +48,25 @@ struct log_entry {
 	bool						trailing_new_line;
 };
 
+#ifdef LOG
 static char **log_strings_dict;
 static struct log_entry log_entries[LOG_LENGTH];
 static int next_log_record = 0;
+#endif
 
 void
 set_strings(char *strings[])
 {
+#ifdef LOG
 	log_strings_dict = strings;
+#endif
 }
 
 void
 log(int string_id, enum log_item_format format, uint64_t data_item,
 	bool trailing_new_line)
 {
+#ifdef LOG
 	log_entries[next_log_record].string_id = string_id;
 	log_entries[next_log_record].format = format;
 	log_entries[next_log_record].data_item = data_item;
@@ -72,11 +77,13 @@ log(int string_id, enum log_item_format format, uint64_t data_item,
 	if (next_log_record >= LOG_LENGTH) {
 		print_log();
 	}
+#endif
 }
 
 void
 print_log()
 {
+#ifdef LOG
 	for (int i = 0; i < next_log_record; ++i) {
 		struct log_entry entry = log_entries[i];
 		if (entry.string_id >= 0) {
@@ -117,11 +124,13 @@ print_log()
 		}
 	}
 	next_log_record = 0;
+#endif
 }
 
 bool
 last_data_for_string(int string_id, uint64_t *data)
 {
+#ifdef LOG
 	for (int i = (next_log_record - 1); i >= 0; --i) {
 		struct log_entry entry = log_entries[i];
 		if (entry.string_id == string_id) {
@@ -129,5 +138,6 @@ last_data_for_string(int string_id, uint64_t *data)
 			return true;
 		}
 	}
+#endif
 	return false;
 }

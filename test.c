@@ -188,7 +188,9 @@ create_completion_header(volatile TLPDoubleWord *tlp,
 }
 
 #ifndef BAREMETAL
+#ifndef DUMMY
 MachineState *current_machine;
+#endif
 #endif
 volatile uint8_t *led_phys_mem;
 

@@ -46,12 +46,14 @@ puts(const char *str)
 {
 	writeString((char *) str);
 	writeUARTChar('\n');
+	return 0;
 }
 
 static inline int
 putchar(int c)
 {
 	writeUARTChar(c);
+	return 0;
 }
 #endif
 
