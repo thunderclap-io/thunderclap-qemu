@@ -110,18 +110,17 @@ parse_memory_response(volatile TLPDoubleWord *tlp, uint32_t tlp_length,
 	{
 		uint32_t i = 0;
 		uint32_t response_length = header0->length;
+		uint32_t worst_buffer_length = 0;
 
-		// don't use a for loop because we have three buffers we need to check for length
-		while(1)
-		{
-			if (i >= (tlp_length-12)/4)
-				break;
-			if (i >= response_buffer_length/4)
-				break;
-			if (i >= response_length/4)
-				break;
-			response_buffer[i] = payload[i];
+		worst_buffer_length = tlp_length-12;
+		if (response_buffer_length < worst_buffer_length) {
+			worst_buffer_length = response_buffer_length;
 		}
+		if (response_length < worst_buffer_length) {
+			worst_buffer_length = response_length;
+		}
+
+		memcpy(response_buffer, payload, worst_buffer_length);
 		return 0;
 	}
 
