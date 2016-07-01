@@ -7,11 +7,6 @@
 #ifdef BAREMETAL
 #include "parameters.h"
 
-static inline void
-assert(bool predicate)
-{
-}
-
 #define IO_RD_BYTE(x) (*(volatile unsigned char*)(x))
 #define IO_RD(x) (*(volatile unsigned long long*)(x))
 #define IO_RD32(x) (*(volatile int*)(x))
@@ -33,10 +28,15 @@ void write_int_64(uint64_t n, char pad);
 
 unsigned long read_hw_counter();
 
+#ifndef NIOS
+static inline void
+assert(bool predicate)
+{
+}
+
+typedef uint64_t size_t;
 typedef uint64_t useconds_t;
 
-#ifndef NIOS
-typedef uint64_t size_t;
 int usleep(useconds_t usec);
 
 void *memset(void *s, int c, size_t n);
@@ -55,6 +55,8 @@ putchar(int c)
 	writeUARTChar(c);
 	return 0;
 }
+#else
+#include <assert.h>
 #endif
 
 #endif

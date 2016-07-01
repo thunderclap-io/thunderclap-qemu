@@ -96,6 +96,7 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	/* Real approach: no POSTGRES */
 	volatile PCIeStatus pciestatus;
 	volatile TLPDoubleWord pciedata1, pciedata0;
+	TLPDoubleWord *tlpd = (TLPDoubleWord *) tlp;
 	volatile int ready;
 	int i = 0; // i is "length of TLP so far received in doublewords.
 
@@ -112,8 +113,8 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 		}
 		pciedata1 = IORD(PCIEPACKETRECEIVER_0_BASE,PCIEPACKETRECEIVER_UPPER32);
 		pciedata0 = IORD(PCIEPACKETRECEIVER_0_BASE,PCIEPACKETRECEIVER_LOWER32DEQ);
-		tlp[i++] = pciedata0;
-		tlp[i++] = pciedata1;
+		tlpd[i++] = pciedata0;
+		tlpd[i++] = pciedata1;
 		if ((i * 4) > tlp_len) {
 			writeString("TLP RECV OVERFLOW\r\n");
 //			PDBG("ERROR: TLP Larger than buffer.");

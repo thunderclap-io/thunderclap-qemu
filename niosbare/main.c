@@ -25,10 +25,11 @@
 #include "pcie.h"
 #include "pciefpga.h"
 #include "pcietlp.h"
+#include "baremetalsupport.h"
 
 #define ENDIAN_SWAP(x) (((x & 0xFF)<<24) | ((x & 0xFF00)<<8) | ((x & 0xFF0000)>>8) | ((x & 0xFF000000)>>24))
 
-#define COMPLETER_ID 0xC400
+#define COMPLETER_ID 0x0100
 
 #if 0
 int displayTLP(TLPDoubleWord *tlp, int tlpLen)
@@ -245,8 +246,9 @@ int memoryRequest(uint64_t address, uint64_t timeout)
 	unsigned int tagSent = 0;
 	int receivedCount = 0;
 	int tlpLen = 0;
-	alt_timestamp_type startTime = 0;
-	uint64_t timeoutCycles = (alt_timestamp_freq() * timeout) / 1000000000LL;
+	unsigned long startTime = 0;
+//	uint64_t timeoutCycles = (alt_timestamp_freq() * timeout) / 1000000000LL;
+	unsigned long timeoutCycles = timeout*1000;
 	int response;
 	uint32_t data_buffer[256];
 	int status=0;
@@ -276,12 +278,13 @@ int memoryRequest(uint64_t address, uint64_t timeout)
 	}
 */
 	//puts("Created request TLP");
-	tlpLen = create_memory_request(tlp, sizeof(tlp), TLPD_READ, 0 /* completer_id */,
+	tlpLen = create_memory_request(tlp, sizeof(tlp), TLPD_READ, 
 		COMPLETER_ID /* requester id */, tag, 0 /* loweraddress */,
 		address, 4);
 
-	//puts("Sending request TLP");
-	startTime = alt_timestamp();
+	puts("Sending request TLP, tag = ");
+	write_uint_32_hex(tag, ' ');
+	startTime = read_hw_counter();
 	send_tlp(tlp,tlpLen);
 	tagSent = tag;
 	tag = (tag+1) % 32;
@@ -301,20 +304,23 @@ int memoryRequest(uint64_t address, uint64_t timeout)
 			data_buffer, sizeof(data_buffer),
 			&completion_status, &completer_id, &requester_id,
 			&tag, &returned_length);
-			puts("Received completion: tag/status/length/word=");
+/*			puts("Received completion: address / status/tag/completion_status/length/word=");
+			write_uint_64_hex(address, ' ');
+			write_uint_32_hex(status,' ');
 			write_uint_32(tag, ' ');
 			write_uint_32(completion_status, ' ');
 			write_uint_32(returned_length, ' ');
-			write_uint_32(data_buffer[0], ' ');
+			write_uint_32_hex(data_buffer[0], ' ');
 			writeUARTChar('\n');
+*/
 
-
-		if (status==0 && completion_status == TLPCS_SUCCESSFUL_COMPLETION && tag == tagSent) {
-			puts("Matched completion: tag/status/length/word=");
+		if ((status==0) && (completion_status == TLPCS_SUCCESSFUL_COMPLETION) && (tag == tagSent)) {
+			puts("Matched completion: status/tag/completion_status/length/word=");
+			write_uint_32_hex(status,' ');
 			write_uint_32(tag, ' ');
 			write_uint_32(completion_status, ' ');
 			write_uint_32(returned_length, ' ');
-			write_uint_32(data_buffer[0], ' ');
+			write_uint_32_hex(data_buffer[0], ' ');
 			writeUARTChar('\n');
 			return status;
 		}
@@ -336,7 +342,7 @@ int memoryRequest(uint64_t address, uint64_t timeout)
 			}
 		}
 */
-	} while(alt_timestamp()<(startTime+timeoutCycles));
+	} while(read_hw_counter()<(startTime+timeoutCycles));
 
 //	response.status = RequestTimeout;
 

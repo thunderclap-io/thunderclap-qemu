@@ -5,8 +5,7 @@
 
 uint32_t
 create_memory_request(volatile TLPDoubleWord *tlp, uint32_t buffer_length,
-	enum tlp_direction direction, uint16_t completer_id,
-	uint16_t requester_id, uint8_t tag, uint8_t loweraddress,
+	enum tlp_direction direction, uint16_t requester_id, uint8_t tag, uint8_t loweraddress,
 	uint64_t memory_address, uint32_t memory_length)
 {
 #ifndef BAREMETAL
@@ -27,7 +26,7 @@ create_memory_request(volatile TLPDoubleWord *tlp, uint32_t buffer_length,
 	header0->at = 0;
 
 	struct TLP64RequestDWord1 *header1 = (struct TLP64RequestDWord1 *)(tlp) + 1;
-	header1->requester_id = completer_id;
+	header1->requester_id = requester_id;
 	header1->tag = tag;
 	// XXX: only support word accesses currently
 	header1->firstbe = 0xf;
@@ -53,13 +52,13 @@ create_memory_request(volatile TLPDoubleWord *tlp, uint32_t buffer_length,
 			tlp[3] = (memory_address & 0xFFFFFFFF);
 			tlp_len = 4*4;
 			memcpy(tlp+4, memory_address, (memory_length+3)/4);
-			tlp_len += memory_length;
+			tlp_len += (memory_length+3)/4;
 		} else {
 			header0->fmt = TLPFMT_3DW_DATA;
 			tlp[2] = (memory_address & 0xFFFFFFFF);
 			tlp_len = 3*4;
 			memcpy(tlp+3, memory_address, (memory_length+3)/4);
-			tlp_len += memory_length;
+			tlp_len += (memory_length+3)/4;
 		}
 	}
 	return tlp_len;
@@ -81,13 +80,23 @@ parse_memory_response(volatile TLPDoubleWord *tlp, uint32_t tlp_length,
 	struct TLP64DWord0 *header0 = (struct TLP64DWord0 *)(tlp);
 	struct TLP64CompletionDWord1 *header1 = (struct TLP64CompletionDWord1 *)(tlp) + 1;
 	struct TLP64CompletionDWord2 *header2 = (struct TLP64CompletionDWord2 *)(tlp) + 2;
-	uint32_t *payload = (uint32_t *) tlp+3;
+	uint32_t *payload = (uint32_t *) tlp+4;
 
 	*returned_length = 0;
 
+	writeString("TLP, length / words 0-5");
+	write_uint_32(tlp_length, ' ');
+  	write_uint_32_hex(tlp[0],' ');
+  	write_uint_32_hex(tlp[1],' ');
+  	write_uint_32_hex(tlp[2],' ');
+  	write_uint_32_hex(tlp[3],' ');
+  	write_uint_32_hex(tlp[4],' ');
+  	write_uint_32_hex(tlp[5],' ');
+  	writeUARTChar('\n');
+
 	if (header0->type != CPL)
 	{
-		puts("Parsing memory response that isn't a completion");
+		//puts("Parsing memory response that isn't a completion");
 		return -100;
 	}
 	if ((header0->fmt !=TLPFMT_3DW_NODATA) && (header0->fmt != TLPFMT_3DW_DATA))
@@ -116,10 +125,10 @@ parse_memory_response(volatile TLPDoubleWord *tlp, uint32_t tlp_length,
 	if (header0->fmt == TLPFMT_3DW_DATA)
 	{
 		uint32_t i = 0;
-		uint32_t response_length = header0->length;
+		uint32_t response_length = header0->length*4;
 		uint32_t worst_buffer_length = 0;
 
-		worst_buffer_length = tlp_length-12;
+		worst_buffer_length = tlp_length-16;
 		if (response_buffer_length < worst_buffer_length) {
 			worst_buffer_length = response_buffer_length;
 		}
@@ -130,7 +139,7 @@ parse_memory_response(volatile TLPDoubleWord *tlp, uint32_t tlp_length,
 		memcpy(response_buffer, payload, worst_buffer_length);
 		*returned_length = worst_buffer_length;
 		return 0;
-	} else if (header0->fmt = TLPFMT_3DW_NODATA) {
+	} else if (header0->fmt == TLPFMT_3DW_NODATA) {
 		// successful write completion
 		return 0;
 	}

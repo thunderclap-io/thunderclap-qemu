@@ -201,6 +201,14 @@ void *memset(void *s, int c, size_t n)
 		p[i] = (uint8_t) c;
 }
 
+void *memcpy(void *d, void *s, size_t n)
+{
+	uint8_t *dest = (uint8_t *) d;
+	uint8_t *src = (uint8_t *) s;
+	for (int i=0; i<n; i++)
+		dest[i] = src[i];
+}
+
 #else
 
 void
