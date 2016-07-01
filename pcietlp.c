@@ -83,14 +83,17 @@ parse_memory_response(volatile TLPDoubleWord *tlp, uint32_t tlp_length,
 	struct TLP64CompletionDWord2 *header2 = (struct TLP64CompletionDWord2 *)(tlp) + 2;
 	uint32_t *payload = (uint32_t *) tlp+3;
 
+	*returned_length = 0;
+
 	if (header0->type != CPL)
 	{
 		puts("Parsing memory response that isn't a completion");
 		return -100;
 	}
-	if ((header0->fmt !=TLPFMT_3DW_NODATA) || (header0->fmt != TLPFMT_3DW_DATA))
+	if ((header0->fmt !=TLPFMT_3DW_NODATA) && (header0->fmt != TLPFMT_3DW_DATA))
 	{
 		puts("Invalid TLP format for parse_memory_response");
+		write_uint_32(header0->fmt);
 		return -101;
 	}
 
@@ -125,6 +128,7 @@ parse_memory_response(volatile TLPDoubleWord *tlp, uint32_t tlp_length,
 		}
 
 		memcpy(response_buffer, payload, worst_buffer_length);
+		*returned_length = worst_buffer_length;
 		return 0;
 	} else if (header0->fmt = TLPFMT_3DW_NODATA) {
 		// successful write completion

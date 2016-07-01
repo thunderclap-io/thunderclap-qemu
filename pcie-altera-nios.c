@@ -44,6 +44,7 @@
 #include "log.h"
 
 #include "sys/alt_timestamp.h"
+#include "io.h"
 
 volatile uint8_t *physmem;
 volatile uint8_t *led_phys_mem;
@@ -91,6 +92,7 @@ read_hw_counter()
 int
 wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 {
+
 	/* Real approach: no POSTGRES */
 	volatile PCIeStatus pciestatus;
 	volatile TLPDoubleWord pciedata1, pciedata0;
@@ -173,6 +175,7 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 		// write lower 32 bits and send word
 		IOWR(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_LOWER32SEND,
 			lowerword);
+		//printf("Sending upper word %08x lower word %08x status %08x\n", upperword, lowerword, statusword.word);
 	}
 	// Release queued data
 	IOWR(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 1);

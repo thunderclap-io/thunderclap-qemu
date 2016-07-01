@@ -275,12 +275,15 @@ int memoryRequest(uint64_t address, uint64_t timeout)
 		tlpLen = 3*4;
 	}
 */
+	//puts("Created request TLP");
 	tlpLen = create_memory_request(tlp, sizeof(tlp), TLPD_READ, 0 /* completer_id */,
 		COMPLETER_ID /* requester id */, tag, 0 /* loweraddress */,
-		data_buffer, sizeof(data_buffer));
+		address, 4);
 
+	//puts("Sending request TLP");
 	startTime = alt_timestamp();
 	send_tlp(tlp,tlpLen);
+	tagSent = tag;
 	tag = (tag+1) % 32;
 
 
@@ -293,13 +296,26 @@ int memoryRequest(uint64_t address, uint64_t timeout)
 		if (receivedCount < 3*4)
 			continue;
 
+		//puts("Received a TLP");
 		status = parse_memory_response(tlp, receivedCount,
 			data_buffer, sizeof(data_buffer),
 			&completion_status, &completer_id, &requester_id,
 			&tag, &returned_length);
+			puts("Received completion: tag/status/length/word=");
+			write_uint_32(tag, ' ');
+			write_uint_32(completion_status, ' ');
+			write_uint_32(returned_length, ' ');
+			write_uint_32(data_buffer[0], ' ');
+			writeUARTChar('\n');
+
 
 		if (status==0 && completion_status == TLPCS_SUCCESSFUL_COMPLETION && tag == tagSent) {
-			printf("Matched completion %d, status=%x, data=%08x ", tagSent, completion_status, data_buffer[0]);
+			puts("Matched completion: tag/status/length/word=");
+			write_uint_32(tag, ' ');
+			write_uint_32(completion_status, ' ');
+			write_uint_32(returned_length, ' ');
+			write_uint_32(data_buffer[0], ' ');
+			writeUARTChar('\n');
 			return status;
 		}
 /*
@@ -371,8 +387,8 @@ int main()
   	addrH = (uint32_t) (addr>>32LL);
   	addrL = (uint32_t) (addr & 0xFFFFFFFFLL);
 //	sendTLP(tlp,j*4);
-	send_tlp(mrd64, sizeof(mrd64));
-	send_tlp(vendor_broadcast, sizeof(vendor_broadcast));
+	//send_tlp(mrd64, sizeof(mrd64));
+	//send_tlp(vendor_broadcast, sizeof(vendor_broadcast));
 //	i = waitForTLP(tlp, sizeof(tlp));
 //	parseInboundTLP(tlp,i);
   	r = memoryRequest(addr,100000);
@@ -387,12 +403,16 @@ int main()
 	  	lastAddrH = (uint32_t) (lastAddr>>32LL);
 	  	lastAddrL = (uint32_t) (lastAddr & 0xFFFFFFFFLL);
 
-  		printf("Range %08x_%08x to %08x_%08x, status %d\n", startAddrH, startAddrL, lastAddrH, lastAddrL, lastCompletion);
+  		writeString("Range ");
+  		write_uint_32(startAddrH,' ');
+  		write_uint_32(startAddrL,'0');
+  		write_uint_32(lastAddrH,' ');
+  		write_uint_32(lastAddrL,'0');
+  		writeUARTChar('\n');
+  		//write_uint_32(startAddrH%08x_%08x to %08x_%08x, status %d\n", startAddrH, startAddrL, lastAddrH, lastAddrL, lastCompletion);
   		lastCompletion = r;
   		startAddr = addr;
   	}
-//  	if (r.status!=UR)
-//  		printf("Memory read addr %08x_%08x = %08x (code=%x)\n",addrH, addrL , r.data32, r.status);
   	i++;
   	addr+=delta;
   }
