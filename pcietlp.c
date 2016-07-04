@@ -83,7 +83,7 @@ parse_memory_response(volatile TLPDoubleWord *tlp, uint32_t tlp_length,
 	uint32_t *payload = (uint32_t *) tlp+4;
 
 	*returned_length = 0;
-
+/*
 	writeString("TLP, length / words 0-5");
 	write_uint_32(tlp_length, ' ');
   	write_uint_32_hex(tlp[0],' ');
@@ -93,7 +93,7 @@ parse_memory_response(volatile TLPDoubleWord *tlp, uint32_t tlp_length,
   	write_uint_32_hex(tlp[4],' ');
   	write_uint_32_hex(tlp[5],' ');
   	writeUARTChar('\n');
-
+*/
 	if (header0->type != CPL)
 	{
 		//puts("Parsing memory response that isn't a completion");
