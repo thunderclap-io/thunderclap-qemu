@@ -8,9 +8,8 @@ create_memory_request(volatile TLPDoubleWord *tlp, uint32_t buffer_length,
 	enum tlp_direction direction, uint16_t requester_id, uint8_t tag, uint8_t loweraddress,
 	uint64_t memory_address, uint32_t memory_length)
 {
-#ifndef BAREMETAL
-	assert( buffer_length>=16 );
-#endif
+	if ( buffer_length>=16 )
+		return -100;
 
 	uint32_t tlp_len;
 	// Clear buffer before we start filling bits in
