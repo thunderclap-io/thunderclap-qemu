@@ -1,6 +1,6 @@
 #include "pcie.h"
 
-extern volatile uint8_t *physmem; 
+extern volatile uint8_t *physmem;
 
 int
 pcie_hardware_init(int argc, char **argv, volatile uint8_t **physmem);
