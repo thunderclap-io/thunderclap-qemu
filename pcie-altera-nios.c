@@ -135,6 +135,19 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 
 }
 
+int
+drain_pcie_core()
+{
+	while (IORD(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_READY)) {
+		IORD(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_STATUS);
+		IORD(PCIEPACKETRECEIVER_0_BASE,PCIEPACKETRECEIVER_UPPER32);
+		IORD(PCIEPACKETRECEIVER_0_BASE,PCIEPACKETRECEIVER_LOWER32DEQ);
+		for (int i = 0; i < (1 << 10); ++i) {
+			asm("nop");
+		}
+	}
+}
+
 /* tlp is a pointer to the tlp, tlp_len is the length of the tlp in bytes. */
 /* returns 0 on success. */
 int

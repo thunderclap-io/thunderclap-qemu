@@ -33,6 +33,8 @@
  * SUCH DAMAGE.
  */
 
+#include "pcie-backend.h"
+
 #include <stdint.h>
 #include <stdio.h>
 #include <execinfo.h>
@@ -401,12 +403,22 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 
 	/*DEBUG_PRINTF(" (packet %d)\n", get_postgres_packet(result));*/
 
+	int i;
+
 	if (data_length > 0) {
+		/* This is a frankly unlikely sequences of swaps, but seems to work. */
+
 		uint64_t data = get_postgres_data(result);
 		TLPDoubleWord *data_dword = (TLPDoubleWord *)&data;
-		for (int i = 0; i < (data_length / sizeof(TLPDoubleWord)); ++i) {
+		for (i = 0; i < (data_length / sizeof(TLPDoubleWord)); ++i) {
 			dword3[i] = bswap32(data_dword[i]);
 		}
+
+		uint16_t *dword3_word = (uint16_t *)dword3;
+		for (i = 0; i < (data_length / sizeof(uint16_t)); ++i) {
+			dword3_word[i] = bswap16(dword3_word[i]);
+		}
+
 	}
 	return length;
 }
@@ -583,6 +595,11 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	return ret_value;
 }
 
+void
+drain_pcie_core()
+{
+}
+
 static inline bool
 should_send_tlp_for_result(PGresult *result)
 {
@@ -599,11 +616,15 @@ should_send_tlp_for_result(PGresult *result)
 /* tlp is a pointer to the tlp, tlp_len is the length of the tlp in bytes. */
 /* returns 0 on success. */
 int
-send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
+send_tlp(TLPQuadWord *header, int header_len, TLPQuadWord *data, int data_len,
+	enum tlp_data_alignment data_alignment)
 {
+	assert(header_len == 12 || header_len == 16);
+	assert(data_len % 4 == 0);
 	static int check_count = 0;
 
 	int i, response;
+	int tlp_len = header_len + data_len;
 
 	PGresult *result = PQgetResult(postgres_connection_upstream);
 	assert(result != NULL);
@@ -648,21 +669,22 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	}
 
 	TLPDoubleWord *expected_dword = (TLPDoubleWord *)expected;
-	TLPDoubleWord *tlp_dword = (TLPDoubleWord *)tlp;
+	TLPDoubleWord *data_dword = (TLPDoubleWord *)data;
 
 	if (mask_next_postgres_completion_data) {
-		PDBG("Masking.");
 		mask_next_postgres_completion_data = false;
-		PDBG("Expected (%p) %0x => %0x", &(expected_dword[3]), expected_dword[3],
-			expected_dword[3] & postgres_completion_mask);
 		expected_dword[3] = expected_dword[3] & postgres_completion_mask;
-		PDBG("Actual   (%p) %0x => %0x", &(tlp_dword[3]), tlp_dword[3],
-			tlp_dword[3] & postgres_completion_mask);
-		tlp_dword[3] = tlp_dword[3] & postgres_completion_mask;
+		*data_dword = (*data_dword) & postgres_completion_mask;
 	}
 
 	uint8_t *expected_byte = (uint8_t *)expected;
-	uint8_t *actual_byte = (uint8_t *)tlp;
+	uint8_t *header_byte = (uint8_t *)header;
+	uint8_t *data_byte = (uint8_t *)data;
+
+#define TLP_BYTE(K) \
+	((K < header_len) ? header_byte[K] : data_byte[K - header_len])
+
+	uint8_t actual;
 
 	/* TODO: Use one of the better mechanisms for masking off packets. */
 	for (i = 0; i < tlp_len; ++i) {
@@ -672,20 +694,21 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 		 * and the difference between single and multifunction.
 		 * Subsystem ID and Subsystem vendor ID
 		 * Devices seem to use a difference interrupt pin for some reason... */
+		actual = TLP_BYTE(i);
+
 		if (!(i == 12 && (
-					(expected_byte[i] == 0x06 && actual_byte[i] == 0x00)
-					|| (expected_byte[i] == 0x3c && actual_byte [i] == 0x86))) &&
+					(expected_byte[i] == 0x06 && actual == 0x00)
+					|| (expected_byte[i] == 0x3c && actual == 0x86))) &&
 			!(i == 13 && (
-					(expected_byte[i] == 0x10 && actual_byte[i] == 0x80)
-					|| (expected_byte[i] == 0x02 && actual_byte[i] == 0x01))) &&
+					(expected_byte[i] == 0x10 && actual == 0x80)
+					|| (expected_byte[i] == 0x02 && actual == 0x01))) &&
 			!(i == 14 && (
-					(expected_byte[i] == 0x5e && actual_byte[i] == 0xd3)
-					|| (expected_byte[i] == 0x80 && actual_byte[i] == 0x00)
-					|| (expected_byte[i] == 0x44 && actual_byte[i] == 0x00))) &&
+					(expected_byte[i] == 0x80 && actual == 0x00)
+					|| (expected_byte[i] == 0x44 && actual == 0x00))) &&
 			!(i == 15 && (
-					(expected_byte[i] == 0x70 && actual_byte[i] == 0x00)))
+					(expected_byte[i] == 0x70 && actual == 0x00)))
 		   ) {
-			match = match && (expected_byte[i] == actual_byte[i]);
+			match = match && (expected_byte[i] == actual);
 		}
 	}
 	
@@ -700,9 +723,9 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 		PDBG("Attempted packet send mismatch (checked %d, packet %d)",
 			check_count, get_postgres_packet(result));
 		for (i = 0; i < tlp_len; ++i) {
-			DEBUG_PRINTF("%03d: Exp - 0x%02x; Act - 0x%02x (%p)",
-				i, expected_byte[i], actual_byte[i], &actual_byte[i]);
-			if (expected_byte[i] != actual_byte[i]) {
+			DEBUG_PRINTF("%03d: Exp - 0x%02x; Act - 0x%02x",
+				i, expected_byte[i], TLP_BYTE(i));
+			if (expected_byte[i] != TLP_BYTE(i)) {
 				DEBUG_PRINTF(" !");
 			}
 			DEBUG_PRINTF("\n");
@@ -712,6 +735,7 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	}
 
 	return 0;
+#undef TLP_BYTE
 }
 
 

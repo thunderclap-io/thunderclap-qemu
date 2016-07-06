@@ -88,9 +88,7 @@
 #include "pcie-backend.h"
 #include "log.h"
 
-#ifdef BAREMETAL
-#include "baremetalsupport.h"
-#endif
+#include "baremetal/baremetalsupport.h"
 #include "pcie.h"
 
 #ifndef POSTGRES
@@ -152,7 +150,7 @@ static DeviceClass
 #endif
 
 static inline void
-create_completion_header(volatile TLPDoubleWord *tlp,
+create_completion_header(TLPDoubleWord *tlp,
 	enum tlp_direction direction, uint16_t completer_id,
 	enum tlp_completion_status completion_status, uint16_t bytecount,
 	uint16_t requester_id, uint8_t tag, uint8_t loweraddress)
@@ -340,7 +338,7 @@ main(int argc, char *argv[])
     if (init)
     	return init;
 
-	int i, tlp_in_len = 0, tlp_out_len, send_length, send_result, bytecount;
+	int i, tlp_in_len = 0, tlp_out_len, data_length, send_result, bytecount;
 	enum tlp_direction dir;
 	enum tlp_completion_status completion_status;
 	char *type_string;
@@ -352,16 +350,14 @@ main(int argc, char *argv[])
 	uint32_t io_completion_mask, loweraddress;
 	uint64_t addr, req_addr;
 
-//	TLPDoubleWord tlp_in[64], tlp_out[64];
-//	TLPDoubleWord *tlp_out_body = (tlp_out + 3);
-//	TLPQuadWord *tlp_in_quadword = (TLPQuadWord *)tlp_in;
-//	TLPQuadWord *tlp_out_quadword = (TLPQuadWord *)tlp_out;
 	TLPQuadWord tlp_in_quadword[32];
-	TLPQuadWord tlp_out_quadword[32];
+	TLPQuadWord tlp_out_header[2];
+	TLPQuadWord tlp_out_data[16];
 
 	TLPDoubleWord *tlp_in = (TLPDoubleWord *)tlp_in_quadword;
-	TLPDoubleWord *tlp_out = (TLPDoubleWord *)tlp_out_quadword;
-	TLPDoubleWord *tlp_out_body = (tlp_out + 4);
+	TLPDoubleWord *tlp_out_header_dword = (TLPDoubleWord *)tlp_out_header;
+	TLPDoubleWord *tlp_out_data_dword = (TLPDoubleWord *)tlp_out_data;
+	uint16_t *tlp_out_data_word = (uint16_t *)tlp_out_data;
 
 	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)tlp_in;
 	struct TLP64RequestDWord1 *request_dword1 =
@@ -382,34 +378,23 @@ main(int argc, char *argv[])
 	int received_count = 0;
 	write_leds(received_count);
 
-	tlp_in[0] = 0xDEADBEE0;
-	tlp_in[1] = 0xDEADBEE1;
-	tlp_in[2] = 0xDEADBEE2;
-	tlp_in[3] = 0xDEADBEE3;
-	int sent_count = 1;
-
-//	memset(tlp_out, 0, 64 * sizeof(TLPDoubleWord));
 	for (i = 0; i < 64; ++i) {
 		tlp_in[i] = 0xDEADBEE0 + (i & 0xF);
-		tlp_out[i] = 0xDEADBEE0 + (i & 0xF);
 	}
 
-	puts("LEDs clear; let's go.");
+	drain_pcie_core();
+
+	puts("LEDs clear. PCIe Core Drained. Let's go.");
+	printf("New version.");
 
 	int card_reg = -1;
 
 	while (1) {
-		/*printf("Waiting for TLP.\n");*/
-		/*putchar('.');*/
-		/*fflush(stdout);*/
-		//tlp_in_len = wait_for_tlp(tlp_in_quadword, sizeof(tlp_in));
-		/*printf("Received TLP.\n");*/
 		tlp_in_len = wait_for_tlp(tlp_in_quadword, sizeof(tlp_in_quadword));
 		record_time();
 
 		dir = ((dword0->fmt & 2) >> 1);
 		const char *direction_string = (dir == TLPD_READ) ? "read" : "write";
-
 
 		switch (dword0->type) {
 		case M:
@@ -428,11 +413,11 @@ main(int argc, char *argv[])
 			if (dir == TLPD_READ) {
 #ifdef DUMMY
 				read_error = false;
-				tlp_out_body[0] = 0xBEDEBEDE;
+				tlp_out_data_dword[0] = 0xBEDEBEDE;
 #else
-				read_error = io_mem_read( target_region,
+				read_error = io_mem_read(target_region,
 					rel_addr,
-					(uint64_t *)tlp_out_body,
+					(uint64_t *)tlp_out_data,
 					4);
 #endif
 #ifdef POSTGRES
@@ -491,11 +476,12 @@ main(int argc, char *argv[])
 				break;
 			}
 
-			create_completion_header(tlp_out, dir, device_id,
+			create_completion_header(tlp_out_header_dword, dir, device_id,
 				TLPCS_SUCCESSFUL_COMPLETION, bytecount, requester_id,
 				req_bits->tag, loweraddress);
 
-			send_result = send_tlp(tlp_out_quadword, 16);
+			send_result = send_tlp(tlp_out_header, 12, tlp_out_data, 4,
+				TDA_ALIGNED);
 			assert(send_result != -1);
 
 			break;
@@ -516,22 +502,32 @@ main(int argc, char *argv[])
 
 				if (dir == TLPD_READ) {
 					log(LS_RECV_CONFIG_READ, LIF_NONE, 0, true);
-					send_length = 20;
+					data_length = 4;
 #ifdef DUMMY
-					tlp_out_body[0] = 0xBEDEBEDE;
+					tlp_out_data_dword[0] = 0xBEDEBEDE;
 #else
-					tlp_out_body[0] = pci_host_config_read_common(
+					tlp_out_data_dword[0] = pci_host_config_read_common(
 						pci_dev, req_addr, req_addr + 4, 4);
+
+					PDBG("Read %x from config register.",
+						tlp_out_data_dword[0]);
+
+					for (i = 0; i < 2; ++i) {
+						tlp_out_data_word[i] = bswap16(tlp_out_data_word[i]);
+					}
 #endif
-					/*PDBG("CfgRd0 from %lx, Value 0x%x",*/
-						/*req_addr, tlp_out_body[0]);*/
 
 					++received_count;
 					write_leds(received_count);
 
+#ifdef POSTGRES
+					mask_next_postgres_completion_data = true;
+					postgres_completion_mask = 0x00FFFFFF;
+#endif
+
 				} else {
 					log(LS_RECV_CONFIG_WRITE, LIF_NONE, 0, true);
-					send_length = 12;
+					data_length = 0;
 
 					for (i = 0; i < 4; ++i) {
 						if ((request_dword1->firstbe >> i) & 1) {
@@ -546,17 +542,18 @@ main(int argc, char *argv[])
 			}
 			else {
 				completion_status = TLPCS_UNSUPPORTED_REQUEST;
-				send_length = 12;
+				data_length = 0;
 				writeString("UNSUPPORTED REQUEST! DEVICE ID ");
 				write_uint_32_hex(config_request_dword2->device_id, '0');
 				writeString("\r\n");
 			}
 
 			create_completion_header(
-				tlp_out, dir, device_id, completion_status, 4,
+				tlp_out_header_dword, dir, device_id, completion_status, 4,
 				requester_id, req_bits->tag, 0);
 
-			send_result = send_tlp(tlp_out_quadword, send_length);
+			send_result = send_tlp(tlp_out_header, 12, tlp_out_data, 
+				data_length, TDA_ALIGNED);
 			assert(send_result != -1);
 
 			break;
@@ -586,7 +583,7 @@ main(int argc, char *argv[])
 #endif
 
 			if (dir == TLPD_WRITE) {
-				send_length = 12;
+				data_length = 0;
 #ifndef DUMMY
 				assert(io_mem_write(target_region, rel_addr, tlp_in[3], 4)
 					== false);
@@ -598,15 +595,13 @@ main(int argc, char *argv[])
 				}
 #endif
 			} else {
-				send_length = 16;
+				data_length = 0;
 #ifdef DUMMY
-				tlp_out_body[0] = 0xBEDEBEDE;
+				tlp_out_data[0] = 0xBEDEBEDE;
 #else
 				assert(io_mem_read(target_region, rel_addr,
-						(uint64_t *)tlp_out_body, 4)
+						(uint64_t *)tlp_out_data, 4)
 					== false);
-
-				/*PDBG("Read CARD REG 0x%x = 0x%x", card_reg, *tlp_out_body);*/
 #endif
 			}
 
@@ -617,7 +612,7 @@ main(int argc, char *argv[])
 			}
 #endif
 
-			create_completion_header(tlp_out, dir, device_id,
+			create_completion_header(tlp_out_header_dword, dir, device_id,
 				TLPCS_SUCCESSFUL_COMPLETION, 4, requester_id, req_bits->tag, 0);
 
 #ifdef POSTGRES
@@ -634,7 +629,8 @@ main(int argc, char *argv[])
 			}
 #endif
 
-			send_result = send_tlp(tlp_out_quadword, send_length);
+			send_result = send_tlp(tlp_out_header, 12, tlp_out_data, data_length,
+				TDA_ALIGNED);
 			assert(send_result != -1);
 
 			break;
