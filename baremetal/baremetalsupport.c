@@ -157,16 +157,6 @@ writeUARTChar(char c)
 	IO_WR_BYTE(MIPS_PHYS_TO_UNCACHED(CHERI_JTAG_UART_BASE), c);
 }
 
-void
-writeString(char* s)
-{
-	while(*s)
-	{
-		writeUARTChar(*s);
-		++s;
-	}
-}
-
 char
 readUARTChar()
 {
@@ -217,14 +207,19 @@ writeUARTChar(char c)
 	putchar(c);
 }
 
-void writeString(char* s)
-{
-	puts(s);
-}
-
 char
 readUARTChar()
 {
 	return (char) getchar();
 }
 #endif
+
+void
+writeString(char* s)
+{
+	while(*s)
+	{
+		writeUARTChar(*s);
+		++s;
+	}
+}
