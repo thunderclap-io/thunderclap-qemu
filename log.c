@@ -55,7 +55,7 @@ static int next_log_record = 0;
 #endif
 
 void
-set_strings(char *strings[])
+log_set_strings(char *strings[])
 {
 #ifdef LOG
 	log_strings_dict = strings;
@@ -63,7 +63,7 @@ set_strings(char *strings[])
 }
 
 void
-log(int string_id, enum log_item_format format, uint64_t data_item,
+log_log(int string_id, enum log_item_format format, uint64_t data_item,
 	bool trailing_new_line)
 {
 #ifdef LOG
@@ -75,13 +75,13 @@ log(int string_id, enum log_item_format format, uint64_t data_item,
 	++next_log_record;
 
 	if (next_log_record >= LOG_LENGTH) {
-		print_log();
+		log_print();
 	}
 #endif
 }
 
 void
-print_log()
+log_print()
 {
 #ifdef LOG
 	for (int i = 0; i < next_log_record; ++i) {
@@ -128,7 +128,7 @@ print_log()
 }
 
 bool
-last_data_for_string(int string_id, uint64_t *data)
+log_last_data_for_string(int string_id, uint64_t *data)
 {
 #ifdef LOG
 	for (int i = (next_log_record - 1); i >= 0; --i) {

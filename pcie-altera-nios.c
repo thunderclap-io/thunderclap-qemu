@@ -157,7 +157,7 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	volatile PCIeStatus statusword;
 	TLPDoubleWord upperword=0, lowerword=0;
 
-	log(LS_SEND_LENGTH, LIF_INT_32, tlp_len, true);
+	log_log(LS_SEND_LENGTH, LIF_INT_32, tlp_len, true);
 
 	assert(tlp_len / 8 < 64);
 
@@ -195,7 +195,7 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	IOWR(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 1);
 
 	record_time();
-	log(LS_PACKET_SENT, LIF_NONE, 0, true);
+	log_log(LS_PACKET_SENT, LIF_NONE, 0, true);
 
 	return 0;
 }

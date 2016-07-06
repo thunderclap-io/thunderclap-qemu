@@ -46,7 +46,7 @@ enum log_item_format {
 /*
  * Sets up the array of strings.
  */
-void set_strings(char *strings[]);
+void log_set_strings(char *strings[]);
 
 /*
  * Logs where strings to print are stored in a table.
@@ -57,20 +57,20 @@ void set_strings(char *strings[]);
  * If the act of logging fills the log buffer, the entire log is printed and
  * cleared.
  */
-void log(int string_id, enum log_item_format format, uint64_t data_item,
+void log_log(int string_id, enum log_item_format format, uint64_t data_item,
 	bool trailing_new_line);
 
 /*
  * Prints and clears the log.
  */
-void print_log();
+void log_print();
 
 /*
  * Sets the uint64_t pointer to the most recently logged data_item for a given
  * string_id. Return bool on success, or false if no matching string id is
  * found.
  */
-bool last_data_for_string(int string_id, uint64_t *data);
+bool log_last_data_for_string(int string_id, uint64_t *data);
 
 
 static inline void
@@ -81,12 +81,12 @@ record_time()
        uint64_t last_time;
 
        time = read_hw_counter();
-       has_last_time = last_data_for_string(LS_TIME, &last_time);
+       has_last_time = log_last_data_for_string(LS_TIME, &last_time);
 
-       log(LS_TIME, LIF_UINT_32, time, !has_last_time);
+       log_log(LS_TIME, LIF_UINT_32, time, !has_last_time);
 
        if (has_last_time) {
-               log(LS_TIME_DELTA, LIF_INT_32, time - last_time, true);
+               log_log(LS_TIME_DELTA, LIF_INT_32, time - last_time, true);
        }
 }
 

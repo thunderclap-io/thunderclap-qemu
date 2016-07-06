@@ -206,7 +206,7 @@ int
 main(int argc, char *argv[])
 {
 
-	set_strings(log_strings);
+	log_set_strings(log_strings);
 
 	puts("Starting.");
 	/*const char *driver = "e1000-82540em";*/
@@ -398,7 +398,7 @@ main(int argc, char *argv[])
 
 		switch (dword0->type) {
 		case M:
-			log(LS_RECV_OTHER, LIF_NONE, 0, true);
+			log_log(LS_RECV_OTHER, LIF_NONE, 0, true);
 			assert(dword0->length == 1);
 			/* This isn't in the spec, but seems to be all we've found in our
 			 * trace. */
@@ -489,8 +489,6 @@ main(int argc, char *argv[])
 			assert(dword0->length == 1);
 			requester_id = request_dword1->requester_id;
 
-			/*log(LS_REQUESTER_ID, LIF_UINT_32_HEX, requester_id, true);*/
-
 			req_addr = config_request_dword2->ext_reg_num;
 			req_addr = (req_addr << 6) | config_request_dword2->reg_num;
 			req_addr <<= 2;
@@ -501,7 +499,7 @@ main(int argc, char *argv[])
 				device_id = config_request_dword2->device_id;
 
 				if (dir == TLPD_READ) {
-					log(LS_RECV_CONFIG_READ, LIF_NONE, 0, true);
+					log_log(LS_RECV_CONFIG_READ, LIF_NONE, 0, true);
 					data_length = 4;
 #ifdef DUMMY
 					tlp_out_data_dword[0] = 0xBEDEBEDE;
@@ -536,7 +534,7 @@ main(int argc, char *argv[])
 #endif
 
 				} else {
-					log(LS_RECV_CONFIG_WRITE, LIF_NONE, 0, true);
+					log_log(LS_RECV_CONFIG_WRITE, LIF_NONE, 0, true);
 					data_length = 0;
 
 					for (i = 0; i < 4; ++i) {
@@ -568,7 +566,7 @@ main(int argc, char *argv[])
 
 			break;
 		case IO:
-			log(LS_RECV_OTHER, LIF_NONE, 0, true);
+			log_log(LS_RECV_OTHER, LIF_NONE, 0, true);
 			assert(request_dword1->firstbe == 0xf); /* Only seen trace. */
 
 			/*
@@ -648,7 +646,7 @@ main(int argc, char *argv[])
 			assert(false);
 			break;
 		default:
-			log(LS_RECV_UNKNOWN, LIF_NONE, 0, true);
+			log_log(LS_RECV_UNKNOWN, LIF_NONE, 0, true);
 			type_string = "Unknown";
 		}
 	}
