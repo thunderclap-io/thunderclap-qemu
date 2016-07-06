@@ -509,8 +509,8 @@ main(int argc, char *argv[])
 					tlp_out_data_dword[0] = pci_host_config_read_common(
 						pci_dev, req_addr, req_addr + 4, 4);
 
-					PDBG("Read %x from config register.",
-						tlp_out_data_dword[0]);
+					/*PDBG("Read %x from config register addr %lx.",*/
+						/*tlp_out_data_dword[0], req_addr);*/
 
 					for (i = 0; i < 2; ++i) {
 						tlp_out_data_word[i] = bswap16(tlp_out_data_word[i]);
@@ -521,8 +521,18 @@ main(int argc, char *argv[])
 					write_leds(received_count);
 
 #ifdef POSTGRES
-					mask_next_postgres_completion_data = true;
-					postgres_completion_mask = 0x00FFFFFF;
+					if (req_addr == 0 || req_addr == 0xC) {
+						/* Model number and ?cacheline size? */
+						mask_next_postgres_completion_data = true;
+						postgres_completion_mask = 0x00FFFFFF;
+					} else if (req_addr == 8) {
+						/* Revision ID */
+						mask_next_postgres_completion_data = true;
+						postgres_completion_mask = 0xFFFF00FF;
+					} else if (req_addr == 0x2C) {
+						/* Subsystem ID and Subsystem vendor ID */
+						ignore_next_postgres_completion = true;
+					}
 #endif
 
 				} else {

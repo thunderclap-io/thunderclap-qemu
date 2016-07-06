@@ -690,24 +690,15 @@ send_tlp(TLPQuadWord *header, int header_len, TLPQuadWord *data, int data_len,
 	for (i = 0; i < tlp_len; ++i) {
 		/* These exemptions are for:
 		 * the model num,
-		 * the revision ID *
 		 * and the difference between single and multifunction.
 		 * Subsystem ID and Subsystem vendor ID
 		 * Devices seem to use a difference interrupt pin for some reason... */
 		actual = TLP_BYTE(i);
 
-		if (!(i == 12 && (
-					(expected_byte[i] == 0x06 && actual == 0x00)
-					|| (expected_byte[i] == 0x3c && actual == 0x86))) &&
-			!(i == 13 && (
-					(expected_byte[i] == 0x10 && actual == 0x80)
-					|| (expected_byte[i] == 0x02 && actual == 0x01))) &&
+		if (!(i == 13 && (
+					(expected_byte[i] == 0x02 && actual == 0x01))) &&
 			!(i == 14 && (
-					(expected_byte[i] == 0x80 && actual == 0x00)
-					|| (expected_byte[i] == 0x44 && actual == 0x00))) &&
-			!(i == 15 && (
-					(expected_byte[i] == 0x70 && actual == 0x00)))
-		   ) {
+					(expected_byte[i] == 0x80 && actual == 0x00)))) {
 			match = match && (expected_byte[i] == actual);
 		}
 	}
