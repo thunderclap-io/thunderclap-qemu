@@ -9,9 +9,8 @@ create_memory_request(volatile TLPDoubleWord *tlp, uint32_t buffer_length,
 	enum tlp_direction direction, uint16_t requester_id, uint8_t tag, uint8_t loweraddress,
 	uint64_t memory_address, uint32_t memory_length)
 {
-#ifndef BAREMETAL
-	assert( buffer_length>=16 );
-#endif
+	if ( buffer_length<16 )
+		return -100;
 
 	uint32_t tlp_len;
 	// Clear buffer before we start filling bits in
@@ -84,7 +83,7 @@ parse_memory_response(volatile TLPDoubleWord *tlp, uint32_t tlp_length,
 	uint32_t *payload = (uint32_t *) tlp+4;
 
 	*returned_length = 0;
-
+/*
 	writeString("TLP, length / words 0-5");
 	write_uint_32(tlp_length, ' ');
   	write_uint_32_hex(tlp[0],' ');
@@ -94,7 +93,7 @@ parse_memory_response(volatile TLPDoubleWord *tlp, uint32_t tlp_length,
   	write_uint_32_hex(tlp[4],' ');
   	write_uint_32_hex(tlp[5],' ');
   	writeUARTChar('\n');
-
+*/
 	if (header0->type != CPL)
 	{
 		//puts("Parsing memory response that isn't a completion");
