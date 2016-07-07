@@ -330,7 +330,10 @@ main(int argc, char *argv[])
 	object_property_set_bool(OBJECT(dev), true, "realized", &err);
 
 	PCIDevice *pci_dev = PCI_DEVICE(dev);
-	// Use pci_host_config read common to reply to read responses.
+	/* Use pci_host_config read common to reply to read responses.
+	 * This calls the config_read function on the device.
+	 * For the e1000e, this is a thin wrapper over pci_default_read_config.
+	 */
 	printf("%x.\n", pci_host_config_read_common(pci_dev, 0, 4, 4));
 #endif // not DUMMY
 
@@ -385,20 +388,17 @@ main(int argc, char *argv[])
 	drain_pcie_core();
 
 	puts("LEDs clear. PCIe Core Drained. Let's go.");
-	printf("New version.");
 
 	int card_reg = -1;
 
 	while (1) {
 		tlp_in_len = wait_for_tlp(tlp_in_quadword, sizeof(tlp_in_quadword));
-		record_time();
 
 		dir = ((dword0->fmt & 2) >> 1);
 		const char *direction_string = (dir == TLPD_READ) ? "read" : "write";
 
 		switch (dword0->type) {
 		case M:
-			log_log(LS_RECV_OTHER, LIF_NONE, 0, true);
 			assert(dword0->length == 1);
 			/* This isn't in the spec, but seems to be all we've found in our
 			 * trace. */
@@ -420,6 +420,7 @@ main(int argc, char *argv[])
 					(uint64_t *)tlp_out_data,
 					4);
 #endif
+
 #ifdef POSTGRES
 				if (read_error) {
 					print_last_recvd_packet_ids();
@@ -491,7 +492,7 @@ main(int argc, char *argv[])
 
 			req_addr = config_request_dword2->ext_reg_num;
 			req_addr = (req_addr << 6) | config_request_dword2->reg_num;
-			req_addr <<= 2;
+			/*req_addr <<= 2;*/
 
 			if ((config_request_dword2->device_id & uint32_mask(3)) == 0) {
 				/* Mask to get function num -- we are 0 */
@@ -499,21 +500,24 @@ main(int argc, char *argv[])
 				device_id = config_request_dword2->device_id;
 
 				if (dir == TLPD_READ) {
-					log_log(LS_RECV_CONFIG_READ, LIF_NONE, 0, true);
 					data_length = 4;
 #ifdef DUMMY
 					tlp_out_data_dword[0] = 0xBEDEBEDE;
 #else
-					tlp_out_data_dword[0] = pci_host_config_read_common(
-						pci_dev, req_addr, req_addr + 4, 4);
+					tlp_out_data_dword[0] = bswap32(pci_host_config_read_common(
+						pci_dev, req_addr, req_addr + 4, 4));
 
 					/*PDBG("Read %x from config register addr %lx.",*/
 						/*tlp_out_data_dword[0], req_addr);*/
 
-					for (i = 0; i < 2; ++i) {
-						tlp_out_data_word[i] = bswap16(tlp_out_data_word[i]);
-					}
+					/*for (i = 0; i < 2; ++i) {*/
+						/*tlp_out_data_word[i] = bswap16(tlp_out_data_word[i]);*/
+					/*}*/
 #endif
+
+					log_log(LS_CFG_READ_ADDR, LIF_UINT_64_HEX, req_addr, false);
+					log_log(LS_CFG_READ_DATA, LIF_UINT_64_HEX, tlp_out_data[0],
+						true);
 
 					++received_count;
 					write_leds(received_count);
@@ -534,7 +538,6 @@ main(int argc, char *argv[])
 #endif
 
 				} else {
-					log_log(LS_RECV_CONFIG_WRITE, LIF_NONE, 0, true);
 					data_length = 0;
 
 					for (i = 0; i < 4; ++i) {
@@ -566,7 +569,6 @@ main(int argc, char *argv[])
 
 			break;
 		case IO:
-			log_log(LS_RECV_OTHER, LIF_NONE, 0, true);
 			assert(request_dword1->firstbe == 0xf); /* Only seen trace. */
 
 			/*

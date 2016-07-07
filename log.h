@@ -4,32 +4,21 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define LOG_LENGTH 64
+#define LOG_LENGTH 4
 
 static char *log_strings[] = {
         "TIME: ",
         ". Since last: ",
-        "Recieved TLP with requester id: ",
-        "Sending DWord: ",
-        "Packet sent.",
-        "Received other packet.",
-        "Received explicitly unknown packet.",
-        "Received Config Write packet.",
-        "Received Config Read packet."
+		"Received packet of unknown variety.",
+		"Config read addr: ",
+		", data: "
 };
 
 #define LS_TIME 0
 #define LS_TIME_DELTA 1
-#define LS_REQUESTER_ID 2
-#define LS_SENDING_DWORD 3
-#define LS_PACKET_SENT 4
-#define LS_RECV_OTHER 5
-#define LS_RECV_UNKNOWN 6
-#define LS_RECV_CONFIG_WRITE 7
-#define LS_RECV_CONFIG_READ 8
-#define LS_SEND_LENGTH 9
-#define LS_ACTUAL_TAG 10
-#define LS_RAW_TAG 11
+#define LS_RECV_UNKNOWN 2
+#define LS_CFG_READ_ADDR 3
+#define LS_CFG_READ_DATA 4
 
 
 enum log_item_format {
