@@ -342,9 +342,11 @@ main(int argc, char *argv[])
     	return init;
 
 	int i, tlp_in_len = 0, tlp_out_len, data_length, send_result, bytecount;
+	int header_length;
 	enum tlp_direction dir;
 	enum tlp_completion_status completion_status;
 	char *type_string;
+	bool should_send_response;
 	bool read_error = false;
 	bool write_error = false;
 	bool ignore_next_io_completion = false;
@@ -392,6 +394,8 @@ main(int argc, char *argv[])
 	int card_reg = -1;
 
 	while (1) {
+		should_send_response = false;
+
 		tlp_in_len = wait_for_tlp(tlp_in_quadword, sizeof(tlp_in_quadword));
 
 		dir = ((dword0->fmt & 2) >> 1);
@@ -473,26 +477,24 @@ main(int argc, char *argv[])
 				}
 			}
 
-			if (dir == TLPD_WRITE) {
-				break;
+			should_send_response = (dir == TLPD_READ);
+
+			if (should_send_response) {
+				header_length = 12;
+				data_length = 4;
+				create_completion_header(tlp_out_header_dword, dir, device_id,
+					TLPCS_SUCCESSFUL_COMPLETION, bytecount, requester_id,
+					req_bits->tag, loweraddress);
 			}
-
-			create_completion_header(tlp_out_header_dword, dir, device_id,
-				TLPCS_SUCCESSFUL_COMPLETION, bytecount, requester_id,
-				req_bits->tag, loweraddress);
-
-			send_result = send_tlp(tlp_out_header, 12, tlp_out_data, 4,
-				TDA_ALIGNED);
-			assert(send_result != -1);
 
 			break;
 		case CFG_0:
 			assert(dword0->length == 1);
+			should_send_response = true;
 			requester_id = request_dword1->requester_id;
 
 			req_addr = config_request_dword2->ext_reg_num;
 			req_addr = (req_addr << 6) | config_request_dword2->reg_num;
-			/*req_addr <<= 2;*/
 
 			if ((config_request_dword2->device_id & uint32_mask(3)) == 0) {
 				/* Mask to get function num -- we are 0 */
@@ -504,20 +506,11 @@ main(int argc, char *argv[])
 #ifdef DUMMY
 					tlp_out_data_dword[0] = 0xBEDEBEDE;
 #else
-					tlp_out_data_dword[0] = bswap32(pci_host_config_read_common(
-						pci_dev, req_addr, req_addr + 4, 4));
-
-					/*PDBG("Read %x from config register addr %lx.",*/
-						/*tlp_out_data_dword[0], req_addr);*/
-
-					/*for (i = 0; i < 2; ++i) {*/
-						/*tlp_out_data_word[i] = bswap16(tlp_out_data_word[i]);*/
-					/*}*/
+					tlp_out_data_dword[0] = pci_host_config_read_common(
+						pci_dev, req_addr, req_addr + 4, 4);
 #endif
 
-					log_log(LS_CFG_READ_ADDR, LIF_UINT_64_HEX, req_addr, false);
-					log_log(LS_CFG_READ_DATA, LIF_UINT_64_HEX, tlp_out_data[0],
-						true);
+					printf("Trying to read 0x%lx.\n", req_addr);
 
 					++received_count;
 					write_leds(received_count);
@@ -526,11 +519,11 @@ main(int argc, char *argv[])
 					if (req_addr == 0 || req_addr == 0xC) {
 						/* Model number and ?cacheline size? */
 						mask_next_postgres_completion_data = true;
-						postgres_completion_mask = 0x00FFFFFF;
+						postgres_completion_mask = 0xFFFF00FF;
 					} else if (req_addr == 8) {
 						/* Revision ID */
 						mask_next_postgres_completion_data = true;
-						postgres_completion_mask = 0xFFFF00FF;
+						postgres_completion_mask = 0x00FFFFFF;
 					} else if (req_addr == 0x2C) {
 						/* Subsystem ID and Subsystem vendor ID */
 						ignore_next_postgres_completion = true;
@@ -554,22 +547,18 @@ main(int argc, char *argv[])
 			else {
 				completion_status = TLPCS_UNSUPPORTED_REQUEST;
 				data_length = 0;
-				writeString("UNSUPPORTED REQUEST! DEVICE ID ");
-				write_uint_32_hex(config_request_dword2->device_id, '0');
-				writeString("\r\n");
 			}
 
 			create_completion_header(
 				tlp_out_header_dword, dir, device_id, completion_status, 4,
 				requester_id, req_bits->tag, 0);
 
-			send_result = send_tlp(tlp_out_header, 12, tlp_out_data, 
-				data_length, TDA_ALIGNED);
-			assert(send_result != -1);
-
 			break;
 		case IO:
 			assert(request_dword1->firstbe == 0xf); /* Only seen trace. */
+
+			should_send_response = true;
+			header_length = 12;
 
 			/*
 			 * The process for interacting with the device over IO is rather
@@ -587,7 +576,8 @@ main(int argc, char *argv[])
 			 *
 			 */
 #ifndef DUMMY
-			target_section = memory_region_find(get_system_io(), tlp_in[2], 4);
+			req_addr = bswap32(tlp_in[2]);
+			target_section = memory_region_find(get_system_io(), req_addr, 4);
 			target_region = target_section.mr;
 			rel_addr = target_section.offset_within_region;
 #endif
@@ -605,7 +595,7 @@ main(int argc, char *argv[])
 				}
 #endif
 			} else {
-				data_length = 0;
+				data_length = 4;
 #ifdef DUMMY
 				tlp_out_data[0] = 0xBEDEBEDE;
 #else
@@ -628,20 +618,11 @@ main(int argc, char *argv[])
 #ifdef POSTGRES
 			if (dir == TLPD_WRITE && card_reg == 0x10) {
 				ignore_next_io_completion = true;
-			} else if (dir == TLPD_READ && card_reg == 0x5B50) {
-				/*PDBG("Reading software semaphore.");*/
-				/*mask_next_postgres_completion_data = true;*/
-				postgres_completion_mask = ~2;
-				/* EEPROM semaphore bit */
 			} else if (dir == TLPD_READ && card_reg == 0x8) {
 				mask_next_postgres_completion_data = true;
 				postgres_completion_mask = PG_STATUS_MASK;
 			}
 #endif
-
-			send_result = send_tlp(tlp_out_header, 12, tlp_out_data, data_length,
-				TDA_ALIGNED);
-			assert(send_result != -1);
 
 			break;
 		case CPL:
@@ -651,6 +632,16 @@ main(int argc, char *argv[])
 			log_log(LS_RECV_UNKNOWN, LIF_NONE, 0, true);
 			type_string = "Unknown";
 		}
+
+		if (should_send_response) {
+			for (i = 0; i < data_length / 4; ++i) {
+				tlp_out_data_dword[i] = bswap32(tlp_out_data_dword[i]);
+			}
+			send_result = send_tlp(tlp_out_header, header_length, tlp_out_data,
+				data_length, TDA_ALIGNED);
+			assert(send_result != -1);
+		}
+
 	}
 
 	return 0;

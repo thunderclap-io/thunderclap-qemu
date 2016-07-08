@@ -312,8 +312,8 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 		assert(PQntuples(result) == 1);
 		config_dword2->device_id = get_postgres_device_id(result);
 		uint32_t reg = get_postgres_register(result);
-		config_dword2->ext_reg_num = reg >> 8;
-		config_dword2->reg_num = (reg & uint32_mask(8)) >> 2;
+		config_dword2->ext_reg_num = reg >> 6;
+		config_dword2->reg_num = (reg & uint32_mask(8));
 		length = 12;
 		if (tlp_type == PG_CFG_WR_0 && reg >= 0x10 && reg <= 0x24) {
 			/*PDBG("pk: %d; packet: %d",*/
@@ -411,15 +411,10 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 		uint64_t data = get_postgres_data(result);
 		TLPDoubleWord *data_dword = (TLPDoubleWord *)&data;
 		for (i = 0; i < (data_length / sizeof(TLPDoubleWord)); ++i) {
-			dword3[i] = bswap32(data_dword[i]);
+			dword3[i] = data_dword[i];
 		}
-
-		uint16_t *dword3_word = (uint16_t *)dword3;
-		for (i = 0; i < (data_length / sizeof(uint16_t)); ++i) {
-			dword3_word[i] = bswap16(dword3_word[i]);
-		}
-
 	}
+
 	return length;
 }
 
