@@ -105,8 +105,8 @@ bool mask_next_postgres_completion_data;
 uint32_t postgres_completion_mask;
 
 #define PG_STATUS_MASK \
-	~(E1000_STATUS_FD | E1000_STATUS_ASDV_100 | E1000_STATUS_ASDV_1000 \
-		| E1000_STATUS_GIO_MASTER_ENABLE )
+	bswap32(~(E1000_STATUS_FD | E1000_STATUS_ASDV_100 | E1000_STATUS_ASDV_1000 \
+		| E1000_STATUS_GIO_MASTER_ENABLE ))
 
 
 /* The capbility list is different for many small reasons, which is why we
@@ -332,7 +332,8 @@ main(int argc, char *argv[])
 	PCIDevice *pci_dev = PCI_DEVICE(dev);
 	/* Use pci_host_config read common to reply to read responses.
 	 * This calls the config_read function on the device.
-	 * For the e1000e, this is a thin wrapper over pci_default_read_config.
+	 * For the e1000e, this is a thin wrapper over pci_default_read_config,
+	 * from hw/pci/pci.c
 	 */
 	printf("%x.\n", pci_host_config_read_common(pci_dev, 0, 4, 4));
 #endif // not DUMMY
@@ -432,8 +433,8 @@ main(int argc, char *argv[])
 
 				if (rel_addr == 0x0) {
 					mask_next_postgres_completion_data = true;
-					postgres_completion_mask = ~uint32_mask_enable_bits(19, 19);
-					PDBG("%x", postgres_completion_mask);
+					postgres_completion_mask =
+						bswap32(~uint32_mask_enable_bits(19, 19));
 					/* 19 is apparently a software controllable IO pin, so I
 					 * don't think we particularly care. */
 				} else if (rel_addr == 0x8) {
@@ -510,8 +511,6 @@ main(int argc, char *argv[])
 						pci_dev, req_addr, req_addr + 4, 4);
 #endif
 
-					printf("Trying to read 0x%lx.\n", req_addr);
-
 					++received_count;
 					write_leds(received_count);
 
@@ -520,6 +519,9 @@ main(int argc, char *argv[])
 						/* Model number and ?cacheline size? */
 						mask_next_postgres_completion_data = true;
 						postgres_completion_mask = 0xFFFF00FF;
+					} else if (req_addr == 4) {
+						mask_next_postgres_completion_data = true;
+						postgres_completion_mask = 0x00FFFFFF;
 					} else if (req_addr == 8) {
 						/* Revision ID */
 						mask_next_postgres_completion_data = true;
@@ -532,16 +534,18 @@ main(int argc, char *argv[])
 
 				} else {
 					data_length = 0;
+					// TODO: This with the loop, rather than the swap.
+					tlp_in[3] = bswap32(tlp_in[3]);
 
+#ifndef DUMMY
 					for (i = 0; i < 4; ++i) {
 						if ((request_dword1->firstbe >> i) & 1) {
-#ifndef DUMMY
 							pci_host_config_write_common(
 								pci_dev, req_addr + i, req_addr + 4,
-								tlp_in[3] >> (i * 8), 1);
-#endif
+								(tlp_in[3] >> (i * 8)) & 0xFF, 1);
 						}
 					}
+#endif
 				}
 			}
 			else {
@@ -576,22 +580,23 @@ main(int argc, char *argv[])
 			 *
 			 */
 #ifndef DUMMY
-			req_addr = bswap32(tlp_in[2]);
+			req_addr = tlp_in[2];
 			target_section = memory_region_find(get_system_io(), req_addr, 4);
 			target_region = target_section.mr;
 			rel_addr = target_section.offset_within_region;
+			/*PDBG("rel_addr = 0x%lx", rel_addr);*/
 #endif
 
 			if (dir == TLPD_WRITE) {
 				data_length = 0;
 #ifndef DUMMY
+				tlp_in[3] = bswap32(tlp_in[3]);
 				assert(io_mem_write(target_region, rel_addr, tlp_in[3], 4)
 					== false);
 
-				PDBG("Setting CARD REG 0x%x <= 0x%x", card_reg, tlp_in[3]);
-
 				if (rel_addr == 0) {
 					card_reg = tlp_in[3];
+					PDBG("Setting CARD REG to 0x%x", card_reg);
 				}
 #endif
 			} else {

@@ -681,21 +681,8 @@ send_tlp(TLPQuadWord *header, int header_len, TLPQuadWord *data, int data_len,
 
 	uint8_t actual;
 
-	/* TODO: Use one of the better mechanisms for masking off packets. */
 	for (i = 0; i < tlp_len; ++i) {
-		/* These exemptions are for:
-		 * the model num,
-		 * and the difference between single and multifunction.
-		 * Subsystem ID and Subsystem vendor ID
-		 * Devices seem to use a difference interrupt pin for some reason... */
-		actual = TLP_BYTE(i);
-
-		if (!(i == 13 && (
-					(expected_byte[i] == 0x02 && actual == 0x01))) &&
-			!(i == 14 && (
-					(expected_byte[i] == 0x80 && actual == 0x00)))) {
-			match = match && (expected_byte[i] == actual);
-		}
+		match = match && (expected_byte[i] == TLP_BYTE(i));
 	}
 	
 	if (ignore_next_postgres_completion) {
