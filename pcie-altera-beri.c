@@ -120,14 +120,15 @@ send_tlp(TLPQuadWord *header, int header_len, TLPQuadWord *data, int data_len,
 	TLPQuadWord sendqword;
 	TLPDoubleWord *data_dword = (TLPDoubleWord *)data;
 
+	// Stops the TX queue from draining whilst we're filling it.
+	IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 0);
+
 	statusword.word = 0;
 	statusword.bits.startofpacket = 1;
 	WR_STATUS(statusword.word);
 	WR_DATA(header[0]);
 
 	statusword.word = 0;
-	// Stops the TX queue from draining whilst we're filling it.
-	IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 0);
 
 	if (header_len == 12 && data_alignment == TDA_UNALIGNED) {
 		sendqword = header[1] << 32;
