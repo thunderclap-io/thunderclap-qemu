@@ -32,7 +32,7 @@
  * MemoryResponse structure containing details of response packet
  */
 
-int memoryRequest(uint64_t address, uint64_t timeout,
+int memory_read(uint64_t address, uint64_t timeout,
 	uint32_t *data_buffer, uint64_t data_buffer_length,
 	uint32_t *returned_length)
 {
@@ -60,7 +60,7 @@ int memoryRequest(uint64_t address, uint64_t timeout,
 	//puts("Sending request TLP, tag = ");
 	//write_uint_32_hex(tag, ' ');
 	startTime = read_hw_counter();
-	send_tlp((TLPQuadWord *) tlp,tlpLen);
+	send_tlp((TLPQuadWord *) tlp, tlpLen, NULL, 0, TDA_ALIGNED);
 	tagSent = tag;
 	tag = (tag+1) % 32;
 
@@ -104,7 +104,80 @@ int memoryRequest(uint64_t address, uint64_t timeout,
 //	response.status = RequestTimeout;
 
 	return status;
+}
 
+int memory_write(uint64_t address, uint64_t timeout,
+	uint32_t *data_buffer, uint64_t data_buffer_length,
+	uint32_t *returned_length)
+{
+	TLPDoubleWord tlp[64];
+/*	TLPHeader0 h0;
+	TLPHeaderReq h1;
+	TLPHeaderCompl0 c1;
+	TLPHeaderCompl1 c2;*/
+	static unsigned int tag=0;
+	unsigned int tagSent = 0;
+	int receivedCount = 0;
+	int tlpLen = 0;
+	unsigned long startTime = 0;
+//	uint64_t timeoutCycles = (alt_timestamp_freq() * timeout) / 1000000000LL;
+	unsigned long timeoutCycles = timeout*1000;
+	int response;
+//	uint32_t data_buffer[256];
+	int status=0;
+
+	//puts("Created request TLP");
+	tlpLen = create_memory_request(tlp, sizeof(tlp), TLPD_WRITE, 
+		COMPLETER_ID /* requester id */, tag, 0 /* loweraddress */,
+		address, data_buffer_length);
+
+	//puts("Sending request TLP, tag = ");
+	//write_uint_32_hex(tag, ' ');
+	startTime = read_hw_counter();
+	send_tlp((TLPQuadWord *) tlp, tlpLen, data_buffer, data_buffer_length, TDA_ALIGNED);
+	tagSent = tag;
+	tag = (tag+1) % 32;
+
+
+	do {
+		enum tlp_completion_status completion_status=0;
+		uint16_t completer_id=0, requester_id=0;
+		uint8_t tag=0;
+		//uint32_t returned_length=0;
+		receivedCount = wait_for_tlp((TLPQuadWord *) tlp, sizeof(tlp));
+		if (receivedCount < 3*4)
+			continue;
+
+		//puts("Received a TLP");
+		status = parse_memory_response(tlp, receivedCount,
+			data_buffer, data_buffer_length,
+			&completion_status, &completer_id, &requester_id,
+			&tag, returned_length);
+/*			puts("Received completion: address / status/tag/completion_status/length/word=");
+			write_uint_64_hex(address, ' ');
+			write_uint_32_hex(status,' ');
+			write_uint_32(tag, ' ');
+			write_uint_32(completion_status, ' ');
+			write_uint_32(returned_length, ' ');
+			write_uint_32_hex(data_buffer[0], ' ');
+			writeUARTChar('\n');
+*/
+
+		if ((status==0) && (completion_status == TLPCS_SUCCESSFUL_COMPLETION) && (tag == tagSent)) {
+/*			puts("Matched completion: status/tag/completion_status/length/word=");
+			write_uint_32_hex(status,' ');
+			write_uint_32(tag, ' ');
+			write_uint_32(completion_status, ' ');
+			write_uint_32(returned_length, ' ');
+			write_uint_32_hex(data_buffer[0], ' ');
+			writeUARTChar('\n');
+*/			return status;
+		}
+	} while(read_hw_counter()<(startTime+timeoutCycles));
+
+//	response.status = RequestTimeout;
+
+	return status;
 }
 
 int main()
@@ -148,7 +221,7 @@ int main()
 //	parseInboundTLP(tlp,i);
   	while (1)
   	{
-	  	r = memoryRequest(addr,100000, data_buffer, sizeof(data_buffer),
+	  	r = memory_read(addr,100000, data_buffer, sizeof(data_buffer),
 	  		&returned_length);
 	//  	write_uint_64_hex(addr,'0');
 	//  	writeUARTChar('=');
