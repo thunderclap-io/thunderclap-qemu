@@ -19,8 +19,8 @@
 
 #define ENDIAN_SWAP(x) (((x & 0xFF)<<24) | ((x & 0xFF00)<<8) | ((x & 0xFF0000)>>8) | ((x & 0xFF000000)>>24))
 
-#define COMPLETER_ID 0x0000
-//#define COMPLETER_ID 0x0100
+//#define COMPLETER_ID 0x0000
+#define COMPLETER_ID 0x0100
 //#define COMPLETER_ID 0xC400
 
 
@@ -138,45 +138,6 @@ int memory_write(uint64_t address, uint64_t timeout,
 	tagSent = tag;
 	tag = (tag+1) % 32;
 
-
-	do {
-		enum tlp_completion_status completion_status=0;
-		uint16_t completer_id=0, requester_id=0;
-		uint8_t tag=0;
-		//uint32_t returned_length=0;
-		receivedCount = wait_for_tlp((TLPQuadWord *) tlp, sizeof(tlp));
-		if (receivedCount < 3*4)
-			continue;
-
-		//puts("Received a TLP");
-		status = parse_memory_response(tlp, receivedCount,
-			data_buffer, data_buffer_length,
-			&completion_status, &completer_id, &requester_id,
-			&tag, returned_length);
-/*			puts("Received completion: address / status/tag/completion_status/length/word=");
-			write_uint_64_hex(address, ' ');
-			write_uint_32_hex(status,' ');
-			write_uint_32(tag, ' ');
-			write_uint_32(completion_status, ' ');
-			write_uint_32(returned_length, ' ');
-			write_uint_32_hex(data_buffer[0], ' ');
-			writeUARTChar('\n');
-*/
-
-		if ((status==0) && (completion_status == TLPCS_SUCCESSFUL_COMPLETION) && (tag == tagSent)) {
-/*			puts("Matched completion: status/tag/completion_status/length/word=");
-			write_uint_32_hex(status,' ');
-			write_uint_32(tag, ' ');
-			write_uint_32(completion_status, ' ');
-			write_uint_32(returned_length, ' ');
-			write_uint_32_hex(data_buffer[0], ' ');
-			writeUARTChar('\n');
-*/			return status;
-		}
-	} while(read_hw_counter()<(startTime+timeoutCycles));
-
-//	response.status = RequestTimeout;
-
 	return status;
 }
 
@@ -221,12 +182,16 @@ int main()
 //	parseInboundTLP(tlp,i);
   	while (1)
   	{
+  		data_buffer[0] = 0;
 	  	r = memory_read(addr,100000, data_buffer, sizeof(data_buffer),
 	  		&returned_length);
 	//  	write_uint_64_hex(addr,'0');
 	//  	writeUARTChar('=');
 	//  	write_uint_32_hex(data_buffer[0],'0');
 	//  	writeUARTChar('\n');
+	  	data_buffer[0] = ~addr;
+	  	r = memory_write(addr,100000, data_buffer, 4,
+	  		&returned_length);
 	  	if (r >= 0)
 	  		break;
 	 }
