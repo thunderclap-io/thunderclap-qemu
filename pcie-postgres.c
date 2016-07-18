@@ -552,7 +552,6 @@ print_last_sent_packet_ids()
 }
 
 
-
 /* tlp_len is length of the buffer in bytes. */
 /* Return -1 if 1024 attempts to poll the buffer fail. */
 int
@@ -567,7 +566,7 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 		PQclear(result);
 		result = PQgetResult(postgres_connection_downstream);
 		if (result == NULL) {
-			return -1;
+			return TRACE_COMPLETE;
 		}
 	}
 
@@ -608,6 +607,8 @@ should_send_tlp_for_result(PGresult *result)
 	return !skip;
 }
 
+int TLPS_CHECKED = 0;
+
 /* tlp is a pointer to the tlp, tlp_len is the length of the tlp in bytes. */
 /* returns 0 on success. */
 int
@@ -616,7 +617,6 @@ send_tlp(TLPQuadWord *header, int header_len, TLPQuadWord *data, int data_len,
 {
 	assert(header_len == 12 || header_len == 16);
 	assert(data_len % 4 == 0);
-	static int check_count = 0;
 
 	int i, response;
 	int tlp_len = header_len + data_len;
@@ -643,7 +643,7 @@ send_tlp(TLPQuadWord *header, int header_len, TLPQuadWord *data, int data_len,
 
 	/*PDBG("Recvd: %d; Sent: %d", last_recvd_packet_id(), last_sent_packet_id());*/
 	if (last_sent_packet_id() < last_recvd_packet_id()) {
-		PDBG("Checked: %d", check_count);
+		PDBG("Checked: %d", TLPS_CHECKED);
 		print_last_recvd_packet_ids();
 		print_last_sent_packet_ids();
 
@@ -689,12 +689,12 @@ send_tlp(TLPQuadWord *header, int header_len, TLPQuadWord *data, int data_len,
 		match = true;
 		ignore_next_postgres_completion = false;
 	} else {
-		++check_count;
+		++TLPS_CHECKED;
 	}
 
 	if (!match) {
 		PDBG("Attempted packet send mismatch (checked %d, packet %d)",
-			check_count, get_postgres_packet(result));
+			TLPS_CHECKED, get_postgres_packet(result));
 		for (i = 0; i < tlp_len; ++i) {
 			DEBUG_PRINTF("%03d: Exp - 0x%02x; Act - 0x%02x",
 				i, expected_byte[i], TLP_BYTE(i));
@@ -833,14 +833,14 @@ pcie_hardware_init(int argc, char **argv, volatile uint8_t **physmem)
 
 	query_status = start_binary_single_row_query(
 		postgres_connection_downstream,
-		"SELECT * FROM trace WHERE link_dir = 'Downstream' ORDER BY packet ASC");
+		"SELECT * FROM qemu_trace WHERE link_dir = 'Downstream' ORDER BY packet ASC");
 	if (query_status != 0) {
 		return query_status;
 	}
 
 	query_status = start_binary_single_row_query(
 		postgres_connection_upstream,
-		"SELECT * FROM trace WHERE link_dir = 'Upstream' ORDER BY packet ASC");
+		"SELECT * FROM qemu_trace WHERE link_dir = 'Upstream' ORDER BY packet ASC");
 	if (query_status != 0) {
 		return query_status;
 	}

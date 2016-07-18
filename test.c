@@ -399,6 +399,13 @@ main(int argc, char *argv[])
 
 		tlp_in_len = wait_for_tlp(tlp_in_quadword, sizeof(tlp_in_quadword));
 
+#ifdef POSTGRES
+		if (tlp_in_len == TRACE_COMPLETE) {
+			PDBG("Reached end of trace! Checked %d TLPs.", TLPS_CHECKED);
+			exit(0);
+		}
+#endif
+
 		dir = ((dword0->fmt & 2) >> 1);
 		const char *direction_string = (dir == TLPD_READ) ? "read" : "write";
 
@@ -509,6 +516,10 @@ main(int argc, char *argv[])
 #else
 					tlp_out_data_dword[0] = pci_host_config_read_common(
 						pci_dev, req_addr, req_addr + 4, 4);
+					if (req_addr == 0x18) {
+						PDBG("Read reg 0x%lx (0x%x)", req_addr,
+							tlp_out_data_dword[0]);
+					}
 #endif
 
 					++received_count;
@@ -534,9 +545,6 @@ main(int argc, char *argv[])
 
 				} else {
 					data_length = 0;
-					// TODO: This with the loop, rather than the swap.
-					tlp_in[3] = bswap32(tlp_in[3]);
-
 #ifndef DUMMY
 					for (i = 0; i < 4; ++i) {
 						if ((request_dword1->firstbe >> i) & 1) {

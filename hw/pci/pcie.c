@@ -98,7 +98,6 @@ int pcie_cap_init(PCIDevice *dev, uint8_t offset, uint8_t type, uint8_t port)
 
 int pcie_cap_v1_init(PCIDevice *dev, uint8_t offset, uint8_t type, uint8_t port)
 {
-	PDBG("");
     int pos;
     uint8_t *exp_cap;
 
@@ -122,6 +121,12 @@ _pcie_endpoint_cap_init(PCIDevice *dev, uint8_t offset, uint8_t cap_size)
 {
     uint8_t type = PCI_EXP_TYPE_ENDPOINT;
 
+#if 0
+	/* XXX: When using a hacked e1000e which we attach directly to the root, we
+	 * don't want this. this leads to too much weird behaviour, might have to
+	 * add a bus to attach it to.
+	 */
+
     /*
     * Windows guests will report Code 10, device cannot start, if
     * a regular Endpoint type is exposed on a root complex.  These
@@ -130,6 +135,7 @@ _pcie_endpoint_cap_init(PCIDevice *dev, uint8_t offset, uint8_t cap_size)
     if (pci_bus_is_express(dev->bus) && pci_bus_is_root(dev->bus)) {
         type = PCI_EXP_TYPE_RC_END;
     }
+#endif
 
     return (cap_size == PCI_EXP_VER1_SIZEOF)
         ? pcie_cap_v1_init(dev, offset, type, 0)
@@ -163,6 +169,7 @@ uint8_t pcie_cap_get_type(const PCIDevice *dev)
     return (pci_get_word(dev->config + pos + PCI_EXP_FLAGS) &
             PCI_EXP_FLAGS_TYPE) >> PCI_EXP_FLAGS_TYPE_SHIFT;
 }
+
 
 /* MSI/MSI-X */
 /* pci express interrupt message number */
