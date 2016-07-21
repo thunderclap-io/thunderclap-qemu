@@ -201,6 +201,13 @@ write_leds(uint32_t data)
 #endif
 }
 
+#ifdef POSTGRES
+static inline bool
+track_register(uint64_t req_addr)
+{
+	return req_addr == 0x14;
+}
+#endif
 
 int
 main(int argc, char *argv[])
@@ -516,7 +523,7 @@ main(int argc, char *argv[])
 #else
 					tlp_out_data_dword[0] = pci_host_config_read_common(
 						pci_dev, req_addr, req_addr + 4, 4);
-					if (req_addr == 0x18) {
+					if (track_register(req_addr)) {
 						PDBG("Read reg 0x%lx (0x%x)", req_addr,
 							tlp_out_data_dword[0]);
 					}
@@ -546,8 +553,12 @@ main(int argc, char *argv[])
 				} else {
 					data_length = 0;
 #ifndef DUMMY
+					if (track_register(req_addr)) {
+						PDBG("Writing 0x%lx to 0x%0lx; BE: 0x%x ", req_addr,
+							tlp_in[3], request_dword1->firstbe);
+					}
 					for (i = 0; i < 4; ++i) {
-						if ((request_dword1->firstbe >> i) & 1) {
+						if ((request_dword1->firstbe >> (3 - i)) & 1) {
 							pci_host_config_write_common(
 								pci_dev, req_addr + i, req_addr + 4,
 								(tlp_in[3] >> (i * 8)) & 0xFF, 1);
@@ -598,7 +609,7 @@ main(int argc, char *argv[])
 			if (dir == TLPD_WRITE) {
 				data_length = 0;
 #ifndef DUMMY
-				tlp_in[3] = bswap32(tlp_in[3]);
+				/*tlp_in[3] = bswap32(tlp_in[3]);*/
 				assert(io_mem_write(target_region, rel_addr, tlp_in[3], 4)
 					== false);
 

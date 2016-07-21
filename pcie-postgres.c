@@ -251,6 +251,17 @@ POSTGRES_INT_FIELD(lwr_addr);
 POSTGRES_BIGINT_FIELD(address);
 POSTGRES_BIGINT_FIELD(data);
 
+static int
+swap_bottom_bits(unsigned int number_of_bits, int to_swap) {
+	return to_swap;
+	int out = 0;
+	for (int i = 0; i < number_of_bits; ++i) {
+		out |= (((to_swap >> i) & 1) << (number_of_bits - 1 - i));
+	}
+	PDBG("Swapped %d bits of 0x%x to get 0x%x", number_of_bits, to_swap, out);
+	return out;
+}
+
 
 /* Generates a TLP given a PGresult that has as row 0 a record from the trace
  * table. Returns the length of the TLP in bytes. */
@@ -308,7 +319,8 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 		header_req->requester_id = get_postgres_requester_id(result);
 		header_req->tag = get_postgres_tag(result);
 		header_req->lastbe = get_postgres_last_be(result);
-		header_req->firstbe = get_postgres_first_be(result);
+		header_req->firstbe = swap_bottom_bits(
+			4, get_postgres_first_be(result));
 		assert(PQntuples(result) == 1);
 		config_dword2->device_id = get_postgres_device_id(result);
 		uint32_t reg = get_postgres_register(result);
@@ -358,7 +370,8 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 		header_req->requester_id = get_postgres_requester_id(result);
 		header_req->tag = get_postgres_tag(result);
 		header_req->lastbe = 0;
-		header_req->firstbe = get_postgres_first_be(result);
+		header_req->firstbe = swap_bottom_bits(
+			4, get_postgres_first_be(result));
 		*dword2 = get_postgres_address(result);
 		length = (12 + data_length);
 		break;
@@ -391,7 +404,8 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 		header_req->requester_id = get_postgres_requester_id(result);
 		header_req->tag = get_postgres_tag(result);
 		header_req->lastbe = get_postgres_last_be(result);
-		header_req->firstbe = get_postgres_first_be(result);
+		header_req->firstbe = swap_bottom_bits(4,
+			get_postgres_first_be(result));
 		*dword2 = get_postgres_address(result);
 		length = 12 + data_length;
 		break;
@@ -406,12 +420,14 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 	int i;
 
 	if (data_length > 0) {
-		/* This is a frankly unlikely sequences of swaps, but seems to work. */
-
 		uint64_t data = get_postgres_data(result);
 		TLPDoubleWord *data_dword = (TLPDoubleWord *)&data;
 		for (i = 0; i < (data_length / sizeof(TLPDoubleWord)); ++i) {
-			dword3[i] = data_dword[i];
+			if (tlp_type == PG_CFG_WR_0) {
+				dword3[i] = bswap32(data_dword[i]);
+			} else {
+				dword3[i] = data_dword[i];
+			}
 		}
 	}
 
