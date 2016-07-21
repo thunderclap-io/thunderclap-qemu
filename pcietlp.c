@@ -4,6 +4,13 @@
 #include <stdlib.h>
 #include "pcie.h"
 
+/* Build a TLP packet for a memory request.
+ * Only the headers are generated; when we send the TLP we'll
+ * attach the payload
+ *
+ * Returns: uint32_t header_len, the size of headers generated
+ */
+
 uint32_t
 create_memory_request(volatile TLPDoubleWord *tlp, uint32_t buffer_length,
 	enum tlp_direction direction, uint16_t requester_id, uint8_t tag, uint8_t loweraddress,
@@ -12,7 +19,7 @@ create_memory_request(volatile TLPDoubleWord *tlp, uint32_t buffer_length,
 	if ( buffer_length<16 )
 		return -100;
 
-	uint32_t tlp_len;
+	uint32_t header_len;
 	// Clear buffer before we start filling bits in
 	tlp[0] = 0;
 	tlp[1] = 0;
@@ -38,11 +45,11 @@ create_memory_request(volatile TLPDoubleWord *tlp, uint32_t buffer_length,
 			header0->fmt = TLPFMT_4DW_NODATA;
 			tlp[2] = (memory_address>>32);
 			tlp[3] = (memory_address & 0xFFFFFFFF);
-			tlp_len = 4*4;
+			header_len = 4*4;
 		} else {
 			header0->fmt = TLPFMT_3DW_NODATA;
 			tlp[2] = (memory_address & 0xFFFFFFFF);
-			tlp_len = 3*4;
+			header_len = 3*4;
 		}
 	} else {
 		// build a write
@@ -50,18 +57,18 @@ create_memory_request(volatile TLPDoubleWord *tlp, uint32_t buffer_length,
 			header0->fmt = TLPFMT_4DW_DATA;
 			tlp[2] = (memory_address>>32);
 			tlp[3] = (memory_address & 0xFFFFFFFF);
-			tlp_len = 4*4;
-			memcpy(tlp+4, memory_address, (memory_length+3)/4);
-			tlp_len += (memory_length+3)/4;
+			header_len = 4*4;
+			//memcpy(tlp+4, memory_address, (memory_length+3)/4);
+			//tlp_len += (memory_length+3)/4;
 		} else {
 			header0->fmt = TLPFMT_3DW_DATA;
 			tlp[2] = (memory_address & 0xFFFFFFFF);
-			tlp_len = 3*4;
-			memcpy(tlp+3, memory_address, (memory_length+3)/4);
-			tlp_len += (memory_length+3)/4;
+			header_len = 3*4;
+			//memcpy(tlp+3, memory_address, (memory_length+3)/4);
+			//tlp_len += (memory_length+3)/4;
 		}
 	}
-	return tlp_len;
+	return header_len;
 }
 
 // Interpret a memory response we already received as a packet

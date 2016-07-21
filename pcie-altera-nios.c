@@ -42,6 +42,7 @@
 #include "pciefpga.h"
 #include "beri-io.h"
 #include "log.h"
+#include "pcie-backend.h"
 
 #include "sys/alt_timestamp.h"
 #include "io.h"
@@ -135,7 +136,7 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 
 }
 
-int
+void
 drain_pcie_core()
 {
 	while (IORD(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_READY)) {
@@ -148,16 +149,90 @@ drain_pcie_core()
 	}
 }
 
+
 /* tlp is a pointer to the tlp, tlp_len is the length of the tlp in bytes. */
 /* returns 0 on success. */
 int
-send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
+send_tlp(TLPQuadWord *header, int header_len, TLPQuadWord *data, int data_len,
+	enum tlp_data_alignment data_alignment)
+{
+	/* Special case for:
+	 * 3DW, Unaligned data. Send qword of remaining header dword, first data.
+	 *   Construct qwords from unaligned data and send.
+	 */
+#define WR_STATUS(STATUS) \
+	do {																	\
+		IOWR(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_STATUS,	\
+			STATUS);														\
+	} while (0)
+
+#define WR_DATA(DATA) \
+	do {																	\
+		IOWR(PCIEPACKETTRANSMITTER_0_BASE,PCIEPACKETTRANSMITTER_UPPER32,	\
+			((DATA)>>32LL));												\
+		IOWR(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_LOWER32SEND,\
+			((DATA) & 0xFFFFFFFFLL));										\
+	} while (0)
+
+	int byte_index;
+	volatile PCIeStatus statusword;
+	TLPQuadWord sendqword;
+	TLPDoubleWord *data_dword = (TLPDoubleWord *)data;
+
+	statusword.word = 0;
+	statusword.bits.startofpacket = 1;
+	WR_STATUS(statusword.word);
+	WR_DATA(header[0]);
+
+	statusword.word = 0;
+	// Stops the TX queue from draining whilst we're filling it.
+	IOWR(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 0);
+
+	if (header_len == 12 && data_alignment == TDA_UNALIGNED) {
+		sendqword = header[1] << 32;
+		if (data_len > 0) {
+			sendqword |= data_dword[0];
+		}
+		statusword.bits.endofpacket = (data_len <= 4);
+		WR_STATUS(statusword.word);
+		WR_DATA(sendqword);
+		for (byte_index = 4; byte_index < data_len; byte_index += 8) {
+			statusword.bits.endofpacket = ((byte_index + 8) >= data_len);
+			sendqword = (TLPQuadWord)(data_dword[byte_index / 4]) << 32;
+			sendqword |= data_dword[(byte_index / 4) + 1];
+			WR_STATUS(statusword.word);
+			WR_DATA(sendqword);
+		}
+	} else {
+		statusword.bits.endofpacket = (data_len == 0);
+		WR_STATUS(statusword.word);
+		WR_DATA(header[1]);
+		for (byte_index = 0; byte_index < data_len; byte_index += 8) {
+			statusword.bits.endofpacket = ((byte_index + 8) >= data_len);
+			WR_STATUS(statusword.word);
+			WR_DATA(data[byte_index / 8]);
+		}
+	}
+
+	// Release queued data
+	IOWR(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 1);
+
+	return 0;
+#undef WR_STATUS
+#undef WR_DATA
+}
+
+
+/* tlp is a pointer to the tlp, tlp_len is the length of the tlp in bytes. */
+/* returns 0 on success. */
+int
+send_tlp_unaligned(volatile TLPQuadWord *tlp, int tlp_len)
 {
 	int quad_word_index;
 	volatile PCIeStatus statusword;
 	TLPDoubleWord upperword=0, lowerword=0;
 
-	log_log(LS_SEND_LENGTH, LIF_INT_32, tlp_len, true);
+	//log_log(LS_SEND_LENGTH, LIF_INT_32, tlp_len, true);
 
 	assert(tlp_len / 8 < 64);
 
@@ -195,7 +270,7 @@ send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	IOWR(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 1);
 
 	record_time();
-	log_log(LS_PACKET_SENT, LIF_NONE, 0, true);
+	//log_log(LS_PACKET_SENT, LIF_NONE, 0, true);
 
 	return 0;
 }
