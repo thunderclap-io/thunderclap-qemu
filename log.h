@@ -4,22 +4,26 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define LOG_LENGTH 4
+#define LOG_LENGTH 32
 
 static char *log_strings[] = {
         "TIME: ",
         ". Since last: ",
 		"Received packet of unknown variety.",
-		"Config read addr: ",
-		", data: "
+		"Wrote BAR 1 to: ",
+		"Read BAR 1 of: "
 };
 
 #define LS_TIME 0
 #define LS_TIME_DELTA 1
 #define LS_RECV_UNKNOWN 2
-#define LS_CFG_READ_ADDR 3
-#define LS_CFG_READ_DATA 4
+#define LS_WRITE_BAR_1 3
+#define LS_READ_BAR_1 4
 
+enum log_newline {
+	LOG_NO_NEWLINE,
+	LOG_NEWLINE
+};
 
 enum log_item_format {
 	LIF_NONE,
@@ -47,7 +51,7 @@ void log_set_strings(char *strings[]);
  * cleared.
  */
 void log_log(int string_id, enum log_item_format format, uint64_t data_item,
-	bool trailing_new_line);
+	enum log_newline trailing_new_line);
 
 /*
  * Prints and clears the log.
@@ -72,10 +76,12 @@ record_time()
        time = read_hw_counter();
        has_last_time = log_last_data_for_string(LS_TIME, &last_time);
 
-       log_log(LS_TIME, LIF_UINT_32, time, !has_last_time);
+       log_log(LS_TIME, LIF_UINT_32, time,
+		   has_last_time ? LOG_NO_NEWLINE : LOG_NEWLINE);
 
        if (has_last_time) {
-               log_log(LS_TIME_DELTA, LIF_INT_32, time - last_time, true);
+               log_log(LS_TIME_DELTA, LIF_INT_32, time - last_time,
+				   LOG_NEWLINE);
        }
 }
 

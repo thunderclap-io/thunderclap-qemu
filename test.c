@@ -201,13 +201,11 @@ write_leds(uint32_t data)
 #endif
 }
 
-#ifdef POSTGRES
 static inline bool
 track_register(uint64_t req_addr)
 {
 	return req_addr == 0x14;
 }
-#endif
 
 int
 main(int argc, char *argv[])
@@ -526,6 +524,8 @@ main(int argc, char *argv[])
 					if (track_register(req_addr)) {
 						PDBG("Read reg 0x%lx (0x%x)", req_addr,
 							tlp_out_data_dword[0]);
+						log_log(LS_READ_BAR_1, LIF_UINT_64_HEX,
+							tlp_out_data_dword[0], LOG_NEWLINE);
 					}
 #endif
 
@@ -556,6 +556,8 @@ main(int argc, char *argv[])
 					if (track_register(req_addr)) {
 						PDBG("Writing 0x%lx to 0x%0lx; BE: 0x%x ", req_addr,
 							tlp_in[3], request_dword1->firstbe);
+						log_log(LS_WRITE_BAR_1, LIF_UINT_64_HEX,
+							tlp_in[3], LOG_NEWLINE);
 					}
 					for (i = 0; i < 4; ++i) {
 						if ((request_dword1->firstbe >> (3 - i)) & 1) {
@@ -653,7 +655,7 @@ main(int argc, char *argv[])
 			assert(false);
 			break;
 		default:
-			log_log(LS_RECV_UNKNOWN, LIF_NONE, 0, true);
+			log_log(LS_RECV_UNKNOWN, LIF_NONE, 0, LOG_NEWLINE);
 			type_string = "Unknown";
 		}
 

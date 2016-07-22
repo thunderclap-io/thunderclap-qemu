@@ -64,13 +64,14 @@ log_set_strings(char *strings[])
 
 void
 log_log(int string_id, enum log_item_format format, uint64_t data_item,
-	bool trailing_new_line)
+	enum log_newline trailing_new_line)
 {
 #ifdef LOG
 	log_entries[next_log_record].string_id = string_id;
 	log_entries[next_log_record].format = format;
 	log_entries[next_log_record].data_item = data_item;
-	log_entries[next_log_record].trailing_new_line = trailing_new_line;
+	log_entries[next_log_record].trailing_new_line =
+		(trailing_new_line == LOG_NEWLINE);
 
 	++next_log_record;
 
