@@ -506,8 +506,9 @@ main(int argc, char *argv[])
 			should_send_response = true;
 			requester_id = request_dword1->requester_id;
 
+			// XXX Something will probably go wrong here.
 			req_addr = config_request_dword2->ext_reg_num;
-			req_addr = (req_addr << 6) | config_request_dword2->reg_num;
+			req_addr = (req_addr << 8) | config_request_dword2->reg_num;
 
 			if ((config_request_dword2->device_id & uint32_mask(3)) == 0) {
 				/* Mask to get function num -- we are 0 */
@@ -524,8 +525,8 @@ main(int argc, char *argv[])
 					if (track_register(req_addr)) {
 						PDBG("Read reg 0x%lx (0x%x)", req_addr,
 							tlp_out_data_dword[0]);
-						log_log(LS_READ_BAR_1, LIF_UINT_64_HEX,
-							tlp_out_data_dword[0], LOG_NEWLINE);
+						/*log_log(LS_READ_BAR_1, LIF_UINT_64_HEX,*/
+							/*tlp_out_data_dword[0], LOG_NEWLINE);*/
 					}
 #endif
 
@@ -553,19 +554,15 @@ main(int argc, char *argv[])
 				} else {
 					data_length = 0;
 #ifndef DUMMY
-					if (track_register(req_addr)) {
-						PDBG("Writing 0x%lx to 0x%0lx; BE: 0x%x ", req_addr,
-							tlp_in[3], request_dword1->firstbe);
-						log_log(LS_WRITE_BAR_1, LIF_UINT_64_HEX,
-							tlp_in[3], LOG_NEWLINE);
-					}
+#define TLP_DATA	((req_addr % 8 == 0) ? tlp_in[4] : tlp_in[3])
 					for (i = 0; i < 4; ++i) {
 						if ((request_dword1->firstbe >> (3 - i)) & 1) {
 							pci_host_config_write_common(
 								pci_dev, req_addr + i, req_addr + 4,
-								(tlp_in[3] >> (i * 8)) & 0xFF, 1);
+								(TLP_DATA >> ((3 - i) * 8)) & 0xFF, 1);
 						}
 					}
+#undef TLP_DATA
 #endif
 				}
 			}

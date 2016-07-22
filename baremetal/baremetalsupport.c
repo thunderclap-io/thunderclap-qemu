@@ -152,8 +152,10 @@ writeUARTChar(char c)
 	    0xFFFF) == 0) {
 //		asm("add $v0, $v0, $0");
 	}
-	//int i;
-	//for (i=0;i<10000;i++);
+	int i;
+	for (i=0;i<10000;i++) {
+		asm("nop");
+	}
 	IO_WR_BYTE(MIPS_PHYS_TO_UNCACHED(CHERI_JTAG_UART_BASE), c);
 }
 

@@ -85,6 +85,14 @@ void
 log_print()
 {
 #ifdef LOG
+#ifdef LOG_PRINT_ONCE
+	static bool printed_once = false;
+	if (printed_once) {
+		return;
+	} else {
+		printed_once = true;
+	}
+#endif
 	for (int i = 0; i < next_log_record; ++i) {
 		struct log_entry entry = log_entries[i];
 		if (entry.string_id >= 0) {
