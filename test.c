@@ -204,7 +204,7 @@ write_leds(uint32_t data)
 static inline bool
 track_register(uint64_t req_addr)
 {
-	return req_addr == 0x14;
+	return true;
 }
 
 int
@@ -555,6 +555,10 @@ main(int argc, char *argv[])
 					data_length = 0;
 #ifndef DUMMY
 #define TLP_DATA	((req_addr % 8 == 0) ? tlp_in[4] : tlp_in[3])
+					if (track_register(req_addr)) {
+						PDBG("Writing 0x%lx to 0x%x.", req_addr,
+							bswap32(TLP_DATA));
+					}
 					for (i = 0; i < 4; ++i) {
 						if ((request_dword1->firstbe >> (3 - i)) & 1) {
 							pci_host_config_write_common(

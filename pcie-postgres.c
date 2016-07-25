@@ -290,6 +290,7 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 		(struct TLP64CompletionDWord2 *)(buffer + 2);
 
 	TLPDoubleWord *dword3 = (buffer + 3);
+	TLPDoubleWord *dword4 = (buffer + 4);
 
 	header0->tc = 0; // Assume traffic class best effort
 	header0->th = 0; // Assume no traffic processing hints.
@@ -300,6 +301,9 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 	int data_length = 0;
 	int length = -1;
 	enum postgres_tlp_type tlp_type = get_postgres_tlp_type(result);
+
+	/* This is up here so we can get data alignment correct in results. */
+	uint32_t reg = get_postgres_register(result);
 
 #ifdef PRINT_IDS
 	DEBUG_PRINTF("%d.\n", get_postgres_packet(result));
@@ -323,7 +327,6 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 			4, get_postgres_first_be(result));
 		assert(PQntuples(result) == 1);
 		config_dword2->device_id = get_postgres_device_id(result);
-		uint32_t reg = get_postgres_register(result);
 		config_dword2->ext_reg_num = reg >> 6;
 		config_dword2->reg_num = (reg & uint32_mask(8));
 		length = 12;
@@ -419,15 +422,18 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 
 	int i;
 
+
 	if (data_length > 0) {
 		uint64_t data = get_postgres_data(result);
 		TLPDoubleWord *data_dword = (TLPDoubleWord *)&data;
+		TLPDoubleWord *data_dest;
+		if (tlp_type == PG_CFG_WR_0 && (reg % 8 == 0)) {
+			data_dest = dword4;
+		} else {
+			data_dest = dword3;
+		}
 		for (i = 0; i < (data_length / sizeof(TLPDoubleWord)); ++i) {
-			if (tlp_type == PG_CFG_WR_0) {
-				dword3[i] = bswap32(data_dword[i]);
-			} else {
-				dword3[i] = data_dword[i];
-			}
+			data_dest[i] = data_dword[i];
 		}
 	}
 
