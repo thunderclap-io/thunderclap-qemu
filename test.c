@@ -204,7 +204,7 @@ write_leds(uint32_t data)
 static inline bool
 track_register(uint64_t req_addr)
 {
-	return true;
+	return false;
 }
 
 int
@@ -560,7 +560,7 @@ main(int argc, char *argv[])
 							bswap32(TLP_DATA));
 					}
 					for (i = 0; i < 4; ++i) {
-						if ((request_dword1->firstbe >> (3 - i)) & 1) {
+						if (request_dword1->firstbe >> (3 - i) & 1) {
 							pci_host_config_write_common(
 								pci_dev, req_addr + i, req_addr + 4,
 								(TLP_DATA >> ((3 - i) * 8)) & 0xFF, 1);
@@ -603,6 +603,7 @@ main(int argc, char *argv[])
 			 */
 #ifndef DUMMY
 			req_addr = tlp_in[2];
+			/*PDBG("Req addr: 0x%lx", req_addr);*/
 			target_section = memory_region_find(get_system_io(), req_addr, 4);
 			target_region = target_section.mr;
 			rel_addr = target_section.offset_within_region;
@@ -616,9 +617,10 @@ main(int argc, char *argv[])
 				assert(io_mem_write(target_region, rel_addr, tlp_in[3], 4)
 					== false);
 
+				/* XXX: Check crazy alignment on tlp_in[3] here */
 				if (rel_addr == 0) {
 					card_reg = tlp_in[3];
-					PDBG("Setting CARD REG to 0x%x", card_reg);
+					/*PDBG("Setting CARD REG to 0x%x", card_reg);*/
 				}
 #endif
 			} else {

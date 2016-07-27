@@ -1032,15 +1032,14 @@ static pcibus_t pci_bar_address(PCIDevice *d,
 {
     pcibus_t new_addr, last_addr;
     int bar = pci_bar(d, reg);
-	/*PDBG("bar offset %x", bar);*/
     uint16_t cmd = pci_get_word(d->config + PCI_COMMAND);
 
     if (type & PCI_BASE_ADDRESS_SPACE_IO) {
+		if (!(cmd & PCI_COMMAND_IO)) {
+			/*PDBG("Was going to map IO but quitting, as IO is not enabled.");*/
+			return PCI_BAR_UNMAPPED;
+		}
 		/*PDBG("Mapping IO Space.");*/
-        if (!(cmd & PCI_COMMAND_IO)) {
-			/*PDBG("Quitting, as IO is not enabled.");*/
-            return PCI_BAR_UNMAPPED;
-        }
         new_addr = pci_get_long(d->config + bar) & ~(size - 1);
         last_addr = new_addr + size - 1;
         /* Check if 32 bit BAR wraps around explicitly.
@@ -1134,7 +1133,7 @@ static void pci_update_mappings(PCIDevice *d)
         }
         r->addr = new_addr;
         if (r->addr != PCI_BAR_UNMAPPED) {
-			/*PDBG("Adding mapping.");*/
+			/*PDBG("Adding mapping for addr %lx.", r->addr);*/
             trace_pci_update_mappings_add(d, pci_bus_num(d->bus),
                                           PCI_FUNC(d->devfn),
                                           PCI_SLOT(d->devfn),

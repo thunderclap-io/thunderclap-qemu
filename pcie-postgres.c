@@ -253,13 +253,16 @@ POSTGRES_BIGINT_FIELD(data);
 
 static int
 swap_bottom_bits(unsigned int number_of_bits, int to_swap) {
-	return to_swap;
 	int out = 0;
 	for (int i = 0; i < number_of_bits; ++i) {
 		out |= (((to_swap >> i) & 1) << (number_of_bits - 1 - i));
 	}
-	PDBG("Swapped %d bits of 0x%x to get 0x%x", number_of_bits, to_swap, out);
 	return out;
+}
+
+static inline int
+swap_be(int to_swap) {
+	return swap_bottom_bits(4, to_swap);
 }
 
 
@@ -323,8 +326,7 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 		header_req->requester_id = get_postgres_requester_id(result);
 		header_req->tag = get_postgres_tag(result);
 		header_req->lastbe = get_postgres_last_be(result);
-		header_req->firstbe = swap_bottom_bits(
-			4, get_postgres_first_be(result));
+		header_req->firstbe = swap_be(get_postgres_first_be(result));
 		assert(PQntuples(result) == 1);
 		config_dword2->device_id = get_postgres_device_id(result);
 		config_dword2->ext_reg_num = reg >> 6;
@@ -373,9 +375,8 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 		header_req->requester_id = get_postgres_requester_id(result);
 		header_req->tag = get_postgres_tag(result);
 		header_req->lastbe = 0;
-		header_req->firstbe = swap_bottom_bits(
-			4, get_postgres_first_be(result));
-		*dword2 = get_postgres_address(result);
+		header_req->firstbe = swap_be(get_postgres_first_be(result));
+		*dword2 = (TLPDoubleWord)(get_postgres_address(result) >> 32);
 		length = (12 + data_length);
 		break;
 	case PG_MSG_D:
@@ -407,8 +408,7 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 		header_req->requester_id = get_postgres_requester_id(result);
 		header_req->tag = get_postgres_tag(result);
 		header_req->lastbe = get_postgres_last_be(result);
-		header_req->firstbe = swap_bottom_bits(4,
-			get_postgres_first_be(result));
+		header_req->firstbe = swap_be(get_postgres_first_be(result));
 		*dword2 = get_postgres_address(result);
 		length = 12 + data_length;
 		break;
