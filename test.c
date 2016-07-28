@@ -207,6 +207,14 @@ track_register(uint64_t req_addr)
 	return false;
 }
 
+long
+timespec_diff_in_ns(struct timespec *left, struct timespec *right) {
+	return 1000000000L * ((right->tv_sec) - (left->tv_sec)) +
+		(right->tv_nsec - left->tv_nsec);
+}
+
+extern int last_packet;
+
 int
 main(int argc, char *argv[])
 {
@@ -380,6 +388,9 @@ main(int argc, char *argv[])
 	struct TLP64DWord0 *h0bits = &(config_req->header0);
 	struct TLP64RequestDWord1 *req_bits = &(config_req->req_header);
 
+	struct timespec start;
+	struct timespec end;
+
 #ifndef DUMMY
 	MemoryRegionSection target_section;
 	MemoryRegion *target_region;
@@ -403,6 +414,7 @@ main(int argc, char *argv[])
 		should_send_response = false;
 
 		tlp_in_len = wait_for_tlp(tlp_in_quadword, sizeof(tlp_in_quadword));
+		/*clock_gettime(CLOCK_PROF, &start);*/
 
 #ifdef POSTGRES
 		if (tlp_in_len == TRACE_COMPLETE) {
@@ -560,7 +572,7 @@ main(int argc, char *argv[])
 							bswap32(TLP_DATA));
 					}
 					for (i = 0; i < 4; ++i) {
-						if (request_dword1->firstbe >> (3 - i) & 1) {
+						if ((request_dword1->firstbe >> i) & 1) {
 							pci_host_config_write_common(
 								pci_dev, req_addr + i, req_addr + 4,
 								(TLP_DATA >> ((3 - i) * 8)) & 0xFF, 1);
@@ -670,6 +682,10 @@ main(int argc, char *argv[])
 				data_length, TDA_ALIGNED);
 			assert(send_result != -1);
 		}
+
+		/*clock_gettime(CLOCK_PROF, &end);*/
+		/*DEBUG_PRINTF("%ld %d\n",*/
+			/*timespec_diff_in_ns(&start, &end), last_packet);*/
 
 	}
 

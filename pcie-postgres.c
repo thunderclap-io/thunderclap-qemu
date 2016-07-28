@@ -251,21 +251,6 @@ POSTGRES_INT_FIELD(lwr_addr);
 POSTGRES_BIGINT_FIELD(address);
 POSTGRES_BIGINT_FIELD(data);
 
-static int
-swap_bottom_bits(unsigned int number_of_bits, int to_swap) {
-	int out = 0;
-	for (int i = 0; i < number_of_bits; ++i) {
-		out |= (((to_swap >> i) & 1) << (number_of_bits - 1 - i));
-	}
-	return out;
-}
-
-static inline int
-swap_be(int to_swap) {
-	return swap_bottom_bits(4, to_swap);
-}
-
-
 /* Generates a TLP given a PGresult that has as row 0 a record from the trace
  * table. Returns the length of the TLP in bytes. */
 /* TLPDoubleWord is a more natural way to manipulate the TLP Data */
@@ -326,7 +311,7 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 		header_req->requester_id = get_postgres_requester_id(result);
 		header_req->tag = get_postgres_tag(result);
 		header_req->lastbe = get_postgres_last_be(result);
-		header_req->firstbe = swap_be(get_postgres_first_be(result));
+		header_req->firstbe = get_postgres_first_be(result);
 		assert(PQntuples(result) == 1);
 		config_dword2->device_id = get_postgres_device_id(result);
 		config_dword2->ext_reg_num = reg >> 6;
@@ -375,7 +360,7 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 		header_req->requester_id = get_postgres_requester_id(result);
 		header_req->tag = get_postgres_tag(result);
 		header_req->lastbe = 0;
-		header_req->firstbe = swap_be(get_postgres_first_be(result));
+		header_req->firstbe = get_postgres_first_be(result);
 		*dword2 = (TLPDoubleWord)(get_postgres_address(result) >> 32);
 		length = (12 + data_length);
 		break;
@@ -408,7 +393,7 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 		header_req->requester_id = get_postgres_requester_id(result);
 		header_req->tag = get_postgres_tag(result);
 		header_req->lastbe = get_postgres_last_be(result);
-		header_req->firstbe = swap_be(get_postgres_first_be(result));
+		header_req->firstbe = get_postgres_first_be(result);
 		*dword2 = get_postgres_address(result);
 		length = 12 + data_length;
 		break;
@@ -573,6 +558,7 @@ print_last_sent_packet_ids()
 	print_circular_uint_buffer(last_sent_ids, sent_count, ID_BUFFER_SIZE);
 }
 
+int last_packet;
 
 /* tlp_len is length of the buffer in bytes. */
 /* Return -1 if 1024 attempts to poll the buffer fail. */
@@ -591,6 +577,8 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 			return TRACE_COMPLETE;
 		}
 	}
+
+	last_packet = get_postgres_packet(result);
 
 	TLPDoubleWord *tlp_dword = (TLPDoubleWord *)tlp;
 #ifdef PRINT_IDS
