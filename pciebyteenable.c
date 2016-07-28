@@ -40,12 +40,11 @@
 #include <stdlib.h>
 #include "pcie.h"
 
-uint8_t byte_enable(uint64_t address, uint32_t length, bool first)
+static inline uint8_t first_byte_enable(uint64_t address, uint32_t length)
 {
-	uint8_t byteenable=0, demuxed=0, end_phase=0;
+	uint8_t byteenable=0, demuxed=0
 	uint32_t sat_length = 0;
-	uint64_t end = 0;
-	uint8_t firstbe = 0, lastbe = 0;
+	uint8_t firstbe = 0;
 
 	// if the transaction is greater or equal to a DWord, fill first BE with ones
 	sat_length = (length<4) ? length : 4;
@@ -63,6 +62,15 @@ uint8_t byte_enable(uint64_t address, uint32_t length, bool first)
 	if (length == 0)
 		firstbe = 0;
 
+	return firstbe;
+}
+
+static inline uint8_t last_byte_enable(uint64_t address, uint32_t length)
+{
+	uint8_t end_phase=0;
+	uint64_t end = 0;
+	uint8_t lastbe = 0;
+
 	// last BE only depends on (address+length) % 4
 	// but twisted, so
 	// aligned (a+l)%4=0 means 1<<3
@@ -74,10 +82,7 @@ uint8_t byte_enable(uint64_t address, uint32_t length, bool first)
 	if (length <= 4)
 		lastbe = 0;
 	
-	if (first)
-		return firstbe;
-	else
-		return lastbe;
+	return lastbe;
 }
 
 #ifdef TEST_BYTE_ENABLE
