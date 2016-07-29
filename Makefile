@@ -38,6 +38,7 @@ TARGET ?= postgres
 DUMMY ?= 0
 LOG ?= 0
 PRINT_IDS ?= 0
+PROFILE ?= 0
 
 ifndef PCIE_QEMU_CHERI_SDK
 $(error Variable PCIE_QEMU_CHERI_SDK is not set)
@@ -100,6 +101,11 @@ endif
 
 ifeq ($(PRINT_IDS),1)
 CFLAGS := $(CFLAGS) -DPRINT_IDS
+endif
+
+ifeq ($(PROFILE),1)
+CFLAGS := $(CFLAGS) -pg
+LDFLAGS := $(LDFLAGS) -pg
 endif
 
 # if TARGET=beribsd or beribare

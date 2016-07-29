@@ -1102,14 +1102,10 @@ static void pci_update_mappings(PCIDevice *d)
     int i;
     pcibus_t new_addr;
 
-	/*PDBG("Updating mapping.");*/
-
     for(i = 0; i < PCI_NUM_REGIONS; i++) {
         r = &d->io_regions[i];
 
-        /* this region isn't registered */
         if (!r->size) {
-			/*PDBG("Region %d is unregistered.", i);*/
             continue;
 		}
 
@@ -1117,33 +1113,20 @@ static void pci_update_mappings(PCIDevice *d)
 
         /* This bar isn't changed */
         if (new_addr == r->addr) {
-			/*PDBG("Region %d is unchanged from address 0x%lx", i, new_addr);*/
             continue;
 		}
 
-		/*PDBG("Updating mapping %s in %s; %d => 0x%lx.", r->memory->name,*/
-		   /*r->address_space->name, i, new_addr);*/
-        /* now do the real mapping */
-        if (r->addr != PCI_BAR_UNMAPPED) {
-            trace_pci_update_mappings_del(d, pci_bus_num(d->bus),
-                                          PCI_FUNC(d->devfn),
-                                          PCI_SLOT(d->devfn),
-                                          i, r->addr, r->size);
-            memory_region_del_subregion(r->address_space, r->memory);
-        }
+        /*if (r->addr != PCI_BAR_UNMAPPED) {*/
+            /*memory_region_del_subregion(r->address_space, r->memory);*/
+        /*}*/
         r->addr = new_addr;
-        if (r->addr != PCI_BAR_UNMAPPED) {
-			/*PDBG("Adding mapping for addr %lx.", r->addr);*/
-            trace_pci_update_mappings_add(d, pci_bus_num(d->bus),
-                                          PCI_FUNC(d->devfn),
-                                          PCI_SLOT(d->devfn),
-                                          i, r->addr, r->size);
-            memory_region_add_subregion_overlap(r->address_space,
-                                                r->addr, r->memory, 1);
-        }
+        /*if (r->addr != PCI_BAR_UNMAPPED) {*/
+            /*memory_region_add_subregion_overlap(r->address_space,*/
+                                                /*r->addr, r->memory, 1);*/
+        /*}*/
     }
 
-    pci_update_vga(d);
+    /*pci_update_vga(d);*/
 }
 
 static inline int pci_irq_disabled(PCIDevice *d)
@@ -1219,9 +1202,9 @@ void pci_default_write_config(PCIDevice *d, uint32_t addr, uint32_t val_in, int 
 
     if (range_covers_byte(addr, l, PCI_COMMAND)) {
         pci_update_irq_disabled(d, was_irq_disabled);
-        memory_region_set_enabled(&d->bus_master_enable_region,
-                                  pci_get_word(d->config + PCI_COMMAND)
-                                    & PCI_COMMAND_MASTER);
+        /*memory_region_set_enabled(&d->bus_master_enable_region,*/
+                                  /*pci_get_word(d->config + PCI_COMMAND)*/
+                                    /*& PCI_COMMAND_MASTER);*/
     }
 
     msi_write_config(d, addr, val_in, l);
