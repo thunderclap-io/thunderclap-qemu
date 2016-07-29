@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include "pcie.h"
+#include "pciebyteenable.h"
 
 /* Build a TLP packet for a memory request.
  * Only the headers are generated; when we send the TLP we'll
@@ -30,14 +31,21 @@ create_memory_request(volatile TLPDoubleWord *tlp, uint32_t buffer_length,
 	header0->type = M;
 	// Round up number of bytes into number of DWords
 	header0->length = (memory_length+3)/4;
+	if (memory_length == 4096)
+		header0->length = 0;
+	if (memory_length > 4096)
+	{
+		puts('Read size greater than 1024 DWords, truncating');
+		memory_length = 0;
+	}
 	header0->at = 0;
 
 	struct TLP64RequestDWord1 *header1 = (struct TLP64RequestDWord1 *)(tlp) + 1;
 	header1->requester_id = requester_id;
 	header1->tag = tag;
-	// XXX: only support word accesses currently
-	header1->firstbe = 0xf;
-	header1->lastbe = 0;
+
+	header1->firstbe = first_byte_enable(memory_address, memory_length);
+	header1->lastbe = last_byte_enable(memory_address, memory_length);
 	
 	if (direction == TLPD_READ)	{
 
