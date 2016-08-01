@@ -392,7 +392,7 @@ main(int argc, char *argv[])
 	struct timespec end;
 
 #ifndef DUMMY
-	MemoryRegionSection target_section;
+	PCIIORegion *pci_io_region;
 	MemoryRegion *target_region;
 	hwaddr rel_addr;
 #endif
@@ -434,9 +434,12 @@ main(int argc, char *argv[])
 
 			bytecount = 0;
 #ifndef DUMMY
-			target_section = memory_region_find(pci_memory, tlp_in[2], 4);
-			target_region = target_section.mr;
-			rel_addr = target_section.offset_within_region;
+			/* TODO: Different operation for flash? */
+			pci_io_region = &(pci_dev->io_regions[0]);
+			assert(pci_io_region->addr != PCI_BAR_UNMAPPED);
+			assert(tlp_in[2] >= pci_io_region->addr);
+			target_region = pci_io_region->memory;
+			rel_addr = tlp_in[2] - pci_io_region->addr;
 #endif
 
 			if (dir == TLPD_READ) {
@@ -616,9 +619,11 @@ main(int argc, char *argv[])
 #ifndef DUMMY
 			req_addr = tlp_in[2];
 			/*PDBG("Req addr: 0x%lx", req_addr);*/
-			target_section = memory_region_find(get_system_io(), req_addr, 4);
-			target_region = target_section.mr;
-			rel_addr = target_section.offset_within_region;
+			pci_io_region = &(pci_dev->io_regions[2]);
+			assert(pci_io_region->addr != PCI_BAR_UNMAPPED);
+			assert(req_addr >= pci_io_region->addr);
+			target_region = pci_io_region->memory;
+			rel_addr = req_addr - pci_io_region->addr;
 			/*PDBG("rel_addr = 0x%lx", rel_addr);*/
 #endif
 
