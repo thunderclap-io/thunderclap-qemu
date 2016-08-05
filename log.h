@@ -4,24 +4,30 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define LOG_LENGTH 512
+#define LOG_LENGTH 24
+//#define LOG_LENGTH 1
 
 static char *log_strings[] = {
         "TIME: ",
         ". Since last: ",
 		"Received packet of unknown variety.",
-		"Config write of reg 0x",
-		" to 0x ",
-		"; tlp_in[4] is 0x"
-		//"Read BAR 1 of: "
+		"Memory packet with relative address: 0x",
+		" and data of: 0x",
+		" read data: 0x",
+		". Read error: ",
+		"~~~~~~~~~~~~~~~~~~~~~ Initialising e1000e core registers."
 };
 
-#define LS_TIME 0
-#define LS_TIME_DELTA 1
-#define LS_RECV_UNKNOWN 2
-#define LS_WRITE_REG 3
-#define LS_WRITE_VAL 4
-#define LS_WRITE_LATER_VAL 5
+enum log_string_id {
+	LS_TIME,
+	LS_TIME_DELTA,
+	LS_RECV_UNKNOWN,
+	LS_MEM_ADDR,
+	LS_MEM_DATA,
+	LS_READ,
+	LS_READ_ERROR,
+	LS_REG_INIT
+};
 
 enum log_newline {
 	LOG_NO_NEWLINE,

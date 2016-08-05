@@ -207,20 +207,20 @@ track_register(uint64_t req_addr)
 	return false;
 }
 
+#ifndef DUMMY
 long
 timespec_diff_in_ns(struct timespec *left, struct timespec *right) {
 	return 1000000000L * ((right->tv_sec) - (left->tv_sec)) +
 		(right->tv_nsec - left->tv_nsec);
 }
+#endif
 
 extern int last_packet;
 
 int
 main(int argc, char *argv[])
 {
-
 	log_set_strings(log_strings);
-
 	puts("Starting.");
 	/*const char *driver = "e1000-82540em";*/
 #ifndef DUMMY
@@ -388,10 +388,13 @@ main(int argc, char *argv[])
 	struct TLP64DWord0 *h0bits = &(config_req->header0);
 	struct TLP64RequestDWord1 *req_bits = &(config_req->req_header);
 
+#ifndef DUMMY
 	struct timespec start;
 	struct timespec end;
 
-#ifndef DUMMY
+	/*unsigned long start;*/
+	unsigned long diff;
+
 	PCIIORegion *pci_io_region;
 	MemoryRegion *target_region;
 	hwaddr rel_addr;
@@ -406,7 +409,7 @@ main(int argc, char *argv[])
 
 	drain_pcie_core();
 
-	puts("LEDs clear. PCIe Core Drained. Let's go.");
+	puts("PCIe Core Drained. Let's go.");
 
 	int card_reg = -1;
 
@@ -415,6 +418,7 @@ main(int argc, char *argv[])
 
 		tlp_in_len = wait_for_tlp(tlp_in_quadword, sizeof(tlp_in_quadword));
 		/*clock_gettime(CLOCK_PROF, &start);*/
+		/*start = read_hw_counter();*/
 
 #ifdef POSTGRES
 		if (tlp_in_len == TRACE_COMPLETE) {
@@ -449,9 +453,16 @@ main(int argc, char *argv[])
 #else
 				read_error = io_mem_read(target_region,
 					rel_addr,
-					(uint64_t *)tlp_out_data,
+					tlp_out_data,
 					4);
 #endif
+				/* XXX: THIS IS EVIL AND WRONG */
+				tlp_out_data_dword[0] = tlp_out_data_dword[1];
+
+				/*log_log(LS_MEM_ADDR, LIF_UINT_32_HEX, rel_addr, LOG_NO_NEWLINE);*/
+				/*log_log(LS_READ, LIF_UINT_64_HEX, *tlp_out_data_dword,*/
+					/*LOG_NO_NEWLINE);*/
+				/*log_log(LS_READ_ERROR, LIF_BOOL, read_error, LOG_NEWLINE);*/
 
 #ifdef POSTGRES
 				if (read_error) {
@@ -494,15 +505,27 @@ main(int argc, char *argv[])
 #ifdef DUMMY
 						write_error = false;
 #else
+						write_error = false;
+						/*
 						write_error = io_mem_write(
 							target_region,
 							rel_addr + i,
 							*((uint64_t *)((uint8_t *)tlp_in + 12 + i)),
 							1);
+							*/
 #endif
 						assert(!write_error);
 					}
 				}
+			}
+
+			uint32_t write_data = bswap32(
+				(rel_addr % 8 == 0) ? tlp_in[4] : tlp_in[3]);
+
+			if (dir == TLPD_WRITE) {
+				io_mem_write(target_region, rel_addr, write_data, 4);
+				log_log(LS_MEM_ADDR, LIF_UINT_32_HEX, rel_addr, LOG_NO_NEWLINE);
+				log_log(LS_MEM_DATA, LIF_UINT_32_HEX, write_data, LOG_NEWLINE);
 			}
 
 			should_send_response = (dir == TLPD_READ);
@@ -540,8 +563,6 @@ main(int argc, char *argv[])
 					if (track_register(req_addr)) {
 						PDBG("Read reg 0x%lx (0x%x)", req_addr,
 							tlp_out_data_dword[0]);
-						/*log_log(LS_READ_BAR_1, LIF_UINT_64_HEX,*/
-							/*tlp_out_data_dword[0], LOG_NEWLINE);*/
 					}
 #endif
 
@@ -618,13 +639,16 @@ main(int argc, char *argv[])
 			 */
 #ifndef DUMMY
 			req_addr = tlp_in[2];
-			/*PDBG("Req addr: 0x%lx", req_addr);*/
 			pci_io_region = &(pci_dev->io_regions[2]);
 			assert(pci_io_region->addr != PCI_BAR_UNMAPPED);
+			if (req_addr < pci_io_region->addr) {
+				PDBG("Trying to map req with addr %x in BAR with addr %x.",
+					req_addr, pci_io_region->addr);
+				PDBG("Last packet: %d", last_packet);
+			}
 			assert(req_addr >= pci_io_region->addr);
 			target_region = pci_io_region->memory;
 			rel_addr = req_addr - pci_io_region->addr;
-			/*PDBG("rel_addr = 0x%lx", rel_addr);*/
 #endif
 
 			if (dir == TLPD_WRITE) {
@@ -679,6 +703,13 @@ main(int argc, char *argv[])
 			type_string = "Unknown";
 		}
 
+		/*diff = read_hw_counter() - start;*/
+
+		/*if (diff > (1 << 23)) {*/
+			/*log_log(LS_CYCLES, LIF_UINT_64, diff, LOG_NEWLINE);*/
+			/*log_print();*/
+		/*}*/
+
 		if (should_send_response) {
 			for (i = 0; i < data_length / 4; ++i) {
 				tlp_out_data_dword[i] = bswap32(tlp_out_data_dword[i]);
@@ -689,8 +720,10 @@ main(int argc, char *argv[])
 		}
 
 		/*clock_gettime(CLOCK_PROF, &end);*/
-		/*DEBUG_PRINTF("%ld %d\n",*/
-			/*timespec_diff_in_ns(&start, &end), last_packet);*/
+		/*diff = timespec_diff_in_ns(&start, &end);*/
+		/*if (diff > (1 << 21)) {*/
+			/*DEBUG_PRINTF("%ld %d\n", diff, last_packet);*/
+		/*}*/
 
 	}
 

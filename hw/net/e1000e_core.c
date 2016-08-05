@@ -33,6 +33,7 @@
 * License along with this library; if not, see <http://www.gnu.org/licenses/>.
 */
 #include "pcie-debug.h"
+#include "log.h"
 
 #include "hw/hw.h"
 #include "hw/pci/pci.h"
@@ -3216,7 +3217,6 @@ e1000e_core_read(E1000ECore *core, hwaddr addr, unsigned size)
         }
         val = macreg_readops[index](core, index);
         trace_e1000e_core_read(index << 2, size, val);
-		/*PDBG("Returning 0x%x (%d)", val, val);*/
         return val;
     } else {
         trace_e1000e_wrn_regs_read_unknown(index << 2, size);
@@ -3358,7 +3358,7 @@ static const uint32_t mac_reg_init[] = {
                 (4 << E1000_PSRCTL_BSIZE2_SHIFT),
     [TARC0]   = 0x3 | E1000_TARC_ENABLE,
     [TARC1]   = 0x3 | E1000_TARC_ENABLE,
-    [EECD]    = E1000_EECD_AUTO_RD | E1000_EECD_PRES,
+	[EECD]    = E1000_EECD_AUTO_RD | E1000_EECD_PRES,
     [EERD]    = E1000_EERW_DONE,
     [EEWR]    = E1000_EERW_DONE,
     [GCR]     = E1000_L0S_ADJUST |

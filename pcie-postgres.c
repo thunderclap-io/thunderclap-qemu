@@ -361,7 +361,7 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 		header_req->tag = get_postgres_tag(result);
 		header_req->lastbe = 0;
 		header_req->firstbe = get_postgres_first_be(result);
-		*dword2 = (TLPDoubleWord)(get_postgres_address(result) >> 32);
+		*dword2 = (TLPDoubleWord)(get_postgres_address(result));
 		length = (12 + data_length);
 		break;
 	case PG_MSG_D:
