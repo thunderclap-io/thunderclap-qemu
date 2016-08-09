@@ -1,0 +1,10 @@
+--- a/test.c
++++ b/test.c
+@@ -1332,7 +1235,6 @@ main(int argc, char *argv[])
+ 				TLPCS_SUCCESSFUL_COMPLETION, bytecount, requester_id,
+ 				req_bits->tag, loweraddress);
+ 
+-
+ 			send_result = send_tlp(tlp_out_quadword, 16);
+ 			assert(send_result != -1);
+ 

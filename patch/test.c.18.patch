@@ -1,0 +1,13 @@
+--- a/test.c
++++ b/test.c
+@@ -1064,9 +988,8 @@ main(int argc, char *argv[])
+ 
+ #endif
+ 
+-	writeString("Starting.\n");
++	printf("Starting.\n");
+ 	/*const char *driver = "e1000-82540em";*/
+-#ifndef DUMMY
+ 	const char *driver = "e1000e";
+ 	const char *id = "the-e1000e";
+ 

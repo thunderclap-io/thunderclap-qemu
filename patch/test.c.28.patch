@@ -1,0 +1,12 @@
+--- a/test.c
++++ b/test.c
+@@ -1387,9 +1278,6 @@ main(int argc, char *argv[])
+ 			else {
+ 				completion_status = TLPCS_UNSUPPORTED_REQUEST;
+ 				send_length = 12;
+-				writeString("UNSUPPORTED REQUEST! DEVICE ID ");
+-				write_uint_32_hex(config_request_dword2->device_id, '0');
+-				writeString("\r\n");
+ 			}
+ 
+ 			create_completion_header(

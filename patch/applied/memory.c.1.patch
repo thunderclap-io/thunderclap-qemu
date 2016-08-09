@@ -1,0 +1,23 @@
+--- a/memory.c
++++ b/memory.c
+@@ -2009,18 +2007,12 @@ void address_space_destroy(AddressSpace *as)
+ 
+ bool io_mem_read(MemoryRegion *mr, hwaddr addr, uint64_t *pval, unsigned size)
+ {
+-#ifdef DUMMY
+-	assert(false); /* Attempting mem read when DUMMY defined! */
+-#endif
+     return memory_region_dispatch_read(mr, addr, pval, size);
+ }
+ 
+ bool io_mem_write(MemoryRegion *mr, hwaddr addr,
+                   uint64_t val, unsigned size)
+ {
+-#ifdef DUMMY
+-	assert(false); /* Attempting mem write when DUMMY defined! */
+-#endif
+     return memory_region_dispatch_write(mr, addr, val, size);
+ }
+ 
+diff --git a/pcie-debug.h b/pcie-debug.h
+index 4260dc0..792643b 100644

@@ -1,0 +1,19 @@
+--- a/test.c
++++ b/test.c
+@@ -1204,12 +1128,10 @@ main(int argc, char *argv[])
+ 	uint32_t io_completion_mask, loweraddress;
+ 	uint64_t addr, req_addr;
+ 
+-	TLPQuadWord tlp_in_quadword[32];
+-	TLPQuadWord tlp_out_quadword[32];
+-
+-	TLPDoubleWord *tlp_in = (TLPDoubleWord *)tlp_in_quadword;
+-	TLPDoubleWord *tlp_out = (TLPDoubleWord *)tlp_out_quadword;
+-	TLPDoubleWord *tlp_out_body = (tlp_out + 4);
++	TLPDoubleWord tlp_in[64], tlp_out[64];
++	TLPDoubleWord *tlp_out_body = (tlp_out + 3);
++	TLPQuadWord *tlp_in_quadword = (TLPQuadWord *)tlp_in;
++	TLPQuadWord *tlp_out_quadword = (TLPQuadWord *)tlp_out;
+ 
+ 	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)tlp_in;
+ 	struct TLP64RequestDWord1 *request_dword1 =

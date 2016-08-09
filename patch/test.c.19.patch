@@ -1,0 +1,20 @@
+--- a/test.c
++++ b/test.c
+@@ -1185,14 +1108,15 @@ main(int argc, char *argv[])
+ 	object_property_set_bool(OBJECT(dev), true, "realized", &err);
+ 
+ 	PCIDevice *pci_dev = PCI_DEVICE(dev);
+-#endif // not DUMMY
++	// Use pci_host_config read common to reply to read responses.
++	printf("%x.\n", pci_host_config_read_common(pci_dev, 0, 4, 4));
+ 
+ #ifndef POSTGRES
+ 	physmem = open_io_region(PCIEPACKET_REGION_BASE, PCIEPACKET_REGION_LENGTH);
+ 	initialise_leds();
+ #endif
+ 
+-	int i, j, tlp_in_len = 0, tlp_out_len, send_length, send_result, bytecount;
++	int i, tlp_in_len = 0, tlp_out_len, send_length, send_result, bytecount;
+ 	enum tlp_direction dir;
+ 	enum tlp_completion_status completion_status;
+ 	char *type_string;

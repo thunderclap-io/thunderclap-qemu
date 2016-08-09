@@ -9,10 +9,16 @@ unsigned long
 read_hw_counter();
 
 int
-wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len);
+wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len, uint64_t end_time);
+
+enum tlp_data_alignment { TDA_ALIGNED, TDA_UNALIGNED };
 
 int
-send_tlp(volatile TLPQuadWord *tlp, int tlp_len);
+send_tlp(TLPQuadWord *header, int header_len, TLPQuadWord *data, int data_len,
+	enum tlp_data_alignment data_alignment);
 
 void
 close_connections();
+
+void
+drain_pcie_core();

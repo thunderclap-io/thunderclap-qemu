@@ -1,0 +1,13 @@
+--- a/test.c
++++ b/test.c
+@@ -827,9 +746,7 @@ send_tlp(TLPQuadWord *tlp, int tlp_len)
+ 	return 0;
+ #else
+ 	int quad_word_index;
+-	PCIeStatus statusword;
+-
+-	log(LS_SEND_LENGTH, LIF_INT_32, tlp_len, true);
++	volatile PCIeStatus statusword;
+ 
+ 	assert(tlp_len / 8 < 64);
+ 

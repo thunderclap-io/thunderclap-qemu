@@ -1,0 +1,15 @@
+--- a/test.c
++++ b/test.c
+@@ -655,9 +588,9 @@ wait_for_tlp(TLPQuadWord *tlp, int tlp_len)
+ 	PQclear(result);
+ 	return ret_value;
+ #else /* Real approach: no POSTGRES */
+-	PCIeStatus pciestatus;
+-	TLPQuadWord pciedata;
+-	int ready;
++	volatile PCIeStatus pciestatus;
++	volatile TLPQuadWord pciedata;
++	volatile int ready;
+ 	int i = 0; // i is "length of TLP so far received in doublewords.
+ 
+ 	do {

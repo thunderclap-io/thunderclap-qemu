@@ -1,0 +1,10 @@
+--- a/beri-io.c
++++ b/beri-io.c
+@@ -33,5 +24,4 @@ volatile uint8_t *open_io_region(uint64_t address, uint64_t length)
+         exit(2);
+     }
+     return mapped;
+-#endif
+ }
+diff --git a/beri-io.h b/beri-io.h
+index 4e7930b..0f1e544 100644

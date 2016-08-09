@@ -1,0 +1,43 @@
+--- a/test.c
++++ b/test.c
+@@ -1221,29 +1143,30 @@ main(int argc, char *argv[])
+ 	struct TLP64DWord0 *h0bits = &(config_req->header0);
+ 	struct TLP64RequestDWord1 *req_bits = &(config_req->req_header);
+ 
+-#ifndef DUMMY
+ 	MemoryRegionSection target_section;
+ 	MemoryRegion *target_region;
+ 	hwaddr rel_addr;
+-#endif
+ 
+ 	int received_count = 0;
+ 	write_leds(received_count);
+ 
+-	int sent_count = 1;
++	tlp_in[0] = 0xDEADBEE0;
++	tlp_in[1] = 0xDEADBEE1;
++	tlp_in[2] = 0xDEADBEE2;
++	tlp_in[3] = 0xDEADBEE3;
+ 
+-	for (i = 0; i < 64; ++i) {
+-		tlp_in[i] = 0xDEADBEE0 + (i & 0xF);
+-		tlp_out[i] = 0xDEADBEE0 + (i & 0xF);
+-	}
++	memset(tlp_out, 0, 64 * sizeof(TLPDoubleWord));
+ 
+-	writeString("LEDs clear; let's go.\n");
++	printf("LEDs clear; let's go.\n");
+ 
+ 	int card_reg = -1;
+ 
+ 	while (1) {
+-		tlp_in_len = wait_for_tlp(tlp_in_quadword, sizeof(tlp_in_quadword));
+-		record_time();
++		/*printf("Waiting for TLP.\n");*/
++		/*putchar('.');*/
++		/*fflush(stdout);*/
++		tlp_in_len = wait_for_tlp(tlp_in_quadword, sizeof(tlp_in));
++		/*printf("Received TLP.\n");*/
+ 
+ 		dir = ((dword0->fmt & 2) >> 1);
+ 		const char *direction_string = (dir == TLPD_READ) ? "read" : "write";

@@ -1,0 +1,13 @@
+--- a/pcie.h
++++ b/pcie.h
+@@ -1,8 +1,6 @@
+ #ifndef PCIE_H
+ #define PCIE_H
+ 
+-#include <stdint.h>
+-
+ typedef uint64_t TLPQuadWord;
+ typedef uint32_t TLPDoubleWord;
+ 
+diff --git a/test.c b/test.c
+index 2199224..2848f0e 100644

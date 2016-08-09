@@ -1,0 +1,10 @@
+--- a/test.c
++++ b/test.c
+@@ -105,7 +69,6 @@ close_connections()
+ 
+ #endif
+ 
+-#ifndef BAREMETAL
+ void
+ print_backtrace(int signum)
+ {

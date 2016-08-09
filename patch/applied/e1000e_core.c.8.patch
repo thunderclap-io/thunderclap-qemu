@@ -1,0 +1,11 @@
+--- a/hw/net/e1000e_core.c
++++ b/hw/net/e1000e_core.c
+@@ -3352,7 +3344,7 @@ static const uint32_t mac_reg_init[] = {
+     [RXUDP]       = 0x319,
+     [CTRL] =    E1000_CTRL_FD | E1000_CTRL_SWDPIN2 | E1000_CTRL_SWDPIN0 |
+                 E1000_CTRL_SPD_1000 | E1000_CTRL_SLU | E1000_CTRL_ADVD3WUC,
+-    [STATUS] =  E1000_STATUS_ASDV_1000 /*| E1000_STATUS_LU*/,
++    [STATUS] =  E1000_STATUS_ASDV_1000 | E1000_STATUS_LU,
+     [PSRCTL]  = (2 << E1000_PSRCTL_BSIZE0_SHIFT) |
+                 (4 << E1000_PSRCTL_BSIZE1_SHIFT) |
+                 (4 << E1000_PSRCTL_BSIZE2_SHIFT),

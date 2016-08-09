@@ -1,0 +1,12 @@
+--- a/Makefile
++++ b/Makefile
+@@ -2,9 +2,6 @@ SEP :=,
+ TARGETS = beri$(SEP)native
+ TARGET ?= beri
+ 
+-DUMMY ?= 0
+-BAREMETAL ?= 0
+-
+ ifndef PCIE_QEMU_CHERI_SDK
+ $(error Variable PCIE_QEMU_CHERI_SDK is not set)
+ endif

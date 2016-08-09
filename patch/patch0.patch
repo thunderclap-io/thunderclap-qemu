@@ -1,0 +1,1358 @@
+diff --git a/Makefile b/Makefile
+index 0f9fb84..279b732 100644
+--- a/Makefile
++++ b/Makefile
+@@ -2,9 +2,6 @@ SEP :=,
+ TARGETS = beri$(SEP)native
+ TARGET ?= beri
+ 
+-DUMMY ?= 0
+-BAREMETAL ?= 0
+-
+ ifndef PCIE_QEMU_CHERI_SDK
+ $(error Variable PCIE_QEMU_CHERI_SDK is not set)
+ endif
+@@ -75,7 +72,7 @@ CFLAGS := $(CFLAGS) -DPOSTGRES -I$(shell pg_config --includedir)
+ LDFLAGS := $(LDFLAGS) -L$(shell pg_config --libdir)
+ LDLIBS := $(LDLIBS) -lpq -lssl -lcrypto
+ endif #POSTGRES
+-endif # target native
++endif
+ 
+ CFLAGS := $(CFLAGS) -g
+ CFLAGS := $(CFLAGS) -Itcg/tci -Islirp
+diff --git a/baremetalsupport-with-os.c b/baremetalsupport-with-os.c
+deleted file mode 100644
+index 7948f82..0000000
+--- a/baremetalsupport-with-os.c
++++ /dev/null
+@@ -1,23 +0,0 @@
+-/* I am aware this has a slightly contradictory name:
+- * It's an implementation of the functions that would normally be achieved by
+- * direct UART manipulation via the OS.
+- */
+-
+-#include "baremetalsupport.h"
+-
+-void
+-writeUARTChar(char c)
+-{
+-	putchar(c);
+-}
+-
+-void
+-writeString(char *s)
+-{
+-	printf("%s", s);
+-}
+-
+-char readUARTChar()
+-{
+-	return (char)getchar();
+-}
+diff --git a/baremetalsupport.c b/baremetalsupport.c
+deleted file mode 100644
+index 1273144..0000000
+--- a/baremetalsupport.c
++++ /dev/null
+@@ -1,149 +0,0 @@
+-#include <stdint.h>
+-#include "baremetalsupport.h"
+-
+-static inline unsigned long long
+-to_the(unsigned long long base, unsigned long long exponent)
+-{
+-	if (exponent == 0) {
+-		return 1;
+-	}
+-	int i;
+-	unsigned long long rvalue = base;
+-	for (i = 1; (i * 2) < exponent; i *= 2) {
+-		rvalue *= rvalue;
+-	}
+-	for (; i < exponent; ++i) {
+-		rvalue *= base;
+-	}
+-	return rvalue;
+-}
+-
+-/* Use '\0' to not pad numbers. */
+-
+-static inline void
+-writeNumber(uint32_t digits, uint64_t base, bool check_sign,
+-	uint64_t n, char pad)
+-{
+-	int64_t sn = n;
+-	if (check_sign) {
+-		if (sn < 0) {
+-			writeUARTChar('-');
+-			n = -sn;
+-		}
+-	}
+-	bool had_non_pad = false;
+-	for (int i = (digits - 1); i >= 0; --i) {
+-		unsigned long long digit = (n / (to_the(base, i))) % base;
+-		if (digit == 0 && !had_non_pad && i != 0) {
+-			if (pad != '\0') {
+-				writeUARTChar(pad);
+-			}
+-		} else {
+-			had_non_pad = true;
+-			if (digit < 10) {
+-				writeUARTChar('0' + digit);
+-			} else {
+-				writeUARTChar('A' - 10 + digit);
+-			}
+-		}
+-	}
+-}
+-
+-void
+-writeDigit(unsigned long long n, char pad)
+-{
+-	writeNumber(20, 10, false, n, pad);
+-}
+-
+-void
+-write_uint_32(uint32_t n, char pad)
+-{
+-	writeNumber(10, 10, false, n, pad);
+-}
+-
+-void
+-write_uint_32_hex(uint32_t n, char pad)
+-{
+-	writeNumber(8, 16, false, n, pad);
+-}
+-
+-void
+-write_uint_64(uint64_t n, char pad)
+-{
+-	writeNumber(20, 10, false, n, pad);
+-}
+-
+-void
+-write_uint_64_hex(uint64_t n, char pad)
+-{
+-	writeNumber(16, 16, false, n, pad);
+-}
+-
+-void
+-write_int_32(int32_t n, char pad)
+-{
+-	writeNumber(10, 10, true, n, pad);
+-}
+-
+-void
+-write_int_64(uint64_t n, char pad)
+-{
+-	writeNumber(19, 10, true, n, pad);
+-}
+-
+-#ifdef BAREMETAL
+-
+-void
+-writeUARTChar(char c)
+-{
+-	//Code for SOPC Builder serial output
+-	while ((IO_RD32(MIPS_PHYS_TO_UNCACHED(CHERI_JTAG_UART_BASE)+4) &
+-	    0xFFFF) == 0) {
+-		asm("add $v0, $v0, $0");
+-	}
+-	//int i;
+-	//for (i=0;i<10000;i++);
+-	IO_WR_BYTE(MIPS_PHYS_TO_UNCACHED(CHERI_JTAG_UART_BASE), c);
+-}
+-
+-void
+-writeString(char* s)
+-{
+-	while(*s)
+-	{
+-		writeUARTChar(*s);
+-		++s;
+-	}
+-}
+-
+-void
+-writeHex(unsigned long long n)
+-{
+-	unsigned int i;
+-	for(i = 0;i < 16; ++i)
+-	{
+-		unsigned long long hexDigit = (n & 0xF000000000000000L) >> 60L;
+-//		unsigned long hexDigit = (n & 0xF0000000L) >> 28L;
+-		char hexDigitChar = (hexDigit < 10) ? ('0' + hexDigit) : ('A' + hexDigit - 10);
+-		writeUARTChar(hexDigitChar);
+-		n = n << 4;
+-	}
+-}
+-
+-
+-char
+-readUARTChar()
+-{
+-	int i;
+-	char out;
+-	i = IO_RD32(MIPS_PHYS_TO_UNCACHED(CHERI_JTAG_UART_BASE));
+-	while((i & 0x00800000) == 0)
+-	{
+-		i = IO_RD32(MIPS_PHYS_TO_UNCACHED(CHERI_JTAG_UART_BASE));
+-	}
+-	
+-	i = i >> 24;
+-	out = (char)i;
+-	return out;
+-}
+-#endif
+diff --git a/baremetalsupport.h b/baremetalsupport.h
+deleted file mode 100644
+index 8413615..0000000
+--- a/baremetalsupport.h
++++ /dev/null
+@@ -1,34 +0,0 @@
+-#ifndef BAREMETALSUPPORT_H
+-#define BAREMETALSUPPORT_H
+-
+-#include <stdbool.h>
+-#include <stdint.h>
+-
+-#ifdef BAREMETAL
+-#include "parameters.h"
+-
+-static inline void
+-assert(bool predicate)
+-{
+-}
+-
+-#define IO_RD_BYTE(x) (*(volatile unsigned char*)(x))
+-#define IO_RD(x) (*(volatile unsigned long long*)(x))
+-#define IO_RD32(x) (*(volatile int*)(x))
+-#define IO_WR(x, y) (*(volatile unsigned long long*)(x) = y)
+-#define IO_WR_BYTE(x, y) (*(volatile unsigned char*)(x) = y)
+-#endif
+-
+-void writeUARTChar(char c);
+-void writeString(char* s);
+-void writeHex(unsigned long long n);
+-char readUARTChar();
+-
+-void write_uint_32(uint32_t n, char pad);
+-void write_uint_32_hex(uint32_t n, char pad);
+-void write_uint_64(uint64_t n, char pad);
+-void write_uint_64_hex(uint64_t n, char pad);
+-void write_int_32(int32_t n, char pad);
+-void write_int_64(uint64_t n, char pad);
+-
+-#endif
+diff --git a/beri-io.c b/beri-io.c
+index dd4df87..188ffbe 100644
+--- a/beri-io.c
++++ b/beri-io.c
+@@ -1,24 +1,15 @@
+-#ifdef BAREMETAL
+-#include "parameters.h"
+-#else
++#include <stdint.h>
+ #include <inttypes.h>
+ #include <unistd.h>
+ #include <sys/mman.h>
+ #include <fcntl.h>
+ #include <stdlib.h>
+ #include <stdio.h>
+-#endif
+-
+-#include <stdint.h>
+-#include "beri-io.h"
+ 
+ volatile uint8_t *physmem = 0;
+ 
+ volatile uint8_t *open_io_region(uint64_t address, uint64_t length)
+ {
+-#ifdef BAREMETAL
+-	return (uint8_t *)(MIPS_XKPHYS_UNCACHED_BASE + address);
+-#else
+     int fd = 0;
+     volatile uint8_t *mapped = 0;
+ 
+@@ -33,5 +24,4 @@ volatile uint8_t *open_io_region(uint64_t address, uint64_t length)
+         exit(2);
+     }
+     return mapped;
+-#endif
+ }
+diff --git a/beri-io.h b/beri-io.h
+index 4e7930b..0f1e544 100644
+--- a/beri-io.h
++++ b/beri-io.h
+@@ -1,40 +1,36 @@
+ #ifndef BERI_IO_H
+ #define BERI_IO_H
+ 
+-#include "pciefpga.h"
+-
+ volatile uint8_t *open_io_region(uint64_t address, uint64_t length);
+ 
+ extern volatile uint8_t *physmem;
+ 
+ static inline volatile uint32_t IORD(uint64_t base, uint64_t offset)
+ {
+-	volatile uint32_t *pointer =
+-		(uint32_t *)(physmem+base-PCIEPACKET_REGION_BASE);
++	volatile uint32_t *pointer = (uint32_t *) (physmem+base-PCIEPACKET_REGION_BASE);
+ 	return pointer[offset];
+ }
+ 
+ static inline volatile uint64_t IORD64(uint64_t base, uint64_t offset)
+ {
+-	volatile uint64_t *pointer =
+-		(uint64_t *)(physmem+base-PCIEPACKET_REGION_BASE);
++	volatile uint64_t *pointer = (uint64_t *) (physmem+base-PCIEPACKET_REGION_BASE);
+ 	return pointer[offset];
+ }
+ 
+ static inline void IOWR(uint64_t base, uint64_t offset, uint32_t data)
+ {
+-	volatile uint32_t *pointer =
+-		(uint32_t *) (physmem+base-PCIEPACKET_REGION_BASE);
++	volatile uint32_t *pointer = (uint32_t *) (physmem+base-PCIEPACKET_REGION_BASE);
+ 	pointer[offset] = data;
+ }
+ 
+ static inline void IOWR64(uint64_t base, uint64_t offset, uint64_t data)
+ {
+-	volatile uint64_t *pointer =
+-		(uint64_t *)(physmem+base-PCIEPACKET_REGION_BASE);
++	volatile uint64_t *pointer = (uint64_t *) (physmem+base-PCIEPACKET_REGION_BASE);
+ 	pointer[offset] = data;
+ }
+ 
++
++
+ typedef uint64_t alt_timestamp_type;
+ 
+ static inline alt_timestamp_type alt_timestamp(void)
+diff --git a/hw/net/e1000e_core.c b/hw/net/e1000e_core.c
+index a376f0e..61d2eb0 100644
+--- a/hw/net/e1000e_core.c
++++ b/hw/net/e1000e_core.c
+@@ -1972,8 +1972,6 @@ _e1000e_core_reset_mac(E1000ECore *core)
+ static void
+ set_ctrl(E1000ECore *core, int index, uint32_t val)
+ {
+-	PDBG("Setting CTRL to 0x%x. GIO Master Disable to %d",
+-		val, (val >> 2) & 1);
+     trace_e1000e_core_ctrl_write(index, val);
+ 
+     /* RST is self clearing */
+@@ -2564,7 +2562,6 @@ set_dlen(E1000ECore *core, int index, uint32_t val)
+ static void
+ set_tctl(E1000ECore *core, int index, uint32_t val)
+ {
+-	PDBG("Setting TCTL to 0x%x", val);
+     E1000E_TxRing txr;
+     core->mac[index] = val;
+ 
+@@ -2682,9 +2679,6 @@ set_tidv(E1000ECore *core, int index, uint32_t val)
+ static uint32_t
+ mac_readreg(E1000ECore *core, int index)
+ {
+-	if (index == TCTL) {
+-		PDBG("Returning TCTL as %x", core->mac[index]);
+-	}
+     return core->mac[index];
+ }
+ 
+@@ -2735,6 +2729,7 @@ mac_low16_read(E1000ECore *core, int index)
+ static uint32_t
+ mac_swsm_read(E1000ECore *core, int index)
+ {
++	/*PDBG("Reading swsm.");*/
+     uint32_t val = core->mac[SWSM];
+     core->mac[SWSM] = val | 1;
+     return val;
+@@ -3208,7 +3203,7 @@ e1000e_core_read(E1000ECore *core, hwaddr addr, unsigned size)
+ {
+     uint64_t val;
+     uint16_t index = _e1000e_get_reg_index_with_offset(mac_reg_access, addr);
+-	/*PDBG("E1000E Read 0x%lx (%d)", addr, index);*/
++	PDBG("E1000E Read 0x%lx (%d)", addr, index);
+ 
+     if (index < NREADOPS && macreg_readops[index]) {
+         if (mac_reg_access[index] & MAC_ACCESS_PARTIAL) {
+@@ -3216,7 +3211,7 @@ e1000e_core_read(E1000ECore *core, hwaddr addr, unsigned size)
+         }
+         val = macreg_readops[index](core, index);
+         trace_e1000e_core_read(index << 2, size, val);
+-		/*PDBG("Returning 0x%x (%d)", val, val);*/
++		PDBG("Returning 0x%x (%d)", val, val);
+         return val;
+     } else {
+         trace_e1000e_wrn_regs_read_unknown(index << 2, size);
+@@ -3251,8 +3246,6 @@ _e1000e_core_prepare_eeprom(E1000ECore      *core,
+     core->eeprom[EEPROM_CHECKSUM_REG] = checksum;
+ }
+ 
+-static void _e1000e_core_initialize_regs(E1000ECore *core);
+-
+ void
+ e1000e_core_pci_realize(E1000ECore      *core,
+                        const uint16_t *eeprom_templ,
+@@ -3264,7 +3257,6 @@ e1000e_core_pci_realize(E1000ECore      *core,
+     core->autoneg_timer = timer_new_ms(QEMU_CLOCK_VIRTUAL,
+                                        _e1000e_autoneg_timer, core);
+     _e1000e_intrmgr_pci_realize(core);
+-	_e1000e_core_initialize_regs(core);
+ 
+     for (i = 0; i < E1000E_NUM_QUEUES; i++) {
+         net_tx_pkt_init(&core->tx[i].tx_pkt,
+@@ -3352,7 +3344,7 @@ static const uint32_t mac_reg_init[] = {
+     [RXUDP]       = 0x319,
+     [CTRL] =    E1000_CTRL_FD | E1000_CTRL_SWDPIN2 | E1000_CTRL_SWDPIN0 |
+                 E1000_CTRL_SPD_1000 | E1000_CTRL_SLU | E1000_CTRL_ADVD3WUC,
+-    [STATUS] =  E1000_STATUS_ASDV_1000 /*| E1000_STATUS_LU*/,
++    [STATUS] =  E1000_STATUS_ASDV_1000 | E1000_STATUS_LU,
+     [PSRCTL]  = (2 << E1000_PSRCTL_BSIZE0_SHIFT) |
+                 (4 << E1000_PSRCTL_BSIZE1_SHIFT) |
+                 (4 << E1000_PSRCTL_BSIZE2_SHIFT),
+@@ -3370,33 +3362,27 @@ static const uint32_t mac_reg_init[] = {
+     [TDFTS]   = 0x600,
+     [POEMB]   = 0x30D,
+     [PBS]     = 0x028,
+-	[MANC]    = E1000_MANC_RMCP_EN,
++    [MANC]    = E1000_MANC_DIS_IP_CHK_ARP,
+     [FACTPS]  = E1000_FACTPS_LAN0_ON | 0x20000000,
+-    [SWSM]    = 0,
++    [SWSM]    = 1,
+     [RXCSUM]  = E1000_RXCSUM_IPOFLD | E1000_RXCSUM_TUOFLD,
+     [ITR]     = _E1000E_MIN_XITR,
+     [EITR...EITR + E1000E_MSIX_VEC_NUM - 1] = _E1000E_MIN_XITR,
+ };
+ 
+-static void
+-_e1000e_core_initialize_regs(E1000ECore *core)
+-{
+-    memset(core->phy, 0, sizeof core->phy);
+-    memmove(core->phy, phy_reg_init, sizeof phy_reg_init);
+-	memset(core->mac, 0, sizeof core->mac);
+-	memmove(core->mac, mac_reg_init, sizeof mac_reg_init);
+-}
+-
+ void
+ e1000e_core_reset(E1000ECore *core)
+ {
+     int i;
+ 
+-	timer_del(core->autoneg_timer);
++    timer_del(core->autoneg_timer);
+ 
+     _e1000e_intrmgr_reset(core);
+ 
+-	_e1000e_core_initialize_regs(core);
++    memset(core->phy, 0, sizeof core->phy);
++    memmove(core->phy, phy_reg_init, sizeof phy_reg_init);
++    memset(core->mac, 0, sizeof core->mac);
++    memmove(core->mac, mac_reg_init, sizeof mac_reg_init);
+ 
+     core->rxbuf_min_shift = 1 + E1000_RING_DESC_LEN_SHIFT;
+ 
+diff --git a/hw/pci/pci.c b/hw/pci/pci.c
+index c770814..e269975 100644
+--- a/hw/pci/pci.c
++++ b/hw/pci/pci.c
+@@ -229,7 +229,7 @@ static void pci_do_device_reset(PCIDevice *dev)
+ void pci_device_reset(PCIDevice *dev)
+ {
+     qdev_reset_all(&dev->qdev);
+-	pci_do_device_reset(dev);
++    pci_do_device_reset(dev);
+ }
+ 
+ /*
+diff --git a/log.c b/log.c
+deleted file mode 100644
+index b43253d..0000000
+--- a/log.c
++++ /dev/null
+@@ -1,93 +0,0 @@
+-#include "log.h"
+-#include "baremetalsupport.h"
+-
+-struct log_entry {
+-	int							string_id;
+-	enum log_item_format		format;
+-	uint64_t					data_item;
+-	bool						trailing_new_line;
+-};
+-
+-static char **log_strings;
+-static struct log_entry log_entries[LOG_LENGTH];
+-static int next_log_record = 0;
+-
+-void
+-set_strings(char *strings[])
+-{
+-	log_strings = strings;
+-}
+-
+-void
+-log(int string_id, enum log_item_format format, uint64_t data_item,
+-	bool trailing_new_line)
+-{
+-	log_entries[next_log_record].string_id = string_id;
+-	log_entries[next_log_record].format = format;
+-	log_entries[next_log_record].data_item = data_item;
+-	log_entries[next_log_record].trailing_new_line = trailing_new_line;
+-
+-	++next_log_record;
+-
+-	if (next_log_record >= LOG_LENGTH) {
+-		print_log();
+-	}
+-}
+-
+-void
+-print_log()
+-{
+-	for (int i = 0; i < next_log_record; ++i) {
+-		struct log_entry entry = log_entries[i];
+-		if (entry.string_id >= 0) {
+-			writeString(log_strings[entry.string_id]);
+-		}
+-		switch (entry.format) {
+-		case LIF_BOOL:
+-			if (entry.data_item) {
+-				writeString("true");
+-			} else {
+-				writeString("false");
+-			}
+-			break;
+-		case LIF_INT_32:
+-			write_int_32(entry.data_item, ' ');
+-			break;
+-		case LIF_UINT_32:
+-			write_uint_32(entry.data_item, ' ');
+-			break;
+-		case LIF_UINT_32_HEX:
+-			write_uint_32_hex(entry.data_item, '0');
+-			break;
+-		case LIF_INT_64:
+-			write_int_64(entry.data_item, ' ');
+-			break;
+-		case LIF_UINT_64:
+-			write_uint_64(entry.data_item, ' ');
+-			break;
+-		case LIF_UINT_64_HEX:
+-			write_uint_64_hex(entry.data_item, '0');
+-			break;
+-		case LIF_NONE:
+-			break;
+-		}
+-		if (entry.trailing_new_line) {
+-			writeUARTChar('\r');
+-			writeUARTChar('\n');
+-		}
+-	}
+-	next_log_record = 0;
+-}
+-
+-bool
+-last_data_for_string(int string_id, uint64_t *data)
+-{
+-	for (int i = (next_log_record - 1); i >= 0; --i) {
+-		struct log_entry entry = log_entries[i];
+-		if (entry.string_id == string_id) {
+-			*data = entry.data_item;
+-			return true;
+-		}
+-	}
+-	return false;
+-}
+diff --git a/log.h b/log.h
+deleted file mode 100644
+index 11d617c..0000000
+--- a/log.h
++++ /dev/null
+@@ -1,49 +0,0 @@
+-#ifndef LOG_H
+-#define LOG_H
+-
+-#include <stdbool.h>
+-#include <stdint.h>
+-
+-#define LOG_LENGTH 64
+-
+-enum log_item_format {
+-	LIF_NONE,
+-	LIF_BOOL,
+-	LIF_INT_32,
+-	LIF_UINT_32,
+-	LIF_UINT_32_HEX,
+-	LIF_INT_64,
+-	LIF_UINT_64,
+-	LIF_UINT_64_HEX
+-};
+-
+-/*
+- * Sets up the array of strings.
+- */
+-void set_strings(char *strings[]);
+-
+-/*
+- * Logs where strings to print are stored in a table.
+- * When printing, the string will be printed, followed by the data item.
+- * If the string_id is -1, only the data item will be printed.
+- * If the log_item_format is none, the data item will not be printed.
+- *
+- * If the act of logging fills the log buffer, the entire log is printed and
+- * cleared.
+- */
+-void log(int string_id, enum log_item_format format, uint64_t data_item,
+-	bool trailing_new_line);
+-
+-/*
+- * Prints and clears the log.
+- */
+-void print_log();
+-
+-/*
+- * Sets the uint64_t pointer to the most recently logged data_item for a given
+- * string_id. Return bool on success, or false if no matching string id is
+- * found.
+- */
+-bool last_data_for_string(int string_id, uint64_t *data);
+-
+-#endif
+diff --git a/mask.h b/mask.h
+index 66c14c4..324df5d 100644
+--- a/mask.h
++++ b/mask.h
+@@ -1,12 +1,7 @@
+ #ifndef MASK_H
+ #define MASK_H
+ 
+-#include "baremetalsupport.h"
+-
+-#ifndef BAREMETAL
+-#include "assert.h"
+-#endif
+-
++#include <assert.h>
+ #include <stdint.h>
+ 
+ #define UINT32_MASK(width)		((1 << (width)) - 1)
+diff --git a/memory.c b/memory.c
+index 441f127..2d7ef8e 100644
+--- a/memory.c
++++ b/memory.c
+@@ -14,8 +14,6 @@
+  */
+ #include "pcie-debug.h"
+ 
+-#include <assert.h>
+-
+ #include "exec/memory.h"
+ #include "exec/address-spaces.h"
+ #include "exec/ioport.h"
+@@ -2009,18 +2007,12 @@ void address_space_destroy(AddressSpace *as)
+ 
+ bool io_mem_read(MemoryRegion *mr, hwaddr addr, uint64_t *pval, unsigned size)
+ {
+-#ifdef DUMMY
+-	assert(false); /* Attempting mem read when DUMMY defined! */
+-#endif
+     return memory_region_dispatch_read(mr, addr, pval, size);
+ }
+ 
+ bool io_mem_write(MemoryRegion *mr, hwaddr addr,
+                   uint64_t val, unsigned size)
+ {
+-#ifdef DUMMY
+-	assert(false); /* Attempting mem write when DUMMY defined! */
+-#endif
+     return memory_region_dispatch_write(mr, addr, val, size);
+ }
+ 
+diff --git a/pcie-debug.h b/pcie-debug.h
+index 4260dc0..792643b 100644
+--- a/pcie-debug.h
++++ b/pcie-debug.h
+@@ -1,10 +1,9 @@
+ #ifndef DEBUG_H
+ #define DEBUG_H
+ 
+-#ifdef PCIE_DEBUG
+-
+ #include <stdio.h>
+ 
++#ifdef PCIE_DEBUG
+ #define PDBG(...)				do {									\
+ 	fprintf(stderr, "%s(%s:%d): ", __func__, __FILE__, __LINE__);		\
+ 	fprintf(stderr, __VA_ARGS__);										\
+diff --git a/pcie.h b/pcie.h
+index d08cd39..f26cc8b 100644
+--- a/pcie.h
++++ b/pcie.h
+@@ -1,8 +1,6 @@
+ #ifndef PCIE_H
+ #define PCIE_H
+ 
+-#include <stdint.h>
+-
+ typedef uint64_t TLPQuadWord;
+ typedef uint32_t TLPDoubleWord;
+ 
+diff --git a/test.c b/test.c
+index 2199224..2848f0e 100644
+--- a/test.c
++++ b/test.c
+@@ -19,30 +19,22 @@
+  * appropriate busses set up -- the main initialisation function is called
+  * pc_q35_init, and I am slowly cannibalising it.
+  */
+-
+ #include "pcie-debug.h"
+-#ifndef DUMMY
+ #include "hw/net/e1000_regs.h"
+-#endif
+ 
+ #define TARGET_BERI		1
+ #define TARGET_NATIVE	2
+ 
+-#ifndef BAREMETAL
+ #include <execinfo.h>
+ #include <stdio.h>
+ #include <signal.h>
+ #include <stdlib.h>
+ #include <sys/endian.h>
+-#endif
+-
+-#include <stdbool.h>
+ 
+ #ifdef POSTGRES
+ #include <libpq-fe.h>
+ #endif
+ 
+-#ifndef DUMMY
+ #include "qom/object.h"
+ #include "hw/pci/pci.h"
+ #include "hw/pci/pci_bus.h"
+@@ -50,39 +42,12 @@
+ #include "hw/pci-host/q35.h"
+ #include "qapi/qmp/qerror.h"
+ #include "qemu/config-file.h"
+-#endif
+ 
+-#include "baremetalsupport.h"
+ #include "pcie.h"
+ #include "pciefpga.h"
+ #include "beri-io.h"
+ #include "mask.h"
+-#include "log.h"
+-
+-
+-char *log_strings[] = {
+- 	"TIME: ",
+-	". Since last: ",
+-	"Recieved TLP with requester id: ",
+-	"Sending DWord: ",
+-	"Packet sent.",
+-	"Received other packet.",
+-	"Received explicitly unknown packet.",
+-	"Received Config Write packet.",
+-	"Received Config Read packet.",
+-	"Sending TLP of length: ",
+-};
+ 
+-#define LS_TIME 0
+-#define LS_TIME_DELTA 1
+-#define LS_REQUESTER_ID 2
+-#define LS_SENDING_DWORD 3
+-#define LS_PACKET_SENT 4
+-#define LS_RECV_OTHER 5
+-#define LS_RECV_UNKNOWN 6
+-#define LS_RECV_CONFIG_WRITE 7
+-#define LS_RECV_CONFIG_READ 8
+-#define LS_SEND_LENGTH 9
+ 
+ #ifdef POSTGRES
+ 
+@@ -90,8 +55,7 @@ char *log_strings[] = {
+ #define PG_REPR_BINARY		1
+ 
+ #define PG_STATUS_MASK \
+-	~(E1000_STATUS_FD | E1000_STATUS_ASDV_100 | E1000_STATUS_ASDV_1000 \
+-		| E1000_STATUS_GIO_MASTER_ENABLE )
++	~(E1000_STATUS_FD | E1000_STATUS_ASDV_100 | E1000_STATUS_ASDV_1000)
+ 
+ static PGconn *postgres_connection_downstream;
+ static PGconn *postgres_connection_upstream;
+@@ -105,7 +69,6 @@ close_connections()
+ 
+ #endif
+ 
+-#ifndef BAREMETAL
+ void
+ print_backtrace(int signum)
+ {
+@@ -122,41 +85,7 @@ print_backtrace(int signum)
+ 	
+ 	free(backtrace_lines);
+ }
+-#endif
+-
+-
+-static unsigned long
+-read_hw_counter()
+-{
+-#ifdef BERI
+-	unsigned long retval;
+-	asm volatile("rdhwr %0, $2"
+-		: "=r"(retval));
+-	return retval;
+-#else
+-	return 0;
+-#endif
+-}
+-
+-static inline void
+-record_time()
+-{
+-	bool has_last_time;
+-	uint32_t time;
+-	uint64_t last_time;
+-
+-	time = read_hw_counter();
+-    has_last_time = last_data_for_string(LS_TIME, &last_time);
+-
+-	log(LS_TIME, LIF_UINT_32, time, !has_last_time);
+-
+-	if (has_last_time) {
+-		log(LS_TIME_DELTA, LIF_INT_32, time - last_time, true);
+-	}
+-}
+-
+ 
+-#ifndef DUMMY
+ static DeviceClass
+ *qdev_get_device_class(const char **driver, Error **errp)
+ {
+@@ -186,7 +115,6 @@ static DeviceClass
+ 
+     return dc;
+ }
+-#endif
+ 
+ #ifdef POSTGRES
+ 
+@@ -318,10 +246,15 @@ POSTGRES_INT_FIELD(lwr_addr);
+ POSTGRES_BIGINT_FIELD(address);
+ POSTGRES_BIGINT_FIELD(data);
+ 
++#ifdef POSTGRES
+ static bool ignore_next_postgres_completion;
+ static bool mask_next_postgres_completion_data;
+ static uint32_t postgres_completion_mask;
+ 
++/* The capbility list is different for many small reasons, which is why we
++ * want this. */
++#endif
++
+ /* Generates a TLP given a PGresult that has as row 0 a record from the trace
+  * table. Returns the length of the TLP in bytes. */
+ /* TLPDoubleWord is a more natural way to manipulate the TLP Data */
+@@ -621,7 +554,7 @@ print_last_sent_packet_ids()
+ /* tlp_len is length of the buffer in bytes. */
+ /* Return -1 if 1024 attempts to poll the buffer fail. */
+ int
+-wait_for_tlp(TLPQuadWord *tlp, int tlp_len)
++wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
+ {
+ #ifdef POSTGRES
+ 	int ret_value;
+@@ -655,9 +588,9 @@ wait_for_tlp(TLPQuadWord *tlp, int tlp_len)
+ 	PQclear(result);
+ 	return ret_value;
+ #else /* Real approach: no POSTGRES */
+-	PCIeStatus pciestatus;
+-	TLPQuadWord pciedata;
+-	int ready;
++	volatile PCIeStatus pciestatus;
++	volatile TLPQuadWord pciedata;
++	volatile int ready;
+ 	int i = 0; // i is "length of TLP so far received in doublewords.
+ 
+ 	do {
+@@ -669,9 +602,8 @@ wait_for_tlp(TLPQuadWord *tlp, int tlp_len)
+ 			PCIEPACKETRECEIVER_STATUS);
+ 		pciedata = IORD64(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_DATA);
+ 		tlp[i++] = pciedata;
+-
+ 		if ((i * 8) > tlp_len) {
+-			writeString("TLP RECV OVERFLOW\r\n");
++			PDBG("ERROR: TLP Larger than buffer.");
+ 			return -1;
+ 		}
+ 	} while (!pciestatus.bits.endofpacket);
+@@ -698,7 +630,7 @@ should_send_tlp_for_result(PGresult *result)
+ /* tlp is a pointer to the tlp, tlp_len is the length of the tlp in bytes. */
+ /* returns 0 on success. */
+ int
+-send_tlp(TLPQuadWord *tlp, int tlp_len)
++send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
+ {
+ #ifdef POSTGRES
+ 	static int check_count = 0;
+@@ -807,19 +739,6 @@ send_tlp(TLPQuadWord *tlp, int tlp_len)
+ 			}
+ 			DEBUG_PRINTF("\n");
+ 		}
+-		
+-		/*uint32_t expected_data = bswap32(expected_dword[3]);*/
+-		/*uint32_t actual_data = bswap32(tlp_dword[3]);*/
+-		uint32_t expected_data = expected_dword[3];
+-		uint32_t actual_data = tlp_dword[3];
+-		for (i = 0; i < 31; ++i) {
+-			int expected_bit = (expected_data >> i) & 1;
+-			int actual_bit = (actual_data >> i) & 1;
+-			if (expected_bit != actual_bit) {
+-				DEBUG_PRINTF("Data bit %03d: Exp - %d; Act - %d\n",
+-					i, expected_bit, actual_bit);
+-			}
+-		}
+ 		print_last_recvd_packet_ids();
+ 		return -1;
+ 	}
+@@ -827,9 +746,7 @@ send_tlp(TLPQuadWord *tlp, int tlp_len)
+ 	return 0;
+ #else
+ 	int quad_word_index;
+-	PCIeStatus statusword;
+-
+-	log(LS_SEND_LENGTH, LIF_INT_32, tlp_len, true);
++	volatile PCIeStatus statusword;
+ 
+ 	assert(tlp_len / 8 < 64);
+ 
+@@ -851,21 +768,17 @@ send_tlp(TLPQuadWord *tlp, int tlp_len)
+ 		// Write data
+ 		IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_DATA,
+ 			tlp[quad_word_index]);
+-		log(LS_SENDING_DWORD, LIF_UINT_64_HEX, tlp[quad_word_index], true);
+ 	}
+ 	// Release queued data
+ 	IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 1);
+ 
+-	record_time();
+-	log(LS_PACKET_SENT, LIF_NONE, 0, true);
+-
+ 	return 0;
+ #endif
+ }
+ 
+ 
+-static void
+-create_completion_header(TLPDoubleWord *tlp,
++static inline void
++create_completion_header(volatile TLPDoubleWord *tlp,
+ 	enum tlp_direction direction, uint16_t completer_id,
+ 	enum tlp_completion_status completion_status, uint16_t bytecount,
+ 	uint16_t requester_id, uint8_t tag, uint8_t loweraddress)
+@@ -876,7 +789,7 @@ create_completion_header(TLPDoubleWord *tlp,
+ 	tlp[1] = 0;
+ 	tlp[2] = 0;
+ 
+-	struct TLP64DWord0 *header0 = (struct TLP64DWord0 *)(tlp);
++	volatile struct TLP64DWord0 *header0 = (volatile struct TLP64DWord0 *)(tlp);
+ 	if (direction == TLPD_READ
+ 		&& completion_status == TLPCS_SUCCESSFUL_COMPLETION) {
+ 		header0->fmt = TLPFMT_3DW_DATA;
+@@ -887,28 +800,26 @@ create_completion_header(TLPDoubleWord *tlp,
+ 	}
+ 	header0->type = CPL;
+ 
+-	struct TLP64CompletionDWord1 *header1 =
+-		(struct TLP64CompletionDWord1 *)(tlp) + 1;
++	volatile struct TLP64CompletionDWord1 *header1 =
++		(volatile struct TLP64CompletionDWord1 *)(tlp) + 1;
+ 	header1->completer_id = completer_id;
+ 	header1->status = completion_status;
+ 	header1->bytecount = bytecount;
+ 
+-	struct TLP64CompletionDWord2 *header2 =
+-		(struct TLP64CompletionDWord2 *)(tlp) + 2;
++	volatile struct TLP64CompletionDWord2 *header2 =
++		(volatile struct TLP64CompletionDWord2 *)(tlp) + 2;
+ 	header2->requester_id = requester_id;
+ 	header2->tag = tag;
+ 	header2->loweraddress = loweraddress;
+ }
+ 
+-#ifndef DUMMY
+ MachineState *current_machine;
+-#endif
+-
+ volatile uint8_t *led_phys_mem;
+ 
+ void
+ initialise_leds()
+ {
++#ifdef BERI
+ #define LED_BASE		0x7F006000LL
+ #define LED_LEN			0x1
+ 
+@@ -916,16 +827,37 @@ initialise_leds()
+ 
+ #undef LED_LEN
+ #undef LED_BASE
++#endif
+ }
+ 
+ static inline void
+-write_leds(uint32_t data)
++write_leds(uint8_t data)
+ {
+ #ifdef BERI
+ 	*led_phys_mem = ~data;
+ #endif
+ }
+ 
++int
++blink_main(int argc, char *argv[])
++{
++	printf("It's blinky time!\n");
++#ifdef BERI
++	initialise_leds();
++
++	uint8_t led_value = 0x55; // 0b0101
++
++	while (1) {
++		write_leds(led_value);
++		led_value = ~led_value;
++		putchar('.');
++		fflush(stdout);
++		usleep(100000);
++	}
++#endif
++	return 0;
++}
++
+ #ifdef POSTGRES
+ 
+ static void
+@@ -1017,18 +949,10 @@ start_binary_single_row_query(PGconn *connection, const char *query)
+ 
+ #endif
+ 
+-#ifdef BAREMETAL
+-int
+-test()
+-#else
+ int
+ main(int argc, char *argv[])
+-#endif
+ {
+ 	int connection_status, query_status;
+-
+-	set_strings(log_strings);
+-
+ #ifdef POSTGRES
+ 	if (argc != 2) {
+ 		printf("Usage: %s CONNECTION_STRING\n", argv[0]);
+@@ -1064,9 +988,8 @@ main(int argc, char *argv[])
+ 
+ #endif
+ 
+-	writeString("Starting.\n");
++	printf("Starting.\n");
+ 	/*const char *driver = "e1000-82540em";*/
+-#ifndef DUMMY
+ 	const char *driver = "e1000e";
+ 	const char *id = "the-e1000e";
+ 
+@@ -1185,14 +1108,15 @@ main(int argc, char *argv[])
+ 	object_property_set_bool(OBJECT(dev), true, "realized", &err);
+ 
+ 	PCIDevice *pci_dev = PCI_DEVICE(dev);
+-#endif // not DUMMY
++	// Use pci_host_config read common to reply to read responses.
++	printf("%x.\n", pci_host_config_read_common(pci_dev, 0, 4, 4));
+ 
+ #ifndef POSTGRES
+ 	physmem = open_io_region(PCIEPACKET_REGION_BASE, PCIEPACKET_REGION_LENGTH);
+ 	initialise_leds();
+ #endif
+ 
+-	int i, j, tlp_in_len = 0, tlp_out_len, send_length, send_result, bytecount;
++	int i, tlp_in_len = 0, tlp_out_len, send_length, send_result, bytecount;
+ 	enum tlp_direction dir;
+ 	enum tlp_completion_status completion_status;
+ 	char *type_string;
+@@ -1204,12 +1128,10 @@ main(int argc, char *argv[])
+ 	uint32_t io_completion_mask, loweraddress;
+ 	uint64_t addr, req_addr;
+ 
+-	TLPQuadWord tlp_in_quadword[32];
+-	TLPQuadWord tlp_out_quadword[32];
+-
+-	TLPDoubleWord *tlp_in = (TLPDoubleWord *)tlp_in_quadword;
+-	TLPDoubleWord *tlp_out = (TLPDoubleWord *)tlp_out_quadword;
+-	TLPDoubleWord *tlp_out_body = (tlp_out + 4);
++	TLPDoubleWord tlp_in[64], tlp_out[64];
++	TLPDoubleWord *tlp_out_body = (tlp_out + 3);
++	TLPQuadWord *tlp_in_quadword = (TLPQuadWord *)tlp_in;
++	TLPQuadWord *tlp_out_quadword = (TLPQuadWord *)tlp_out;
+ 
+ 	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)tlp_in;
+ 	struct TLP64RequestDWord1 *request_dword1 =
+@@ -1221,29 +1143,30 @@ main(int argc, char *argv[])
+ 	struct TLP64DWord0 *h0bits = &(config_req->header0);
+ 	struct TLP64RequestDWord1 *req_bits = &(config_req->req_header);
+ 
+-#ifndef DUMMY
+ 	MemoryRegionSection target_section;
+ 	MemoryRegion *target_region;
+ 	hwaddr rel_addr;
+-#endif
+ 
+ 	int received_count = 0;
+ 	write_leds(received_count);
+ 
+-	int sent_count = 1;
++	tlp_in[0] = 0xDEADBEE0;
++	tlp_in[1] = 0xDEADBEE1;
++	tlp_in[2] = 0xDEADBEE2;
++	tlp_in[3] = 0xDEADBEE3;
+ 
+-	for (i = 0; i < 64; ++i) {
+-		tlp_in[i] = 0xDEADBEE0 + (i & 0xF);
+-		tlp_out[i] = 0xDEADBEE0 + (i & 0xF);
+-	}
++	memset(tlp_out, 0, 64 * sizeof(TLPDoubleWord));
+ 
+-	writeString("LEDs clear; let's go.\n");
++	printf("LEDs clear; let's go.\n");
+ 
+ 	int card_reg = -1;
+ 
+ 	while (1) {
+-		tlp_in_len = wait_for_tlp(tlp_in_quadword, sizeof(tlp_in_quadword));
+-		record_time();
++		/*printf("Waiting for TLP.\n");*/
++		/*putchar('.');*/
++		/*fflush(stdout);*/
++		tlp_in_len = wait_for_tlp(tlp_in_quadword, sizeof(tlp_in));
++		/*printf("Received TLP.\n");*/
+ 
+ 		dir = ((dword0->fmt & 2) >> 1);
+ 		const char *direction_string = (dir == TLPD_READ) ? "read" : "write";
+@@ -1251,52 +1174,34 @@ main(int argc, char *argv[])
+ 
+ 		switch (dword0->type) {
+ 		case M:
+-			log(LS_RECV_OTHER, LIF_NONE, 0, true);
+ 			assert(dword0->length == 1);
+ 			/* This isn't in the spec, but seems to be all we've found in our
+ 			 * trace. */
+ 
+ 			bytecount = 0;
+ 
+-#ifndef DUMMY
+ 			target_section = memory_region_find(pci_memory, tlp_in[2], 4);
+ 			target_region = target_section.mr;
+ 			rel_addr = target_section.offset_within_region;
+-#endif
+ 
+ 			if (dir == TLPD_READ) {
+-				PDBG("Reading region %s offset 0x%lx", target_region->name,
+-					rel_addr);
+-
+-#ifdef DUMMY
+-				read_error = false;
+-				tlp_out_body[0] = 0xBEDEBEDE;
+-#else
+ 				read_error = io_mem_read( target_region,
+ 					rel_addr,
+ 					(uint64_t *)tlp_out_body,
+ 					4);
+-#endif
+ #ifdef POSTGRES
+ 				if (read_error) {
+ 					print_last_recvd_packet_ids();
+ 				}
+-
+-				if (rel_addr == 0x0) {
+-					mask_next_postgres_completion_data = true;
+-					postgres_completion_mask = ~uint32_mask_enable_bits(19, 19);
+-					PDBG("%x", postgres_completion_mask);
+-					/* 19 is apparently a software controllable IO pin, so I
+-					 * don't think we particularly care. */
+-				} else if (rel_addr == 0x8) {
+-					mask_next_postgres_completion_data = true;
+-					postgres_completion_mask = PG_STATUS_MASK;
+-				} else if (rel_addr == 0x10 || rel_addr == 0x5B58) {
++				if (rel_addr == 0x10 || rel_addr == 0x5B58) {
+ 					/* 1) EEPROM or Flash
+ 					 * 2) Second software semaphore, not present on this
+ 					 * card.
+ 					 */
+ 					ignore_next_postgres_completion = true;
++				} else if (rel_addr == 0x8) {
++					mask_next_postgres_completion_data = true;
++					postgres_completion_mask = PG_STATUS_MASK;
+ 				}
+ #endif
+ 				assert(!read_error);
+@@ -1304,21 +1209,19 @@ main(int argc, char *argv[])
+ 
+ 			for (i = 0; i < 4; ++i) {
+ 				if ((request_dword1->firstbe >> i) & 1) {
++					/*PDBG("Reading REG %s offset 0x%lx", target_region->name,*/
++						   /*(rel_addr + i));*/
+ 					if (dir == TLPD_READ) {
+ 						if (bytecount == 0) {
+ 							loweraddress = tlp_in[2] + i;
+ 						}
+ 						++bytecount;
+ 					} else { /* dir == TLPD_WRITE */
+-#ifdef DUMMY
+-						write_error = false;
+-#else
+ 						write_error = io_mem_write(
+ 							target_region,
+ 							rel_addr + i,
+ 							*((uint64_t *)((uint8_t *)tlp_in + 12 + i)),
+ 							1);
+-#endif
+ 						assert(!write_error);
+ 					}
+ 				}
+@@ -1332,7 +1235,6 @@ main(int argc, char *argv[])
+ 				TLPCS_SUCCESSFUL_COMPLETION, bytecount, requester_id,
+ 				req_bits->tag, loweraddress);
+ 
+-
+ 			send_result = send_tlp(tlp_out_quadword, 16);
+ 			assert(send_result != -1);
+ 
+@@ -1340,9 +1242,6 @@ main(int argc, char *argv[])
+ 		case CFG_0:
+ 			assert(dword0->length == 1);
+ 			requester_id = request_dword1->requester_id;
+-
+-			/*log(LS_REQUESTER_ID, LIF_UINT_32_HEX, requester_id, true);*/
+-
+ 			req_addr = config_request_dword2->ext_reg_num;
+ 			req_addr = (req_addr << 6) | config_request_dword2->reg_num;
+ 			req_addr <<= 2;
+@@ -1353,15 +1252,10 @@ main(int argc, char *argv[])
+ 				device_id = config_request_dword2->device_id;
+ 
+ 				if (dir == TLPD_READ) {
+-					log(LS_RECV_CONFIG_READ, LIF_NONE, 0, true);
+-					send_length = 20;
++					send_length = 16;
+ 
+-#ifdef DUMMY
+-					tlp_out_body[0] = 0xBEDEBEDE;
+-#else
+ 					tlp_out_body[0] = pci_host_config_read_common(
+ 						pci_dev, req_addr, req_addr + 4, 4);
+-#endif
+ 
+ 					/*PDBG("CfgRd0 from %lx, Value 0x%x",*/
+ 						/*req_addr, tlp_out_body[0]);*/
+@@ -1370,16 +1264,13 @@ main(int argc, char *argv[])
+ 					write_leds(received_count);
+ 
+ 				} else {
+-					log(LS_RECV_CONFIG_WRITE, LIF_NONE, 0, true);
+ 					send_length = 12;
+ 
+ 					for (i = 0; i < 4; ++i) {
+ 						if ((request_dword1->firstbe >> i) & 1) {
+-#ifndef DUMMY
+ 							pci_host_config_write_common(
+ 								pci_dev, req_addr + i, req_addr + 4,
+ 								tlp_in[3] >> (i * 8), 1);
+-#endif
+ 						}
+ 					}
+ 				}
+@@ -1387,9 +1278,6 @@ main(int argc, char *argv[])
+ 			else {
+ 				completion_status = TLPCS_UNSUPPORTED_REQUEST;
+ 				send_length = 12;
+-				writeString("UNSUPPORTED REQUEST! DEVICE ID ");
+-				write_uint_32_hex(config_request_dword2->device_id, '0');
+-				writeString("\r\n");
+ 			}
+ 
+ 			create_completion_header(
+@@ -1401,7 +1289,6 @@ main(int argc, char *argv[])
+ 
+ 			break;
+ 		case IO:
+-			log(LS_RECV_OTHER, LIF_NONE, 0, true);
+ 			assert(request_dword1->firstbe == 0xf); /* Only seen trace. */
+ 
+ 			/*
+@@ -1420,35 +1307,31 @@ main(int argc, char *argv[])
+ 			 *
+ 			 */
+ 
+-#ifndef DUMMY
+ 			target_section = memory_region_find(get_system_io(), tlp_in[2], 4);
+ 			target_region = target_section.mr;
+ 			rel_addr = target_section.offset_within_region;
+-#endif
+ 
+ 			if (dir == TLPD_WRITE) {
+ 				send_length = 12;
+-#ifndef DUMMY
+ 				assert(io_mem_write(target_region, rel_addr, tlp_in[3], 4)
+ 					== false);
+ 
+-				/*PDBG("Setting CARD REG 0x%x <= 0x%x", card_reg, tlp_in[3]);*/
+-
+ 				if (rel_addr == 0) {
+ 					card_reg = tlp_in[3];
+ 				}
+-#endif
++				else if (rel_addr == 4 && card_reg == 0x8) {
++					PDBG("Setting CARD REG 0x%x <= 0x%x",
++						card_reg, tlp_in[3]);
++				}
+ 			} else {
+ 				send_length = 16;
+-#ifdef DUMMY
+-				tlp_out_body[0] = 0xBEDEBEDE;
+-#else
+ 				assert(io_mem_read(target_region, rel_addr,
+ 						(uint64_t *)tlp_out_body, 4)
+ 					== false);
+-#endif
+ 
+-				/*PDBG("Read CARD REG 0x%x = 0x%x", card_reg, *tlp_out_body);*/
++				if (rel_addr == 4 && card_reg == 0x8) {
++					PDBG("Read CARD REG 0x%x = 0x%x", card_reg, *tlp_out_body);
++				}
+ 			}
+ 
+ #ifdef POSTGRES
+@@ -1457,6 +1340,7 @@ main(int argc, char *argv[])
+ 				ignore_next_postgres_completion = true;
+ 			}
+ #endif
++
+ 			create_completion_header(tlp_out, dir, device_id,
+ 				TLPCS_SUCCESSFUL_COMPLETION, 4, requester_id, req_bits->tag, 0);
+ 
+@@ -1482,7 +1366,6 @@ main(int argc, char *argv[])
+ 			assert(false);
+ 			break;
+ 		default:
+-			log(LS_RECV_UNKNOWN, LIF_NONE, 0, true);
+ 			type_string = "Unknown";
+ 		}
+ 	}

@@ -1,0 +1,10 @@
+--- a/hw/net/e1000e_core.c
++++ b/hw/net/e1000e_core.c
+@@ -3264,7 +3257,6 @@ e1000e_core_pci_realize(E1000ECore      *core,
+     core->autoneg_timer = timer_new_ms(QEMU_CLOCK_VIRTUAL,
+                                        _e1000e_autoneg_timer, core);
+     _e1000e_intrmgr_pci_realize(core);
+-	_e1000e_core_initialize_regs(core);
+ 
+     for (i = 0; i < E1000E_NUM_QUEUES; i++) {
+         net_tx_pkt_init(&core->tx[i].tx_pkt,

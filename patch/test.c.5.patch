@@ -1,0 +1,10 @@
+--- a/test.c
++++ b/test.c
+@@ -186,7 +115,6 @@ static DeviceClass
+ 
+     return dc;
+ }
+-#endif
+ 
+ #ifdef POSTGRES
+ 

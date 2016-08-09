@@ -1,0 +1,10 @@
+--- a/test.c
++++ b/test.c
+@@ -1482,7 +1366,6 @@ main(int argc, char *argv[])
+ 			assert(false);
+ 			break;
+ 		default:
+-			log(LS_RECV_UNKNOWN, LIF_NONE, 0, true);
+ 			type_string = "Unknown";
+ 		}
+ 	}

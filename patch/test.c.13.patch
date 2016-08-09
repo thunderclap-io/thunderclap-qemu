@@ -1,0 +1,26 @@
+--- a/test.c
++++ b/test.c
+@@ -851,21 +768,17 @@ send_tlp(TLPQuadWord *tlp, int tlp_len)
+ 		// Write data
+ 		IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_DATA,
+ 			tlp[quad_word_index]);
+-		log(LS_SENDING_DWORD, LIF_UINT_64_HEX, tlp[quad_word_index], true);
+ 	}
+ 	// Release queued data
+ 	IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 1);
+ 
+-	record_time();
+-	log(LS_PACKET_SENT, LIF_NONE, 0, true);
+-
+ 	return 0;
+ #endif
+ }
+ 
+ 
+-static void
+-create_completion_header(TLPDoubleWord *tlp,
++static inline void
++create_completion_header(volatile TLPDoubleWord *tlp,
+ 	enum tlp_direction direction, uint16_t completer_id,
+ 	enum tlp_completion_status completion_status, uint16_t bytecount,
+ 	uint16_t requester_id, uint8_t tag, uint8_t loweraddress)

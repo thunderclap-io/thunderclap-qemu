@@ -1,0 +1,21 @@
+--- a/test.c
++++ b/test.c
+@@ -1017,18 +949,10 @@ start_binary_single_row_query(PGconn *connection, const char *query)
+ 
+ #endif
+ 
+-#ifdef BAREMETAL
+-int
+-test()
+-#else
+ int
+ main(int argc, char *argv[])
+-#endif
+ {
+ 	int connection_status, query_status;
+-
+-	set_strings(log_strings);
+-
+ #ifdef POSTGRES
+ 	if (argc != 2) {
+ 		printf("Usage: %s CONNECTION_STRING\n", argv[0]);

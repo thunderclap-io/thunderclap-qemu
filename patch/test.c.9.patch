@@ -1,0 +1,13 @@
+--- a/test.c
++++ b/test.c
+@@ -669,9 +602,8 @@ wait_for_tlp(TLPQuadWord *tlp, int tlp_len)
+ 			PCIEPACKETRECEIVER_STATUS);
+ 		pciedata = IORD64(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_DATA);
+ 		tlp[i++] = pciedata;
+-
+ 		if ((i * 8) > tlp_len) {
+-			writeString("TLP RECV OVERFLOW\r\n");
++			PDBG("ERROR: TLP Larger than buffer.");
+ 			return -1;
+ 		}
+ 	} while (!pciestatus.bits.endofpacket);

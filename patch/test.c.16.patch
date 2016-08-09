@@ -1,0 +1,41 @@
+--- a/test.c
++++ b/test.c
+@@ -916,16 +827,37 @@ initialise_leds()
+ 
+ #undef LED_LEN
+ #undef LED_BASE
++#endif
+ }
+ 
+ static inline void
+-write_leds(uint32_t data)
++write_leds(uint8_t data)
+ {
+ #ifdef BERI
+ 	*led_phys_mem = ~data;
+ #endif
+ }
+ 
++int
++blink_main(int argc, char *argv[])
++{
++	printf("It's blinky time!\n");
++#ifdef BERI
++	initialise_leds();
++
++	uint8_t led_value = 0x55; // 0b0101
++
++	while (1) {
++		write_leds(led_value);
++		led_value = ~led_value;
++		putchar('.');
++		fflush(stdout);
++		usleep(100000);
++	}
++#endif
++	return 0;
++}
++
+ #ifdef POSTGRES
+ 
+ static void

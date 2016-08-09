@@ -1,0 +1,11 @@
+--- a/hw/net/e1000e_core.c
++++ b/hw/net/e1000e_core.c
+@@ -3216,7 +3211,7 @@ e1000e_core_read(E1000ECore *core, hwaddr addr, unsigned size)
+         }
+         val = macreg_readops[index](core, index);
+         trace_e1000e_core_read(index << 2, size, val);
+-		/*PDBG("Returning 0x%x (%d)", val, val);*/
++		PDBG("Returning 0x%x (%d)", val, val);
+         return val;
+     } else {
+         trace_e1000e_wrn_regs_read_unknown(index << 2, size);

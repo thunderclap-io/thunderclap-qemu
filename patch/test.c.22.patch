@@ -1,0 +1,59 @@
+--- a/test.c
++++ b/test.c
+@@ -1251,52 +1174,34 @@ main(int argc, char *argv[])
+ 
+ 		switch (dword0->type) {
+ 		case M:
+-			log(LS_RECV_OTHER, LIF_NONE, 0, true);
+ 			assert(dword0->length == 1);
+ 			/* This isn't in the spec, but seems to be all we've found in our
+ 			 * trace. */
+ 
+ 			bytecount = 0;
+ 
+-#ifndef DUMMY
+ 			target_section = memory_region_find(pci_memory, tlp_in[2], 4);
+ 			target_region = target_section.mr;
+ 			rel_addr = target_section.offset_within_region;
+-#endif
+ 
+ 			if (dir == TLPD_READ) {
+-				PDBG("Reading region %s offset 0x%lx", target_region->name,
+-					rel_addr);
+-
+-#ifdef DUMMY
+-				read_error = false;
+-				tlp_out_body[0] = 0xBEDEBEDE;
+-#else
+ 				read_error = io_mem_read( target_region,
+ 					rel_addr,
+ 					(uint64_t *)tlp_out_body,
+ 					4);
+-#endif
+ #ifdef POSTGRES
+ 				if (read_error) {
+ 					print_last_recvd_packet_ids();
+ 				}
+-
+-				if (rel_addr == 0x0) {
+-					mask_next_postgres_completion_data = true;
+-					postgres_completion_mask = ~uint32_mask_enable_bits(19, 19);
+-					PDBG("%x", postgres_completion_mask);
+-					/* 19 is apparently a software controllable IO pin, so I
+-					 * don't think we particularly care. */
+-				} else if (rel_addr == 0x8) {
+-					mask_next_postgres_completion_data = true;
+-					postgres_completion_mask = PG_STATUS_MASK;
+-				} else if (rel_addr == 0x10 || rel_addr == 0x5B58) {
++				if (rel_addr == 0x10 || rel_addr == 0x5B58) {
+ 					/* 1) EEPROM or Flash
+ 					 * 2) Second software semaphore, not present on this
+ 					 * card.
+ 					 */
+ 					ignore_next_postgres_completion = true;
++				} else if (rel_addr == 0x8) {
++					mask_next_postgres_completion_data = true;
++					postgres_completion_mask = PG_STATUS_MASK;
+ 				}
+ #endif
+ 				assert(!read_error);

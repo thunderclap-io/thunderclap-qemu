@@ -1,0 +1,18 @@
+--- a/test.c
++++ b/test.c
+@@ -318,10 +246,15 @@ POSTGRES_INT_FIELD(lwr_addr);
+ POSTGRES_BIGINT_FIELD(address);
+ POSTGRES_BIGINT_FIELD(data);
+ 
++#ifdef POSTGRES
+ static bool ignore_next_postgres_completion;
+ static bool mask_next_postgres_completion_data;
+ static uint32_t postgres_completion_mask;
+ 
++/* The capbility list is different for many small reasons, which is why we
++ * want this. */
++#endif
++
+ /* Generates a TLP given a PGresult that has as row 0 a record from the trace
+  * table. Returns the length of the TLP in bytes. */
+ /* TLPDoubleWord is a more natural way to manipulate the TLP Data */

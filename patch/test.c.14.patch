@@ -1,0 +1,11 @@
+--- a/test.c
++++ b/test.c
+@@ -876,7 +789,7 @@ create_completion_header(TLPDoubleWord *tlp,
+ 	tlp[1] = 0;
+ 	tlp[2] = 0;
+ 
+-	struct TLP64DWord0 *header0 = (struct TLP64DWord0 *)(tlp);
++	volatile struct TLP64DWord0 *header0 = (volatile struct TLP64DWord0 *)(tlp);
+ 	if (direction == TLPD_READ
+ 		&& completion_status == TLPCS_SUCCESSFUL_COMPLETION) {
+ 		header0->fmt = TLPFMT_3DW_DATA;

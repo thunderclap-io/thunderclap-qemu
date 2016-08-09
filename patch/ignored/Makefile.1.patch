@@ -1,0 +1,14 @@
+--- a/Makefile
++++ b/Makefile
+@@ -75,7 +72,7 @@ CFLAGS := $(CFLAGS) -DPOSTGRES -I$(shell pg_config --includedir)
+ LDFLAGS := $(LDFLAGS) -L$(shell pg_config --libdir)
+ LDLIBS := $(LDLIBS) -lpq -lssl -lcrypto
+ endif #POSTGRES
+-endif # target native
++endif
+ 
+ CFLAGS := $(CFLAGS) -g
+ CFLAGS := $(CFLAGS) -Itcg/tci -Islirp
+diff --git a/baremetalsupport-with-os.c b/baremetalsupport-with-os.c
+deleted file mode 100644
+index 7948f82..0000000

@@ -1,0 +1,11 @@
+--- a/test.c
++++ b/test.c
+@@ -698,7 +630,7 @@ should_send_tlp_for_result(PGresult *result)
+ /* tlp is a pointer to the tlp, tlp_len is the length of the tlp in bytes. */
+ /* returns 0 on success. */
+ int
+-send_tlp(TLPQuadWord *tlp, int tlp_len)
++send_tlp(volatile TLPQuadWord *tlp, int tlp_len)
+ {
+ #ifdef POSTGRES
+ 	static int check_count = 0;

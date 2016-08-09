@@ -1,0 +1,45 @@
+--- a/test.c
++++ b/test.c
+@@ -1420,35 +1307,31 @@ main(int argc, char *argv[])
+ 			 *
+ 			 */
+ 
+-#ifndef DUMMY
+ 			target_section = memory_region_find(get_system_io(), tlp_in[2], 4);
+ 			target_region = target_section.mr;
+ 			rel_addr = target_section.offset_within_region;
+-#endif
+ 
+ 			if (dir == TLPD_WRITE) {
+ 				send_length = 12;
+-#ifndef DUMMY
+ 				assert(io_mem_write(target_region, rel_addr, tlp_in[3], 4)
+ 					== false);
+ 
+-				/*PDBG("Setting CARD REG 0x%x <= 0x%x", card_reg, tlp_in[3]);*/
+-
+ 				if (rel_addr == 0) {
+ 					card_reg = tlp_in[3];
+ 				}
+-#endif
++				else if (rel_addr == 4 && card_reg == 0x8) {
++					PDBG("Setting CARD REG 0x%x <= 0x%x",
++						card_reg, tlp_in[3]);
++				}
+ 			} else {
+ 				send_length = 16;
+-#ifdef DUMMY
+-				tlp_out_body[0] = 0xBEDEBEDE;
+-#else
+ 				assert(io_mem_read(target_region, rel_addr,
+ 						(uint64_t *)tlp_out_body, 4)
+ 					== false);
+-#endif
+ 
+-				/*PDBG("Read CARD REG 0x%x = 0x%x", card_reg, *tlp_out_body);*/
++				if (rel_addr == 4 && card_reg == 0x8) {
++					PDBG("Read CARD REG 0x%x = 0x%x", card_reg, *tlp_out_body);
++				}
+ 			}
+ 
+ #ifdef POSTGRES

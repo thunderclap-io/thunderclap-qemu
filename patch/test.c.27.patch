@@ -1,0 +1,19 @@
+--- a/test.c
++++ b/test.c
+@@ -1370,16 +1264,13 @@ main(int argc, char *argv[])
+ 					write_leds(received_count);
+ 
+ 				} else {
+-					log(LS_RECV_CONFIG_WRITE, LIF_NONE, 0, true);
+ 					send_length = 12;
+ 
+ 					for (i = 0; i < 4; ++i) {
+ 						if ((request_dword1->firstbe >> i) & 1) {
+-#ifndef DUMMY
+ 							pci_host_config_write_common(
+ 								pci_dev, req_addr + i, req_addr + 4,
+ 								tlp_in[3] >> (i * 8), 1);
+-#endif
+ 						}
+ 					}
+ 				}

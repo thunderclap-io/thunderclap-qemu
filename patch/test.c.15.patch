@@ -1,0 +1,36 @@
+--- a/test.c
++++ b/test.c
+@@ -887,28 +800,26 @@ create_completion_header(TLPDoubleWord *tlp,
+ 	}
+ 	header0->type = CPL;
+ 
+-	struct TLP64CompletionDWord1 *header1 =
+-		(struct TLP64CompletionDWord1 *)(tlp) + 1;
++	volatile struct TLP64CompletionDWord1 *header1 =
++		(volatile struct TLP64CompletionDWord1 *)(tlp) + 1;
+ 	header1->completer_id = completer_id;
+ 	header1->status = completion_status;
+ 	header1->bytecount = bytecount;
+ 
+-	struct TLP64CompletionDWord2 *header2 =
+-		(struct TLP64CompletionDWord2 *)(tlp) + 2;
++	volatile struct TLP64CompletionDWord2 *header2 =
++		(volatile struct TLP64CompletionDWord2 *)(tlp) + 2;
+ 	header2->requester_id = requester_id;
+ 	header2->tag = tag;
+ 	header2->loweraddress = loweraddress;
+ }
+ 
+-#ifndef DUMMY
+ MachineState *current_machine;
+-#endif
+-
+ volatile uint8_t *led_phys_mem;
+ 
+ void
+ initialise_leds()
+ {
++#ifdef BERI
+ #define LED_BASE		0x7F006000LL
+ #define LED_LEN			0x1
+ 

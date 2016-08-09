@@ -1,0 +1,42 @@
+--- a/test.c
++++ b/test.c
+@@ -50,39 +42,12 @@
+ #include "hw/pci-host/q35.h"
+ #include "qapi/qmp/qerror.h"
+ #include "qemu/config-file.h"
+-#endif
+ 
+-#include "baremetalsupport.h"
+ #include "pcie.h"
+ #include "pciefpga.h"
+ #include "beri-io.h"
+ #include "mask.h"
+-#include "log.h"
+-
+-
+-char *log_strings[] = {
+- 	"TIME: ",
+-	". Since last: ",
+-	"Recieved TLP with requester id: ",
+-	"Sending DWord: ",
+-	"Packet sent.",
+-	"Received other packet.",
+-	"Received explicitly unknown packet.",
+-	"Received Config Write packet.",
+-	"Received Config Read packet.",
+-	"Sending TLP of length: ",
+-};
+ 
+-#define LS_TIME 0
+-#define LS_TIME_DELTA 1
+-#define LS_REQUESTER_ID 2
+-#define LS_SENDING_DWORD 3
+-#define LS_PACKET_SENT 4
+-#define LS_RECV_OTHER 5
+-#define LS_RECV_UNKNOWN 6
+-#define LS_RECV_CONFIG_WRITE 7
+-#define LS_RECV_CONFIG_READ 8
+-#define LS_SEND_LENGTH 9
+ 
+ #ifdef POSTGRES
+ 

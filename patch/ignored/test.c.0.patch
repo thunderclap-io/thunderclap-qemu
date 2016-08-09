@@ -1,0 +1,33 @@
+--- a/test.c
++++ b/test.c
+@@ -19,30 +19,22 @@
+  * appropriate busses set up -- the main initialisation function is called
+  * pc_q35_init, and I am slowly cannibalising it.
+  */
+-
+ #include "pcie-debug.h"
+-#ifndef DUMMY
+ #include "hw/net/e1000_regs.h"
+-#endif
+ 
+ #define TARGET_BERI		1
+ #define TARGET_NATIVE	2
+ 
+-#ifndef BAREMETAL
+ #include <execinfo.h>
+ #include <stdio.h>
+ #include <signal.h>
+ #include <stdlib.h>
+ #include <sys/endian.h>
+-#endif
+-
+-#include <stdbool.h>
+ 
+ #ifdef POSTGRES
+ #include <libpq-fe.h>
+ #endif
+ 
+-#ifndef DUMMY
+ #include "qom/object.h"
+ #include "hw/pci/pci.h"
+ #include "hw/pci/pci_bus.h"

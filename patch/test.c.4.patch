@@ -1,0 +1,44 @@
+--- a/test.c
++++ b/test.c
+@@ -122,41 +85,7 @@ print_backtrace(int signum)
+ 	
+ 	free(backtrace_lines);
+ }
+-#endif
+-
+-
+-static unsigned long
+-read_hw_counter()
+-{
+-#ifdef BERI
+-	unsigned long retval;
+-	asm volatile("rdhwr %0, $2"
+-		: "=r"(retval));
+-	return retval;
+-#else
+-	return 0;
+-#endif
+-}
+-
+-static inline void
+-record_time()
+-{
+-	bool has_last_time;
+-	uint32_t time;
+-	uint64_t last_time;
+-
+-	time = read_hw_counter();
+-    has_last_time = last_data_for_string(LS_TIME, &last_time);
+-
+-	log(LS_TIME, LIF_UINT_32, time, !has_last_time);
+-
+-	if (has_last_time) {
+-		log(LS_TIME_DELTA, LIF_INT_32, time - last_time, true);
+-	}
+-}
+-
+ 
+-#ifndef DUMMY
+ static DeviceClass
+ *qdev_get_device_class(const char **driver, Error **errp)
+ {

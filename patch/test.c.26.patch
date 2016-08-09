@@ -1,0 +1,19 @@
+--- a/test.c
++++ b/test.c
+@@ -1353,15 +1252,10 @@ main(int argc, char *argv[])
+ 				device_id = config_request_dword2->device_id;
+ 
+ 				if (dir == TLPD_READ) {
+-					log(LS_RECV_CONFIG_READ, LIF_NONE, 0, true);
+-					send_length = 20;
++					send_length = 16;
+ 
+-#ifdef DUMMY
+-					tlp_out_body[0] = 0xBEDEBEDE;
+-#else
+ 					tlp_out_body[0] = pci_host_config_read_common(
+ 						pci_dev, req_addr, req_addr + 4, 4);
+-#endif
+ 
+ 					/*PDBG("CfgRd0 from %lx, Value 0x%x",*/
+ 						/*req_addr, tlp_out_body[0]);*/

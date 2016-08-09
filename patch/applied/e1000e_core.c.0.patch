@@ -1,0 +1,11 @@
+--- a/hw/net/e1000e_core.c
++++ b/hw/net/e1000e_core.c
+@@ -1972,8 +1972,6 @@ _e1000e_core_reset_mac(E1000ECore *core)
+ static void
+ set_ctrl(E1000ECore *core, int index, uint32_t val)
+ {
+-	PDBG("Setting CTRL to 0x%x. GIO Master Disable to %d",
+-		val, (val >> 2) & 1);
+     trace_e1000e_core_ctrl_write(index, val);
+ 
+     /* RST is self clearing */

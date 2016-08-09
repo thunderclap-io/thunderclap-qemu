@@ -1,0 +1,12 @@
+--- a/test.c
++++ b/test.c
+@@ -1340,9 +1242,6 @@ main(int argc, char *argv[])
+ 		case CFG_0:
+ 			assert(dword0->length == 1);
+ 			requester_id = request_dword1->requester_id;
+-
+-			/*log(LS_REQUESTER_ID, LIF_UINT_32_HEX, requester_id, true);*/
+-
+ 			req_addr = config_request_dword2->ext_reg_num;
+ 			req_addr = (req_addr << 6) | config_request_dword2->reg_num;
+ 			req_addr <<= 2;

@@ -1,0 +1,11 @@
+--- a/memory.c
++++ b/memory.c
+@@ -14,8 +14,6 @@
+  */
+ #include "pcie-debug.h"
+ 
+-#include <assert.h>
+-
+ #include "exec/memory.h"
+ #include "exec/address-spaces.h"
+ #include "exec/ioport.h"

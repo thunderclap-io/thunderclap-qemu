@@ -1,0 +1,26 @@
+--- a/test.c
++++ b/test.c
+@@ -1304,21 +1209,19 @@ main(int argc, char *argv[])
+ 
+ 			for (i = 0; i < 4; ++i) {
+ 				if ((request_dword1->firstbe >> i) & 1) {
++					/*PDBG("Reading REG %s offset 0x%lx", target_region->name,*/
++						   /*(rel_addr + i));*/
+ 					if (dir == TLPD_READ) {
+ 						if (bytecount == 0) {
+ 							loweraddress = tlp_in[2] + i;
+ 						}
+ 						++bytecount;
+ 					} else { /* dir == TLPD_WRITE */
+-#ifdef DUMMY
+-						write_error = false;
+-#else
+ 						write_error = io_mem_write(
+ 							target_region,
+ 							rel_addr + i,
+ 							*((uint64_t *)((uint8_t *)tlp_in + 12 + i)),
+ 							1);
+-#endif
+ 						assert(!write_error);
+ 					}
+ 				}

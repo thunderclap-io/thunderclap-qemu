@@ -1,0 +1,10 @@
+--- a/test.c
++++ b/test.c
+@@ -1457,6 +1340,7 @@ main(int argc, char *argv[])
+ 				ignore_next_postgres_completion = true;
+ 			}
+ #endif
++
+ 			create_completion_header(tlp_out, dir, device_id,
+ 				TLPCS_SUCCESSFUL_COMPLETION, 4, requester_id, req_bits->tag, 0);
+ 

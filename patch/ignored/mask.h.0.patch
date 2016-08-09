@@ -1,0 +1,18 @@
+--- a/mask.h
++++ b/mask.h
+@@ -1,12 +1,7 @@
+ #ifndef MASK_H
+ #define MASK_H
+ 
+-#include "baremetalsupport.h"
+-
+-#ifndef BAREMETAL
+-#include "assert.h"
+-#endif
+-
++#include <assert.h>
+ #include <stdint.h>
+ 
+ #define UINT32_MASK(width)		((1 << (width)) - 1)
+diff --git a/memory.c b/memory.c
+index 441f127..2d7ef8e 100644

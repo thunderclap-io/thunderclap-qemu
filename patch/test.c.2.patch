@@ -1,0 +1,12 @@
+--- a/test.c
++++ b/test.c
+@@ -90,8 +55,7 @@ char *log_strings[] = {
+ #define PG_REPR_BINARY		1
+ 
+ #define PG_STATUS_MASK \
+-	~(E1000_STATUS_FD | E1000_STATUS_ASDV_100 | E1000_STATUS_ASDV_1000 \
+-		| E1000_STATUS_GIO_MASTER_ENABLE )
++	~(E1000_STATUS_FD | E1000_STATUS_ASDV_100 | E1000_STATUS_ASDV_1000)
+ 
+ static PGconn *postgres_connection_downstream;
+ static PGconn *postgres_connection_upstream;

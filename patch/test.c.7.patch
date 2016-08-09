@@ -1,0 +1,11 @@
+--- a/test.c
++++ b/test.c
+@@ -621,7 +554,7 @@ print_last_sent_packet_ids()
+ /* tlp_len is length of the buffer in bytes. */
+ /* Return -1 if 1024 attempts to poll the buffer fail. */
+ int
+-wait_for_tlp(TLPQuadWord *tlp, int tlp_len)
++wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
+ {
+ #ifdef POSTGRES
+ 	int ret_value;
