@@ -13,7 +13,7 @@ struct m_hdr {
  *
  * this is 136 in Darwin 15.2.0 and 128 in 14.5.0
  */
-#define DARWIN_14_5_0
+#define DARWIN_15_2_0
 struct pkthdr {
 #ifdef DARWIN_15_2_0
   char opaque[136];
