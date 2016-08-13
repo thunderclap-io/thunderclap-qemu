@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <ctype.h>
 
+
 /**
  * Hexdump from some forgotten source on the internet. Useful for debugging.
  *

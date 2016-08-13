@@ -1,3 +1,34 @@
+/*-
+ * Copyright (c) 2016 Brett F. Gutstein
+ * All rights reserved.
+ *
+ * This software was developed by SRI International and the University of
+ * Cambridge Computer Laboratory under DARPA/AFRL contract FA8750-10-C-0237
+ * ("CTSRD"), as part of the DARPA CRASH research programme.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ */
+
+
 /* mbuf header */
 struct m_hdr {
   uint64_t mh_next; /*struct mbuf * */
@@ -8,10 +39,11 @@ struct m_hdr {
   uint16_t mh_flags;
 }; // 32 bytes
 
+
 /*
  * record/packet header in first mbuf of chain if M_PKTHDR set 
  *
- * this is 136 in Darwin 15.2.0 and 128 in 14.5.0
+ * this is 136 bytes in Darwin 15.2.0 and 128 in 14.5.0
  */
 #define DARWIN_15_2_0
 struct pkthdr {
@@ -23,6 +55,7 @@ struct pkthdr {
   char opaque[128];
 #endif
 };
+
 
 /* external storage if M_EXT set */
 typedef struct m_ext {
@@ -42,6 +75,7 @@ struct ext_ref {
   uint32_t flags;
 };
 
+
 struct mbuf {
   struct m_hdr m_hdr;
   union {
@@ -55,6 +89,7 @@ struct mbuf {
     char MH_databuf[256 - sizeof(struct m_hdr)];
   } M_dat;
 }; //256 bytes
+
 
 #define m_next    m_hdr.mh_next
 #define m_len   m_hdr.mh_len
