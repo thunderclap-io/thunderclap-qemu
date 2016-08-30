@@ -388,6 +388,8 @@ main(int argc, char *argv[])
 	struct TLP64DWord0 *h0bits = &(config_req->header0);
 	struct TLP64RequestDWord1 *req_bits = &(config_req->req_header);
 
+	enum tlp_data_alignment alignment;
+
 #ifndef DUMMY
 	struct timespec start;
 	struct timespec end;
@@ -414,6 +416,7 @@ main(int argc, char *argv[])
 	int card_reg = -1;
 
 	while (1) {
+		alignment = TDA_ALIGNED;
 		should_send_response = false;
 
 		tlp_in_len = wait_for_tlp(tlp_in_quadword, sizeof(tlp_in_quadword));
@@ -455,6 +458,10 @@ main(int argc, char *argv[])
 					rel_addr,
 					tlp_out_data,
 					4);
+
+				if ((rel_addr % 8) != 0) {
+					alignment = TDA_UNALIGNED;
+				}
 #endif
 				/* XXX: THIS IS EVIL AND WRONG */
 				tlp_out_data_dword[0] = tlp_out_data_dword[1];
@@ -715,7 +722,7 @@ main(int argc, char *argv[])
 				tlp_out_data_dword[i] = bswap32(tlp_out_data_dword[i]);
 			}
 			send_result = send_tlp(tlp_out_header, header_length, tlp_out_data,
-				data_length, TDA_ALIGNED);
+				data_length, alignment);
 			assert(send_result != -1);
 		}
 
