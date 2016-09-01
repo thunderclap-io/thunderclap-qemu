@@ -726,8 +726,10 @@ main(int argc, char *argv[])
 		/*}*/
 
 		if (should_send_response) {
-			for (i = 0; i < data_length / 4; ++i) {
-				tlp_out_data_dword[i] = bswap32(tlp_out_data_dword[i]);
+			if (dword0->type != M) {
+				for (i = 0; i < data_length / 4; ++i) {
+					tlp_out_data_dword[i] = bswap32(tlp_out_data_dword[i]);
+				}
 			}
 			send_result = send_tlp(tlp_out_header, header_length, tlp_out_data,
 				data_length, alignment);
