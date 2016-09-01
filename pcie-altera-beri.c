@@ -131,14 +131,25 @@ send_tlp(TLPQuadWord *header, int header_len, TLPQuadWord *data, int data_len,
 	statusword.word = 0;
 
 	if (header_len == 12 && data_alignment == TDA_UNALIGNED) {
-		sendqword = header[1] << 32;
+		/* Because this is big endian, the bits of the dword with the smallest
+		 * offset are the most significant. The header word has the smallest
+		 * offset from the start, so has to be shifted in to the most
+		 * significant bits.
+		 */
+		sendqword = header[1] & (0xFFFFFFFFLL << 32);
 		if (data_len > 0) {
-			sendqword |= data_dword[0];
+			sendqword |= (data[0] & 0xFFFFFFFFLL);
 		}
 		statusword.bits.endofpacket = (data_len <= 4);
 		WR_STATUS(statusword.word);
 		WR_DATA(sendqword);
 		for (byte_index = 4; byte_index < data_len; byte_index += 8) {
+			while (1) {
+				printf("PROBABLY BROKEN LOOP!");
+				for (int i = 0; i < 100000; ++i) {
+					asm("nop");
+				}
+			}
 			statusword.bits.endofpacket = ((byte_index + 8) >= data_len);
 			sendqword = (TLPQuadWord)(data_dword[byte_index / 4]) << 32;
 			sendqword |= data_dword[(byte_index / 4) + 1];
@@ -158,6 +169,15 @@ send_tlp(TLPQuadWord *header, int header_len, TLPQuadWord *data, int data_len,
 
 	// Release queued data
 	IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 1);
+
+	/*if (header_len == 12 && data_alignment == TDA_UNALIGNED) {*/
+		/*printf("data[0]: 0x%0lx. sendqword: 0x%0lx. data_len: %d. \n",*/
+			/*data[0], sendqword, data_len);*/
+		/*[>printf("Took special path.\n");<]*/
+		/*[>printf("Last sendqword was: %lx.\n", sendqword);<]*/
+		/*[>printf("data_len was: %d. endofpacket?: %d\n", data_len,<]*/
+			/*[>statusword.bits.endofpacket);<]*/
+	/*}*/
 
 	return 0;
 #undef WR_STATUS

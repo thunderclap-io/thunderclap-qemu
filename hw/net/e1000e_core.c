@@ -2683,9 +2683,9 @@ set_tidv(E1000ECore *core, int index, uint32_t val)
 static uint32_t
 mac_readreg(E1000ECore *core, int index)
 {
-	if (index == TCTL) {
-		PDBG("Returning TCTL as %x", core->mac[index]);
-	}
+	/*if (index == EERD && core->mac[index] != 0) {*/
+		/*printf("Returning EERD as %x\n", core->mac[index]);*/
+	/*}*/
     return core->mac[index];
 }
 
@@ -2910,6 +2910,12 @@ set_eerd(E1000ECore *core, int index, uint32_t val)
     core->mac[EERD] = flags                           |
                       (addr << E1000_EERW_ADDR_SHIFT) |
                       (data << E1000_EERW_DATA_SHIFT);
+
+	/*printf("set_eerd. EEPROM Address: %x. EEPROM Size: %x.\n",*/
+		/*addr, E1000E_EEPROM_SIZE);*/
+	/*printf("val & E1000_EERW_START: %d. data: %x. flags: %x.\n",*/
+		/*val & E1000_EERW_START, data, flags);*/
+	/*printf("core->mac[EERD] = %x\n", core->mac[EERD]);*/
 }
 
 static void

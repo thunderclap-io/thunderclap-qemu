@@ -463,8 +463,11 @@ main(int argc, char *argv[])
 					alignment = TDA_UNALIGNED;
 				}
 #endif
-				/* XXX: THIS IS EVIL AND WRONG */
-				tlp_out_data_dword[0] = tlp_out_data_dword[1];
+				/* XXX: We have read a dword size chunk into a qword. The
+				 * relevant data is the least significant bits, so goes at a
+				 * larger offset. We want the data in the correct dword
+				 * pointer, so we move it from where it is.*/
+				tlp_out_data_dword[0] = (TLPDoubleWord)tlp_out_data[0];
 
 				/*log_log(LS_MEM_ADDR, LIF_UINT_32_HEX, rel_addr, LOG_NO_NEWLINE);*/
 				/*log_log(LS_READ, LIF_UINT_64_HEX, *tlp_out_data_dword,*/
@@ -499,20 +502,20 @@ main(int argc, char *argv[])
 				assert(!read_error);
 			}
 
+			loweraddress = rel_addr;
+
 			for (i = 0; i < 4; ++i) {
 				if ((request_dword1->firstbe >> i) & 1) {
 					/*PDBG("Reading REG %s offset 0x%lx", target_region->name,*/
 						   /*(rel_addr + i));*/
 					if (dir == TLPD_READ) {
 						if (bytecount == 0) {
-							loweraddress = tlp_in[2] + i;
+							loweraddress += i;
 						}
 						++bytecount;
 					} else { /* dir == TLPD_WRITE */
-#ifdef DUMMY
 						write_error = false;
-#else
-						write_error = false;
+#ifndef DUMMY
 						/*
 						write_error = io_mem_write(
 							target_region,
@@ -536,6 +539,11 @@ main(int argc, char *argv[])
 			}
 
 			should_send_response = (dir == TLPD_READ);
+
+			/*if ((rel_addr & 0xFF) == 0x14) {*/
+				/*printf("rel_addr: 0x%lx. loweraddress: 0x%lx.\n",*/
+					/*rel_addr, loweraddress);*/
+			/*}*/
 
 			if (should_send_response) {
 				header_length = 12;
