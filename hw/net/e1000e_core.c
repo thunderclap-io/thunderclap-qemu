@@ -2473,6 +2473,7 @@ set_mdic(E1000ECore *core, int index, uint32_t val)
         }
     }
     core->mac[MDIC] = val | E1000_MDIC_READY;
+	/*printf("Set MDIC to %x\n.", core->mac[MDIC]);*/
 
     if (val & E1000_MDIC_INT_EN) {
         set_interrupt_cause(core, E1000_ICR_MDAC);

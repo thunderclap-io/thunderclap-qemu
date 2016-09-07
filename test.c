@@ -232,6 +232,8 @@ main(int argc, char *argv[])
     DeviceState *dev;
     Error *err = NULL;
 
+	/* Otherwise it will try to delete a non-existent clock - segfault. */
+	init_clocks();
 
 	/* This needs to be called, otherwise the types are never registered. */
 	module_call_init(MODULE_INIT_QOM);
@@ -726,11 +728,11 @@ main(int argc, char *argv[])
 		/*}*/
 
 		if (should_send_response) {
-			if (dword0->type != M) {
-				for (i = 0; i < data_length / 4; ++i) {
-					tlp_out_data_dword[i] = bswap32(tlp_out_data_dword[i]);
-				}
+			/*if (dword0->type != M) {*/
+			for (i = 0; i < data_length / 4; ++i) {
+				tlp_out_data_dword[i] = bswap32(tlp_out_data_dword[i]);
 			}
+			/*}*/
 			send_result = send_tlp(tlp_out_header, header_length, tlp_out_data,
 				data_length, alignment);
 			assert(send_result != -1);

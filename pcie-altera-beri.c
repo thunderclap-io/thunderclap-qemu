@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include "qemu/bswap.h"
 #include "pcie.h"
 #include "mask.h"
 #include "pcie-debug.h"
@@ -93,6 +94,14 @@ drain_pcie_core()
 	}
 }
 
+static inline uint64_t
+bswap32_within_64(uint64_t input)
+{
+	uint32_t low_word = bswap32((uint32_t)input);
+	uint32_t high_word = bswap32((uint32_t)(input >> 32));
+	return ((uint64_t)(high_word) << 32) | low_word;
+}
+
 /* tlp is a pointer to the tlp, tlp_len is the length of the tlp in bytes. */
 /* returns 0 on success. */
 int
@@ -126,7 +135,7 @@ send_tlp(TLPQuadWord *header, int header_len, TLPQuadWord *data, int data_len,
 	statusword.word = 0;
 	statusword.bits.startofpacket = 1;
 	WR_STATUS(statusword.word);
-	WR_DATA(header[0]);
+	WR_DATA(bswap32_within_64(header[0]));
 
 	statusword.word = 0;
 
@@ -136,9 +145,14 @@ send_tlp(TLPQuadWord *header, int header_len, TLPQuadWord *data, int data_len,
 		 * offset from the start, so has to be shifted in to the most
 		 * significant bits.
 		 */
-		sendqword = header[1] & (0xFFFFFFFFLL << 32);
+		/*TLPDoubleWord merge_data = (TLPDoubleWord)(data[0] & 0xFFFFFFFFLL);*/
+		/*merge_data = bswap32(merge_data);*/
+
+		TLPDoubleWord header_dword = header[1] >> 32;
+		sendqword = (TLPQuadWord)(bswap32(header[1] >> 32)) << 32;
 		if (data_len > 0) {
-			sendqword |= (data[0] & 0xFFFFFFFFLL);
+			/*sendqword |= merge_data;*/
+			sendqword |= bswap32((TLPDoubleWord)data[0]);
 		}
 		statusword.bits.endofpacket = (data_len <= 4);
 		WR_STATUS(statusword.word);
@@ -159,7 +173,7 @@ send_tlp(TLPQuadWord *header, int header_len, TLPQuadWord *data, int data_len,
 	} else {
 		statusword.bits.endofpacket = (data_len == 0);
 		WR_STATUS(statusword.word);
-		WR_DATA(header[1]);
+		WR_DATA(bswap32_within_64(header[1]));
 		for (byte_index = 0; byte_index < data_len; byte_index += 8) {
 			statusword.bits.endofpacket = ((byte_index + 8) >= data_len);
 			WR_STATUS(statusword.word);
