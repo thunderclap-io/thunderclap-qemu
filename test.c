@@ -201,12 +201,6 @@ write_leds(uint32_t data)
 #endif
 }
 
-static inline bool
-track_register(uint64_t req_addr)
-{
-	return false;
-}
-
 #ifndef DUMMY
 long
 timespec_diff_in_ns(struct timespec *left, struct timespec *right) {
@@ -216,6 +210,314 @@ timespec_diff_in_ns(struct timespec *left, struct timespec *right) {
 #endif
 
 extern int last_packet;
+
+struct PacketGeneratorState {
+	uint64_t next_read;
+};
+
+void
+initialise_packet_generator_state(struct PacketGeneratorState *state)
+{
+	state->next_read = 0;
+}
+
+void
+generate_packet(struct PacketGeneratorState *state,
+	TLPDoubleWord *tlp_out_header, int *tlp_out_header_len,
+	TLPDoubleWord *tlp_out_data, int *tlp_out_data_len)
+{
+}
+
+enum packet_response {
+	PR_NO_RESPONSE, PR_RESPONSE_UNALIGNED, PR_RESPONSE_ALIGNED
+};
+
+enum packet_response
+respond_to_packet(PCIDevice *pci_dev, TLPQuadWord *tlp_in_quadword,
+	int *header_length, int *data_length,
+	TLPQuadWord *tlp_out_header, TLPQuadWord *tlp_out_data)
+{
+	int i, tlp_in_len = 0, bytecount;
+	enum tlp_direction dir;
+	enum tlp_completion_status completion_status;
+	bool read_error = false;
+	bool write_error = false;
+	bool ignore_next_io_completion = false;
+	bool mask_next_io_completion_data = false;
+	uint16_t length, device_id, requester_id;
+	uint32_t io_completion_mask, loweraddress;
+	uint64_t addr, req_addr;
+
+	TLPDoubleWord *tlp_in = (TLPDoubleWord *)tlp_in_quadword;
+	TLPDoubleWord *tlp_out_header_dword = (TLPDoubleWord *)tlp_out_header;
+	TLPDoubleWord *tlp_out_data_dword = (TLPDoubleWord *)tlp_out_data;
+	uint16_t *tlp_out_data_word = (uint16_t *)tlp_out_data;
+
+	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)tlp_in;
+	struct TLP64RequestDWord1 *request_dword1 =
+		(struct TLP64RequestDWord1 *)(tlp_in + 1);
+	struct TLP64ConfigRequestDWord2 *config_request_dword2 =
+		(struct TLP64ConfigRequestDWord2 *)(tlp_in + 2);
+
+	struct TLP64ConfigReq *config_req = (struct TLP64ConfigReq *)tlp_in;
+	struct TLP64DWord0 *h0bits = &(config_req->header0);
+	struct TLP64RequestDWord1 *req_bits = &(config_req->req_header);
+
+	enum packet_response response = PR_NO_RESPONSE;
+
+#ifndef DUMMY
+	PCIIORegion *pci_io_region;
+	MemoryRegion *target_region;
+	hwaddr rel_addr;
+#endif
+
+	*header_length = 0;
+	*data_length = 0;
+
+	/* Has to be static due to the way reading over IO space works. */
+	static int card_reg = -1;
+
+	dir = ((dword0->fmt & 2) >> 1);
+	const char *direction_string = (dir == TLPD_READ) ? "read" : "write";
+
+	switch (dword0->type) {
+	case M:
+		assert(dword0->length == 1);
+		/* This isn't in the spec, but seems to be all we've found in our
+		 * trace. */
+
+		bytecount = 0;
+#ifndef DUMMY
+		/* TODO: Different operation for flash? */
+		pci_io_region = &(pci_dev->io_regions[0]);
+		assert(pci_io_region->addr != PCI_BAR_UNMAPPED);
+		assert(tlp_in[2] >= pci_io_region->addr);
+		target_region = pci_io_region->memory;
+		rel_addr = tlp_in[2] - pci_io_region->addr;
+		loweraddress = rel_addr;
+#endif
+
+		if (dir == TLPD_READ) {
+#ifdef DUMMY
+			read_error = false;
+			tlp_out_data_dword[0] = 0xBEDEBEDE;
+#else
+			read_error = io_mem_read(target_region,
+				rel_addr,
+				tlp_out_data,
+				4);
+
+			response = (rel_addr % 8) == 0 ?
+				PR_RESPONSE_ALIGNED : PR_RESPONSE_UNALIGNED;
+#endif
+			/* We have read a dword size chunk into a qword. The relevant data
+			 * is the least significant bits, so goes at a larger offset. We
+			 * want the data in the correct dword pointer, so we move it from
+			 * where it is.
+			 */
+			tlp_out_data_dword[0] = (TLPDoubleWord)tlp_out_data[0];
+
+#ifdef POSTGRES
+			if (read_error) {
+				print_last_recvd_packet_ids();
+			}
+
+			if (rel_addr == 0x0) {
+				mask_next_postgres_completion_data = true;
+				postgres_completion_mask =
+					bswap32(~uint32_mask_enable_bits(19, 19));
+				/* 19 is apparently a software controllable IO pin, so I
+				 * don't think we particularly care. */
+			} else if (rel_addr == 0x8) {
+				mask_next_postgres_completion_data = true;
+				postgres_completion_mask = PG_STATUS_MASK;
+			} else if (rel_addr == 0x10 || rel_addr == 0x5B58) {
+				/* 1) EEPROM or Flash
+				 * 2) Second software semaphore, not present on this
+				 * card.
+				 */
+				ignore_next_postgres_completion = true;
+			} else if (rel_addr == 0x8) {
+				mask_next_postgres_completion_data = true;
+				postgres_completion_mask = PG_STATUS_MASK;
+			}
+#endif
+			assert(!read_error);
+
+			for (i = 0; i < 4; ++i) {
+				if ((request_dword1->firstbe >> i) & 1) {
+					if (bytecount == 0) {
+						loweraddress += i;
+					}
+					++bytecount;
+				}
+			}
+
+			*header_length = 12;
+			*data_length = 4;
+			create_completion_header(tlp_out_header_dword, dir, device_id,
+				TLPCS_SUCCESSFUL_COMPLETION, bytecount, requester_id,
+				req_bits->tag, loweraddress);
+		} else { /* dir == TLPD_WRITE */
+			uint32_t write_data = bswap32(
+				(rel_addr % 8 == 0) ? tlp_in[4] : tlp_in[3]);
+
+			io_mem_write(target_region, rel_addr, write_data, 4);
+		}
+
+		break;
+	case CFG_0:
+		assert(dword0->length == 1);
+		response = PR_RESPONSE_ALIGNED;
+		requester_id = request_dword1->requester_id;
+
+		req_addr = config_request_dword2->ext_reg_num;
+		req_addr = (req_addr << 8) | config_request_dword2->reg_num;
+
+		if ((config_request_dword2->device_id & uint32_mask(3)) == 0) {
+			/* Mask to get function num -- we are 0 */
+			completion_status = TLPCS_SUCCESSFUL_COMPLETION;
+			device_id = config_request_dword2->device_id;
+
+			if (dir == TLPD_READ) {
+				*data_length = 4;
+#ifdef DUMMY
+				tlp_out_data_dword[0] = 0xBEDEBEDE;
+#else
+				tlp_out_data_dword[0] = pci_host_config_read_common(
+					pci_dev, req_addr, req_addr + 4, 4);
+#endif
+
+#ifdef POSTGRES
+				if (req_addr == 0 || req_addr == 0xC) {
+					/* Model number and ?cacheline size? */
+					mask_next_postgres_completion_data = true;
+					postgres_completion_mask = 0xFFFF00FF;
+				} else if (req_addr == 4) {
+					mask_next_postgres_completion_data = true;
+					postgres_completion_mask = 0x00FFFFFF;
+				} else if (req_addr == 8) {
+					/* Revision ID */
+					mask_next_postgres_completion_data = true;
+					postgres_completion_mask = 0x00FFFFFF;
+				} else if (req_addr == 0x2C) {
+					/* Subsystem ID and Subsystem vendor ID */
+					ignore_next_postgres_completion = true;
+				}
+#endif
+
+			} else {
+				*data_length = 0;
+#ifndef DUMMY
+#define TLP_DATA	((req_addr % 8 == 0) ? tlp_in[4] : tlp_in[3])
+				for (i = 0; i < 4; ++i) {
+					if ((request_dword1->firstbe >> i) & 1) {
+						pci_host_config_write_common(
+							pci_dev, req_addr + i, req_addr + 4,
+							(TLP_DATA >> ((3 - i) * 8)) & 0xFF, 1);
+					}
+				}
+#undef TLP_DATA
+#endif
+			}
+		}
+		else {
+			completion_status = TLPCS_UNSUPPORTED_REQUEST;
+			*data_length = 0;
+		}
+
+		*header_length = 12;
+		create_completion_header(
+			tlp_out_header_dword, dir, device_id, completion_status, 4,
+			requester_id, req_bits->tag, 0);
+
+		break;
+	case IO:
+		assert(request_dword1->firstbe == 0xf); /* Only seen trace. */
+
+		response = PR_RESPONSE_ALIGNED;
+		*header_length = 12;
+
+		/*
+		 * The process for interacting with the device over IO is rather
+		 * convoluted.
+		 *
+		 * 1) A packet is sent writing an address to a register.
+		 * 2) A completion happens.
+		 *
+		 * 3) A packet is then sent reading or writing another register.
+		 * 4) The completion for this is effectively for the address that
+		 * was written in 1).
+		 *
+		 * So we need to ignore the completion for the IO packet after the
+		 * completion for 2)
+		 *
+		 */
+#ifndef DUMMY
+		req_addr = tlp_in[2];
+		pci_io_region = &(pci_dev->io_regions[2]);
+		assert(pci_io_region->addr != PCI_BAR_UNMAPPED);
+		if (req_addr < pci_io_region->addr) {
+			PDBG("Trying to map req with addr %x in BAR with addr %x.",
+				req_addr, pci_io_region->addr);
+			PDBG("Last packet: %d", last_packet);
+		}
+		assert(req_addr >= pci_io_region->addr);
+		target_region = pci_io_region->memory;
+		rel_addr = req_addr - pci_io_region->addr;
+#endif
+
+		if (dir == TLPD_WRITE) {
+			*data_length = 0;
+#ifndef DUMMY
+			assert(io_mem_write(target_region, rel_addr, tlp_in[3], 4)
+				== false);
+#endif
+		} else {
+			*data_length = 4;
+#ifdef DUMMY
+			tlp_out_data[0] = 0xBEDEBEDE;
+#else
+			assert(io_mem_read(target_region, rel_addr,
+					(uint64_t *)tlp_out_data, 4)
+				== false);
+#endif
+		}
+
+#ifdef POSTGRES
+		if (ignore_next_io_completion) {
+			ignore_next_io_completion = false;
+			ignore_next_postgres_completion = true;
+		}
+#endif
+
+		create_completion_header(tlp_out_header_dword, dir, device_id,
+			TLPCS_SUCCESSFUL_COMPLETION, 4, requester_id, req_bits->tag, 0);
+
+#ifdef POSTGRES
+		if (dir == TLPD_WRITE && card_reg == 0x10) {
+			ignore_next_io_completion = true;
+		} else if (dir == TLPD_READ && card_reg == 0x8) {
+			mask_next_postgres_completion_data = true;
+			postgres_completion_mask = PG_STATUS_MASK;
+		}
+#endif
+
+		break;
+	case CPL:
+		assert(false);
+		break;
+	default:
+		log_log(LS_RECV_UNKNOWN, LIF_NONE, 0, LOG_NEWLINE);
+	}
+
+	for (i = 0; i < *data_length / 4; ++i) {
+		tlp_out_data_dword[i] = bswap32(tlp_out_data_dword[i]);
+	}
+
+	return response;
+}
+
 
 int
 main(int argc, char *argv[])
@@ -357,73 +659,31 @@ main(int argc, char *argv[])
     if (init)
     	return init;
 
-	int i, tlp_in_len = 0, tlp_out_len, data_length, send_result, bytecount;
-	int header_length;
-	enum tlp_direction dir;
-	enum tlp_completion_status completion_status;
-	char *type_string;
-	bool should_send_response;
-	bool read_error = false;
-	bool write_error = false;
+	int i, tlp_in_len = 0, send_result;
+	int header_length, data_length;
 	bool ignore_next_io_completion = false;
 	bool mask_next_io_completion_data = false;
 	uint16_t length, device_id, requester_id;
 	uint32_t io_completion_mask, loweraddress;
 	uint64_t addr, req_addr;
 
+	enum packet_response response;
+	enum tlp_data_alignment alignment;
+
 	TLPQuadWord tlp_in_quadword[32];
 	TLPQuadWord tlp_out_header[2];
 	TLPQuadWord tlp_out_data[16];
 
-	TLPDoubleWord *tlp_in = (TLPDoubleWord *)tlp_in_quadword;
-	TLPDoubleWord *tlp_out_header_dword = (TLPDoubleWord *)tlp_out_header;
-	TLPDoubleWord *tlp_out_data_dword = (TLPDoubleWord *)tlp_out_data;
-	uint16_t *tlp_out_data_word = (uint16_t *)tlp_out_data;
-
-	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)tlp_in;
-	struct TLP64RequestDWord1 *request_dword1 =
-		(struct TLP64RequestDWord1 *)(tlp_in + 1);
-	struct TLP64ConfigRequestDWord2 *config_request_dword2 =
-		(struct TLP64ConfigRequestDWord2 *)(tlp_in + 2);
-
-	struct TLP64ConfigReq *config_req = (struct TLP64ConfigReq *)tlp_in;
-	struct TLP64DWord0 *h0bits = &(config_req->header0);
-	struct TLP64RequestDWord1 *req_bits = &(config_req->req_header);
-
-	enum tlp_data_alignment alignment;
-
-#ifndef DUMMY
-	struct timespec start;
-	struct timespec end;
-
-	/*unsigned long start;*/
-	unsigned long diff;
-
-	PCIIORegion *pci_io_region;
-	MemoryRegion *target_region;
-	hwaddr rel_addr;
-#endif
-
 	int received_count = 0;
 	write_leds(received_count);
 
-	for (i = 0; i < 64; ++i) {
-		tlp_in[i] = 0xDEADBEE0 + (i & 0xF);
-	}
-
 	drain_pcie_core();
-
 	puts("PCIe Core Drained. Let's go.");
 
-	int card_reg = -1;
-
 	while (1) {
-		alignment = TDA_ALIGNED;
-		should_send_response = false;
-
-		tlp_in_len = wait_for_tlp(tlp_in_quadword, sizeof(tlp_in_quadword));
-		/*clock_gettime(CLOCK_PROF, &start);*/
-		/*start = read_hw_counter();*/
+		do {
+			tlp_in_len = wait_for_tlp(tlp_in_quadword, sizeof(tlp_in_quadword));
+		} while (tlp_in_len == -1);
 
 #ifdef POSTGRES
 		if (tlp_in_len == TRACE_COMPLETE) {
@@ -432,318 +692,18 @@ main(int argc, char *argv[])
 		}
 #endif
 
-		dir = ((dword0->fmt & 2) >> 1);
-		const char *direction_string = (dir == TLPD_READ) ? "read" : "write";
+		response = respond_to_packet(pci_dev, tlp_in_quadword, &header_length,
+			&data_length, tlp_out_header, tlp_out_data);
 
-		switch (dword0->type) {
-		case M:
-			assert(dword0->length == 1);
-			/* This isn't in the spec, but seems to be all we've found in our
-			 * trace. */
+		if (response != PR_NO_RESPONSE) {
+			alignment = (response == PR_RESPONSE_ALIGNED) ?
+				TDA_ALIGNED : TDA_UNALIGNED;
 
-			bytecount = 0;
-#ifndef DUMMY
-			/* TODO: Different operation for flash? */
-			pci_io_region = &(pci_dev->io_regions[0]);
-			assert(pci_io_region->addr != PCI_BAR_UNMAPPED);
-			assert(tlp_in[2] >= pci_io_region->addr);
-			target_region = pci_io_region->memory;
-			rel_addr = tlp_in[2] - pci_io_region->addr;
-#endif
-
-			if (dir == TLPD_READ) {
-#ifdef DUMMY
-				read_error = false;
-				tlp_out_data_dword[0] = 0xBEDEBEDE;
-#else
-				read_error = io_mem_read(target_region,
-					rel_addr,
-					tlp_out_data,
-					4);
-
-				if ((rel_addr % 8) != 0) {
-					alignment = TDA_UNALIGNED;
-				}
-#endif
-				/* XXX: We have read a dword size chunk into a qword. The
-				 * relevant data is the least significant bits, so goes at a
-				 * larger offset. We want the data in the correct dword
-				 * pointer, so we move it from where it is.*/
-				tlp_out_data_dword[0] = (TLPDoubleWord)tlp_out_data[0];
-
-				/*log_log(LS_MEM_ADDR, LIF_UINT_32_HEX, rel_addr, LOG_NO_NEWLINE);*/
-				/*log_log(LS_READ, LIF_UINT_64_HEX, *tlp_out_data_dword,*/
-					/*LOG_NO_NEWLINE);*/
-				/*log_log(LS_READ_ERROR, LIF_BOOL, read_error, LOG_NEWLINE);*/
-
-#ifdef POSTGRES
-				if (read_error) {
-					print_last_recvd_packet_ids();
-				}
-
-				if (rel_addr == 0x0) {
-					mask_next_postgres_completion_data = true;
-					postgres_completion_mask =
-						bswap32(~uint32_mask_enable_bits(19, 19));
-					/* 19 is apparently a software controllable IO pin, so I
-					 * don't think we particularly care. */
-				} else if (rel_addr == 0x8) {
-					mask_next_postgres_completion_data = true;
-					postgres_completion_mask = PG_STATUS_MASK;
-				} else if (rel_addr == 0x10 || rel_addr == 0x5B58) {
-					/* 1) EEPROM or Flash
-					 * 2) Second software semaphore, not present on this
-					 * card.
-					 */
-					ignore_next_postgres_completion = true;
-				} else if (rel_addr == 0x8) {
-					mask_next_postgres_completion_data = true;
-					postgres_completion_mask = PG_STATUS_MASK;
-				}
-#endif
-				assert(!read_error);
-			}
-
-			loweraddress = rel_addr;
-
-			for (i = 0; i < 4; ++i) {
-				if ((request_dword1->firstbe >> i) & 1) {
-					/*PDBG("Reading REG %s offset 0x%lx", target_region->name,*/
-						   /*(rel_addr + i));*/
-					if (dir == TLPD_READ) {
-						if (bytecount == 0) {
-							loweraddress += i;
-						}
-						++bytecount;
-					} else { /* dir == TLPD_WRITE */
-						write_error = false;
-#ifndef DUMMY
-						/*
-						write_error = io_mem_write(
-							target_region,
-							rel_addr + i,
-							*((uint64_t *)((uint8_t *)tlp_in + 12 + i)),
-							1);
-							*/
-#endif
-						assert(!write_error);
-					}
-				}
-			}
-
-			uint32_t write_data = bswap32(
-				(rel_addr % 8 == 0) ? tlp_in[4] : tlp_in[3]);
-
-			if (dir == TLPD_WRITE) {
-				io_mem_write(target_region, rel_addr, write_data, 4);
-				log_log(LS_MEM_ADDR, LIF_UINT_32_HEX, rel_addr, LOG_NO_NEWLINE);
-				log_log(LS_MEM_DATA, LIF_UINT_32_HEX, write_data, LOG_NEWLINE);
-			}
-
-			should_send_response = (dir == TLPD_READ);
-
-			/*if ((rel_addr & 0xFF) == 0x14) {*/
-				/*printf("rel_addr: 0x%lx. loweraddress: 0x%lx.\n",*/
-					/*rel_addr, loweraddress);*/
-			/*}*/
-
-			if (should_send_response) {
-				header_length = 12;
-				data_length = 4;
-				create_completion_header(tlp_out_header_dword, dir, device_id,
-					TLPCS_SUCCESSFUL_COMPLETION, bytecount, requester_id,
-					req_bits->tag, loweraddress);
-			}
-
-			break;
-		case CFG_0:
-			assert(dword0->length == 1);
-			should_send_response = true;
-			requester_id = request_dword1->requester_id;
-
-			// XXX Something will probably go wrong here.
-			req_addr = config_request_dword2->ext_reg_num;
-			req_addr = (req_addr << 8) | config_request_dword2->reg_num;
-
-			if ((config_request_dword2->device_id & uint32_mask(3)) == 0) {
-				/* Mask to get function num -- we are 0 */
-				completion_status = TLPCS_SUCCESSFUL_COMPLETION;
-				device_id = config_request_dword2->device_id;
-
-				if (dir == TLPD_READ) {
-					data_length = 4;
-#ifdef DUMMY
-					tlp_out_data_dword[0] = 0xBEDEBEDE;
-#else
-					tlp_out_data_dword[0] = pci_host_config_read_common(
-						pci_dev, req_addr, req_addr + 4, 4);
-					if (track_register(req_addr)) {
-						PDBG("Read reg 0x%lx (0x%x)", req_addr,
-							tlp_out_data_dword[0]);
-					}
-#endif
-
-					++received_count;
-					write_leds(received_count);
-
-#ifdef POSTGRES
-					if (req_addr == 0 || req_addr == 0xC) {
-						/* Model number and ?cacheline size? */
-						mask_next_postgres_completion_data = true;
-						postgres_completion_mask = 0xFFFF00FF;
-					} else if (req_addr == 4) {
-						mask_next_postgres_completion_data = true;
-						postgres_completion_mask = 0x00FFFFFF;
-					} else if (req_addr == 8) {
-						/* Revision ID */
-						mask_next_postgres_completion_data = true;
-						postgres_completion_mask = 0x00FFFFFF;
-					} else if (req_addr == 0x2C) {
-						/* Subsystem ID and Subsystem vendor ID */
-						ignore_next_postgres_completion = true;
-					}
-#endif
-
-				} else {
-					data_length = 0;
-#ifndef DUMMY
-#define TLP_DATA	((req_addr % 8 == 0) ? tlp_in[4] : tlp_in[3])
-					if (track_register(req_addr)) {
-						PDBG("Writing 0x%lx to 0x%x.", req_addr,
-							bswap32(TLP_DATA));
-					}
-					for (i = 0; i < 4; ++i) {
-						if ((request_dword1->firstbe >> i) & 1) {
-							pci_host_config_write_common(
-								pci_dev, req_addr + i, req_addr + 4,
-								(TLP_DATA >> ((3 - i) * 8)) & 0xFF, 1);
-						}
-					}
-#undef TLP_DATA
-#endif
-				}
-			}
-			else {
-				completion_status = TLPCS_UNSUPPORTED_REQUEST;
-				data_length = 0;
-			}
-
-			create_completion_header(
-				tlp_out_header_dword, dir, device_id, completion_status, 4,
-				requester_id, req_bits->tag, 0);
-
-			break;
-		case IO:
-			assert(request_dword1->firstbe == 0xf); /* Only seen trace. */
-
-			should_send_response = true;
-			header_length = 12;
-
-			/*
-			 * The process for interacting with the device over IO is rather
-			 * convoluted.
-			 *
-			 * 1) A packet is sent writing an address to a register.
-			 * 2) A completion happens.
-			 *
-			 * 3) A packet is then sent reading or writing another register.
-			 * 4) The completion for this is effectively for the address that
-			 * was written in 1).
-			 *
-			 * So we need to ignore the completion for the IO packet after the
-			 * completion for 2)
-			 *
-			 */
-#ifndef DUMMY
-			req_addr = tlp_in[2];
-			pci_io_region = &(pci_dev->io_regions[2]);
-			assert(pci_io_region->addr != PCI_BAR_UNMAPPED);
-			if (req_addr < pci_io_region->addr) {
-				PDBG("Trying to map req with addr %x in BAR with addr %x.",
-					req_addr, pci_io_region->addr);
-				PDBG("Last packet: %d", last_packet);
-			}
-			assert(req_addr >= pci_io_region->addr);
-			target_region = pci_io_region->memory;
-			rel_addr = req_addr - pci_io_region->addr;
-#endif
-
-			if (dir == TLPD_WRITE) {
-				data_length = 0;
-#ifndef DUMMY
-				/*tlp_in[3] = bswap32(tlp_in[3]);*/
-				assert(io_mem_write(target_region, rel_addr, tlp_in[3], 4)
-					== false);
-
-				/* XXX: Check crazy alignment on tlp_in[3] here */
-				if (rel_addr == 0) {
-					card_reg = tlp_in[3];
-					/*PDBG("Setting CARD REG to 0x%x", card_reg);*/
-				}
-#endif
-			} else {
-				data_length = 4;
-#ifdef DUMMY
-				tlp_out_data[0] = 0xBEDEBEDE;
-#else
-				assert(io_mem_read(target_region, rel_addr,
-						(uint64_t *)tlp_out_data, 4)
-					== false);
-#endif
-			}
-
-#ifdef POSTGRES
-			if (ignore_next_io_completion) {
-				ignore_next_io_completion = false;
-				ignore_next_postgres_completion = true;
-			}
-#endif
-
-			create_completion_header(tlp_out_header_dword, dir, device_id,
-				TLPCS_SUCCESSFUL_COMPLETION, 4, requester_id, req_bits->tag, 0);
-
-#ifdef POSTGRES
-			if (dir == TLPD_WRITE && card_reg == 0x10) {
-				ignore_next_io_completion = true;
-			} else if (dir == TLPD_READ && card_reg == 0x8) {
-				mask_next_postgres_completion_data = true;
-				postgres_completion_mask = PG_STATUS_MASK;
-			}
-#endif
-
-			break;
-		case CPL:
-			assert(false);
-			break;
-		default:
-			log_log(LS_RECV_UNKNOWN, LIF_NONE, 0, LOG_NEWLINE);
-			type_string = "Unknown";
-		}
-
-		/*diff = read_hw_counter() - start;*/
-
-		/*if (diff > (1 << 23)) {*/
-			/*log_log(LS_CYCLES, LIF_UINT_64, diff, LOG_NEWLINE);*/
-			/*log_print();*/
-		/*}*/
-
-		if (should_send_response) {
-			/*if (dword0->type != M) {*/
-			for (i = 0; i < data_length / 4; ++i) {
-				tlp_out_data_dword[i] = bswap32(tlp_out_data_dword[i]);
-			}
-			/*}*/
 			send_result = send_tlp(tlp_out_header, header_length, tlp_out_data,
 				data_length, alignment);
+
 			assert(send_result != -1);
 		}
-
-		/*clock_gettime(CLOCK_PROF, &end);*/
-		/*diff = timespec_diff_in_ns(&start, &end);*/
-		/*if (diff > (1 << 21)) {*/
-			/*DEBUG_PRINTF("%ld %d\n", diff, last_packet);*/
-		/*}*/
-
 	}
 
 	return 0;

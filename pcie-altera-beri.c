@@ -48,7 +48,7 @@ read_hw_counter()
 
 
 /* tlp_len is length of the buffer in bytes. */
-/* Return -1 if 1024 attempts to poll the buffer fail. */
+/* Return -1 if 10000 attempts to poll the buffer fail. 10000 cycles ~ 0.1ms */
 int
 wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 {
@@ -57,10 +57,16 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	volatile TLPQuadWord pciedata;
 	volatile int ready;
 	int i = 0; // i is "length of TLP so far received in doublewords.
+	int retry_attempt = 0;
 
 	do {
 		ready = IORD64(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_READY);
-	} while (ready == 0);
+		++retry_attempt;
+	} while (ready == 0 && retry_attempt < 10000);
+
+	if (!ready) {
+		return -1;
+	}
 
 	do {
 		pciestatus.word = IORD64(PCIEPACKETRECEIVER_0_BASE,

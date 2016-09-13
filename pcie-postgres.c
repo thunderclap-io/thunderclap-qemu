@@ -843,14 +843,14 @@ pcie_hardware_init(int argc, char **argv, volatile uint8_t **physmem)
 
 	query_status = start_binary_single_row_query(
 		postgres_connection_downstream,
-		"SELECT * FROM qemu_trace WHERE link_dir = 'Downstream' ORDER BY packet ASC");
+		"SELECT * FROM trace WHERE link_dir = 'Downstream' ORDER BY packet ASC");
 	if (query_status != 0) {
 		return query_status;
 	}
 
 	query_status = start_binary_single_row_query(
 		postgres_connection_upstream,
-		"SELECT * FROM qemu_trace WHERE link_dir = 'Upstream' ORDER BY packet ASC");
+		"SELECT * FROM trace WHERE link_dir = 'Upstream' ORDER BY packet ASC");
 	if (query_status != 0) {
 		return query_status;
 	}
