@@ -149,41 +149,6 @@ static DeviceClass
 }
 #endif
 
-static inline void
-create_completion_header(TLPDoubleWord *tlp,
-	enum tlp_direction direction, uint16_t completer_id,
-	enum tlp_completion_status completion_status, uint16_t bytecount,
-	uint16_t requester_id, uint8_t tag, uint8_t loweraddress)
-{
-	// Clear buffer. If passed in a buffer that's too short, this might be an
-	// exploit?
-	tlp[0] = 0;
-	tlp[1] = 0;
-	tlp[2] = 0;
-
-	volatile struct TLP64DWord0 *header0 = (volatile struct TLP64DWord0 *)(tlp);
-	if (direction == TLPD_READ
-		&& completion_status == TLPCS_SUCCESSFUL_COMPLETION) {
-		header0->fmt = TLPFMT_3DW_DATA;
-		header0->length = 1;
-	} else {
-		header0->fmt = TLPFMT_3DW_NODATA;
-		header0->length = 0;
-	}
-	header0->type = CPL;
-
-	volatile struct TLP64CompletionDWord1 *header1 =
-		(volatile struct TLP64CompletionDWord1 *)(tlp) + 1;
-	header1->completer_id = completer_id;
-	header1->status = completion_status;
-	header1->bytecount = bytecount;
-
-	volatile struct TLP64CompletionDWord2 *header2 =
-		(volatile struct TLP64CompletionDWord2 *)(tlp) + 2;
-	header2->requester_id = requester_id;
-	header2->tag = tag;
-	header2->loweraddress = loweraddress;
-}
 
 #ifndef BAREMETAL
 #ifndef DUMMY
@@ -211,31 +176,55 @@ timespec_diff_in_ns(struct timespec *left, struct timespec *right) {
 
 extern int last_packet;
 
+
+enum packet_response {
+	PR_NO_RESPONSE, PR_RESPONSE
+};
+
 struct PacketGeneratorState {
-	uint64_t next_read;
+	PCIDevice *pci_dev;
+
+	uint32_t next_read;
+	int32_t device_id;
 };
 
 void
 initialise_packet_generator_state(struct PacketGeneratorState *state)
 {
 	state->next_read = 0;
+	state->device_id = -1;
 }
-
-void
-generate_packet(struct PacketGeneratorState *state,
-	TLPDoubleWord *tlp_out_header, int *tlp_out_header_len,
-	TLPDoubleWord *tlp_out_data, int *tlp_out_data_len)
-{
-}
-
-enum packet_response {
-	PR_NO_RESPONSE, PR_RESPONSE_UNALIGNED, PR_RESPONSE_ALIGNED
-};
 
 enum packet_response
-respond_to_packet(PCIDevice *pci_dev, TLPQuadWord *tlp_in_quadword,
-	int *header_length, int *data_length,
-	TLPQuadWord *tlp_out_header, TLPQuadWord *tlp_out_data)
+generate_packet(struct PacketGeneratorState *state, struct RawTLP *out)
+{
+	int i;
+
+	if (state->device_id == -1) {
+		return PR_NO_RESPONSE;
+	}
+
+	/* Start by constructing reads of 32 bit addresses */
+
+	for (i = 0; i < 3; ++i) {
+		out->header[i] = 0;
+	}
+
+	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)out->header;
+	struct TLP64RequestDWord1 *request_dword1 =
+		(struct TLP64RequestDWord1 *)(out->header + 1);
+	TLPDoubleWord *address = (out->header + 2);
+
+	dword0->fmt = TLPFMT_3DW_NODATA;
+	dword0->length = 0;
+	dword0->type = M;
+
+	return PR_NO_RESPONSE;
+}
+
+enum packet_response
+respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
+	struct RawTLP *out)
 {
 	int i, tlp_in_len = 0, bytecount;
 	enum tlp_direction dir;
@@ -244,22 +233,17 @@ respond_to_packet(PCIDevice *pci_dev, TLPQuadWord *tlp_in_quadword,
 	bool write_error = false;
 	bool ignore_next_io_completion = false;
 	bool mask_next_io_completion_data = false;
-	uint16_t length, device_id, requester_id;
+	uint16_t length, requester_id;
 	uint32_t io_completion_mask, loweraddress;
-	uint64_t addr, req_addr;
+	uint64_t addr, req_addr, data_buffer;
 
-	TLPDoubleWord *tlp_in = (TLPDoubleWord *)tlp_in_quadword;
-	TLPDoubleWord *tlp_out_header_dword = (TLPDoubleWord *)tlp_out_header;
-	TLPDoubleWord *tlp_out_data_dword = (TLPDoubleWord *)tlp_out_data;
-	uint16_t *tlp_out_data_word = (uint16_t *)tlp_out_data;
-
-	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)tlp_in;
+	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)in->header;
 	struct TLP64RequestDWord1 *request_dword1 =
-		(struct TLP64RequestDWord1 *)(tlp_in + 1);
+		(struct TLP64RequestDWord1 *)(in->header + 1);
 	struct TLP64ConfigRequestDWord2 *config_request_dword2 =
-		(struct TLP64ConfigRequestDWord2 *)(tlp_in + 2);
+		(struct TLP64ConfigRequestDWord2 *)(in->header + 2);
 
-	struct TLP64ConfigReq *config_req = (struct TLP64ConfigReq *)tlp_in;
+	struct TLP64ConfigReq *config_req = (struct TLP64ConfigReq *)in->header;
 	struct TLP64DWord0 *h0bits = &(config_req->header0);
 	struct TLP64RequestDWord1 *req_bits = &(config_req->req_header);
 
@@ -271,8 +255,8 @@ respond_to_packet(PCIDevice *pci_dev, TLPQuadWord *tlp_in_quadword,
 	hwaddr rel_addr;
 #endif
 
-	*header_length = 0;
-	*data_length = 0;
+	out->header_length = 0;
+	out->data_length = 0;
 
 	/* Has to be static due to the way reading over IO space works. */
 	static int card_reg = -1;
@@ -289,33 +273,23 @@ respond_to_packet(PCIDevice *pci_dev, TLPQuadWord *tlp_in_quadword,
 		bytecount = 0;
 #ifndef DUMMY
 		/* TODO: Different operation for flash? */
-		pci_io_region = &(pci_dev->io_regions[0]);
+		pci_io_region = &(state->pci_dev->io_regions[0]);
 		assert(pci_io_region->addr != PCI_BAR_UNMAPPED);
-		assert(tlp_in[2] >= pci_io_region->addr);
+		assert(in->header[2] >= pci_io_region->addr);
 		target_region = pci_io_region->memory;
-		rel_addr = tlp_in[2] - pci_io_region->addr;
+		rel_addr = in->header[2] - pci_io_region->addr;
 		loweraddress = rel_addr;
 #endif
 
 		if (dir == TLPD_READ) {
 #ifdef DUMMY
 			read_error = false;
-			tlp_out_data_dword[0] = 0xBEDEBEDE;
+			out->data[0] = 0xBEDEBEDE;
 #else
-			read_error = io_mem_read(target_region,
-				rel_addr,
-				tlp_out_data,
-				4);
-
-			response = (rel_addr % 8) == 0 ?
-				PR_RESPONSE_ALIGNED : PR_RESPONSE_UNALIGNED;
+			read_error = io_mem_read(target_region, rel_addr, &data_buffer, 4);
+			out->data[0] = data_buffer;
+			response = PR_RESPONSE;
 #endif
-			/* We have read a dword size chunk into a qword. The relevant data
-			 * is the least significant bits, so goes at a larger offset. We
-			 * want the data in the correct dword pointer, so we move it from
-			 * where it is.
-			 */
-			tlp_out_data_dword[0] = (TLPDoubleWord)tlp_out_data[0];
 
 #ifdef POSTGRES
 			if (read_error) {
@@ -353,22 +327,19 @@ respond_to_packet(PCIDevice *pci_dev, TLPQuadWord *tlp_in_quadword,
 				}
 			}
 
-			*header_length = 12;
-			*data_length = 4;
-			create_completion_header(tlp_out_header_dword, dir, device_id,
+			out->header_length = 12;
+			out->data_length = 4;
+			create_completion_header(out, dir, state->device_id,
 				TLPCS_SUCCESSFUL_COMPLETION, bytecount, requester_id,
 				req_bits->tag, loweraddress);
 		} else { /* dir == TLPD_WRITE */
-			uint32_t write_data = bswap32(
-				(rel_addr % 8 == 0) ? tlp_in[4] : tlp_in[3]);
-
-			io_mem_write(target_region, rel_addr, write_data, 4);
+			io_mem_write(target_region, rel_addr, bswap32(in->data[0]), 4);
 		}
 
 		break;
 	case CFG_0:
 		assert(dword0->length == 1);
-		response = PR_RESPONSE_ALIGNED;
+		response = PR_RESPONSE;
 		requester_id = request_dword1->requester_id;
 
 		req_addr = config_request_dword2->ext_reg_num;
@@ -377,15 +348,15 @@ respond_to_packet(PCIDevice *pci_dev, TLPQuadWord *tlp_in_quadword,
 		if ((config_request_dword2->device_id & uint32_mask(3)) == 0) {
 			/* Mask to get function num -- we are 0 */
 			completion_status = TLPCS_SUCCESSFUL_COMPLETION;
-			device_id = config_request_dword2->device_id;
+			state->device_id = config_request_dword2->device_id;
 
 			if (dir == TLPD_READ) {
-				*data_length = 4;
+				out->data_length = 4;
 #ifdef DUMMY
-				tlp_out_data_dword[0] = 0xBEDEBEDE;
+				out->data[0] = 0xBEDEBEDE;
 #else
-				tlp_out_data_dword[0] = pci_host_config_read_common(
-					pci_dev, req_addr, req_addr + 4, 4);
+				out->data[0] = pci_host_config_read_common(
+					state->pci_dev, req_addr, req_addr + 4, 4);
 #endif
 
 #ifdef POSTGRES
@@ -407,36 +378,33 @@ respond_to_packet(PCIDevice *pci_dev, TLPQuadWord *tlp_in_quadword,
 #endif
 
 			} else {
-				*data_length = 0;
+				out->data_length = 0;
 #ifndef DUMMY
-#define TLP_DATA	((req_addr % 8 == 0) ? tlp_in[4] : tlp_in[3])
 				for (i = 0; i < 4; ++i) {
 					if ((request_dword1->firstbe >> i) & 1) {
 						pci_host_config_write_common(
-							pci_dev, req_addr + i, req_addr + 4,
-							(TLP_DATA >> ((3 - i) * 8)) & 0xFF, 1);
+							state->pci_dev, req_addr + i, req_addr + 4,
+							(in->data[0] >> ((3 - i) * 8)) & 0xFF, 1);
 					}
 				}
-#undef TLP_DATA
 #endif
 			}
 		}
 		else {
 			completion_status = TLPCS_UNSUPPORTED_REQUEST;
-			*data_length = 0;
+			out->data_length = 0;
 		}
 
-		*header_length = 12;
-		create_completion_header(
-			tlp_out_header_dword, dir, device_id, completion_status, 4,
-			requester_id, req_bits->tag, 0);
+		out->header_length = 12;
+		create_completion_header(out, dir, state->device_id, completion_status,
+			4, requester_id, req_bits->tag, 0);
 
 		break;
 	case IO:
 		assert(request_dword1->firstbe == 0xf); /* Only seen trace. */
 
-		response = PR_RESPONSE_ALIGNED;
-		*header_length = 12;
+		response = PR_RESPONSE;
+		out->header_length = 12;
 
 		/*
 		 * The process for interacting with the device over IO is rather
@@ -454,8 +422,8 @@ respond_to_packet(PCIDevice *pci_dev, TLPQuadWord *tlp_in_quadword,
 		 *
 		 */
 #ifndef DUMMY
-		req_addr = tlp_in[2];
-		pci_io_region = &(pci_dev->io_regions[2]);
+		req_addr = in->header[2];
+		pci_io_region = &(state->pci_dev->io_regions[2]);
 		assert(pci_io_region->addr != PCI_BAR_UNMAPPED);
 		if (req_addr < pci_io_region->addr) {
 			PDBG("Trying to map req with addr %x in BAR with addr %x.",
@@ -468,19 +436,19 @@ respond_to_packet(PCIDevice *pci_dev, TLPQuadWord *tlp_in_quadword,
 #endif
 
 		if (dir == TLPD_WRITE) {
-			*data_length = 0;
+			out->data_length = 0;
 #ifndef DUMMY
-			assert(io_mem_write(target_region, rel_addr, tlp_in[3], 4)
+			assert(io_mem_write(target_region, rel_addr, in->data[0], 4)
 				== false);
 #endif
 		} else {
-			*data_length = 4;
+			out->data_length = 4;
 #ifdef DUMMY
-			tlp_out_data[0] = 0xBEDEBEDE;
+			out->data[0] = 0xBEDEBEDE;
 #else
-			assert(io_mem_read(target_region, rel_addr,
-					(uint64_t *)tlp_out_data, 4)
+			assert(io_mem_read(target_region, rel_addr, &data_buffer, 4)
 				== false);
+			out->data[0] = data_buffer;
 #endif
 		}
 
@@ -491,7 +459,7 @@ respond_to_packet(PCIDevice *pci_dev, TLPQuadWord *tlp_in_quadword,
 		}
 #endif
 
-		create_completion_header(tlp_out_header_dword, dir, device_id,
+		create_completion_header(out, dir, state->device_id,
 			TLPCS_SUCCESSFUL_COMPLETION, 4, requester_id, req_bits->tag, 0);
 
 #ifdef POSTGRES
@@ -511,8 +479,8 @@ respond_to_packet(PCIDevice *pci_dev, TLPQuadWord *tlp_in_quadword,
 		log_log(LS_RECV_UNKNOWN, LIF_NONE, 0, LOG_NEWLINE);
 	}
 
-	for (i = 0; i < *data_length / 4; ++i) {
-		tlp_out_data_dword[i] = bswap32(tlp_out_data_dword[i]);
+	for (i = 0; i < out->data_length / 4; ++i) {
+		out->data[i] = bswap32(out->data[i]);
 	}
 
 	return response;
@@ -659,7 +627,7 @@ main(int argc, char *argv[])
     if (init)
     	return init;
 
-	int i, tlp_in_len = 0, send_result;
+	int i, send_result;
 	int header_length, data_length;
 	bool ignore_next_io_completion = false;
 	bool mask_next_io_completion_data = false;
@@ -674,16 +642,25 @@ main(int argc, char *argv[])
 	TLPQuadWord tlp_out_header[2];
 	TLPQuadWord tlp_out_data[16];
 
+	struct RawTLP raw_tlp_in;
+	struct RawTLP raw_tlp_out;
+	raw_tlp_out.header = (TLPDoubleWord *)tlp_out_header;
+	raw_tlp_out.data = (TLPDoubleWord *)tlp_out_data;
+
 	int received_count = 0;
 	write_leds(received_count);
+
+	struct PacketGeneratorState packet_generator_state;
+	initialise_packet_generator_state(&packet_generator_state);
+	packet_generator_state.pci_dev = pci_dev;
 
 	drain_pcie_core();
 	puts("PCIe Core Drained. Let's go.");
 
 	while (1) {
 		do {
-			tlp_in_len = wait_for_tlp(tlp_in_quadword, sizeof(tlp_in_quadword));
-		} while (tlp_in_len == -1);
+			wait_for_tlp(tlp_in_quadword, sizeof(tlp_in_quadword), &raw_tlp_in);
+		} while (!is_raw_tlp_valid(&raw_tlp_in));
 
 #ifdef POSTGRES
 		if (tlp_in_len == TRACE_COMPLETE) {
@@ -692,16 +669,15 @@ main(int argc, char *argv[])
 		}
 #endif
 
-		response = respond_to_packet(pci_dev, tlp_in_quadword, &header_length,
-			&data_length, tlp_out_header, tlp_out_data);
+		if (is_raw_tlp_valid(&raw_tlp_in)) {
+			response = respond_to_packet(&packet_generator_state, &raw_tlp_in,
+				&raw_tlp_out);
+		} else {
+			response = generate_packet(&packet_generator_state, &raw_tlp_out);
+		}
 
 		if (response != PR_NO_RESPONSE) {
-			alignment = (response == PR_RESPONSE_ALIGNED) ?
-				TDA_ALIGNED : TDA_UNALIGNED;
-
-			send_result = send_tlp(tlp_out_header, header_length, tlp_out_data,
-				data_length, alignment);
-
+			send_result = send_tlp(&raw_tlp_out);
 			assert(send_result != -1);
 		}
 	}

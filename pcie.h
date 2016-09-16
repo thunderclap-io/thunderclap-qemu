@@ -1,10 +1,37 @@
 #ifndef PCIE_H
 #define PCIE_H
 
+#include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 typedef uint64_t TLPQuadWord;
 typedef uint32_t TLPDoubleWord;
+
+/*
+ * Length fields are in bytes.
+ */
+struct RawTLP {
+	int header_length;
+	TLPDoubleWord *header;
+	int data_length;
+	TLPDoubleWord *data;
+};
+
+inline void
+set_raw_tlp_invalid(struct RawTLP *out)
+{
+	out->header_length = -1;
+	out->header = NULL;
+	out->data_length = -1;
+	out->data = NULL;
+}
+
+inline bool
+is_raw_tlp_valid(struct RawTLP *tlp)
+{
+	return tlp->header_length != -1;
+}
 
 enum tlp_type {
 	M					= 0x0, // Memory
@@ -33,6 +60,18 @@ enum tlp_fmt {
 #define TLPFMT_4DW			0x1
 #define TLPFMT_WITHDATA		0x2
 #define TLPFMT_PREFIX		0x4
+
+inline bool
+tlp_fmt_has_data(enum tlp_fmt fmt)
+{
+	return fmt & TLPFMT_WITHDATA;
+}
+
+inline bool
+tlp_fmt_is_4dw(enum tlp_fmt fmt)
+{
+	return fmt & TLPFMT_4DW;
+}
 
 typedef union {
 	struct {
@@ -135,21 +174,18 @@ struct TLP64ConfigRequestDWord2 {
 	uint32_t reserved0:4;
 	uint32_t ext_reg_num:4;
 	uint32_t reg_num:8;
-	//uint32_t reserved1:2;
 };
-
-static inline
-uint16_t get_config_request_addr(struct TLP64ConfigRequestDWord2 *dword)
-{
-	//uint16_t *packet_start = (uint16_t *)dword;
-	//return *(packet_start + 1);
-	return ((dword->ext_reg_num << 8) | (dword->reg_num << 2));
-}
 
 struct TLP64ConfigReq {
 	struct TLP64DWord0 header0;
 	struct TLP64RequestDWord1 req_header;
 	struct TLP64ConfigRequestDWord2 dword2;
 };
+
+void
+create_completion_header(struct RawTLP *tlp,
+	enum tlp_direction direction, uint16_t completer_id,
+	enum tlp_completion_status completion_status, uint16_t bytecount,
+	uint16_t requester_id, uint8_t tag, uint8_t loweraddress);
 
 #endif

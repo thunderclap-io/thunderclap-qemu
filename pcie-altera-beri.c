@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <stdio.h>
 #include "qemu/bswap.h"
 #include "pcie.h"
 #include "mask.h"
@@ -45,12 +46,26 @@ read_hw_counter()
 	return retval;
 }
 
-
+static inline enum tlp_data_alignment
+tlp_get_alignment_from_header(TLPDoubleWord *header)
+{
+	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)header;
+	if ((dword0->type == M || dword0->type == M_LK) &&
+		tlp_fmt_is_4dw(dword0->fmt)) {
+		/* 64 bit address */
+		return (header[3] % 8) == 0 ? TDA_ALIGNED : TDA_UNALIGNED;
+	} else {
+		/* Lower bits of relevant address are always in the same place. */
+		return (header[2] % 8) == 0 ? TDA_ALIGNED : TDA_UNALIGNED;
+	}
+}
 
 /* tlp_len is length of the buffer in bytes. */
-/* Return -1 if 10000 attempts to poll the buffer fail. 10000 cycles ~ 0.1ms */
-int
-wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
+/* If 10000 attempts to poll fail, set both length fields to -1, both pointers
+ * to null. */
+/* 10000 cycles ~ 0.1ms */
+void
+wait_for_tlp(volatile TLPQuadWord *buffer, int buffer_len, struct RawTLP *out)
 {
 	/* Real approach: no POSTGRES */
 	volatile PCIeStatus pciestatus;
@@ -65,7 +80,8 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 	} while (ready == 0 && retry_attempt < 10000);
 
 	if (!ready) {
-		return -1;
+		set_raw_tlp_invalid(out);
+		return;
 	}
 
 	do {
@@ -76,17 +92,57 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 			i = 0;
 		}
 		pciedata = IORD64(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_DATA);
-		tlp[i++] = pciedata;
-		if ((i * 8) > tlp_len) {
-//			PDBG("ERROR: TLP Larger than buffer.");
+		buffer[i++] = pciedata;
+		if ((i * 8) > buffer_len) {
 			puts("TLP RECV OVERFLOW\r\n");
-			return -1;
+			set_raw_tlp_invalid(out);
+			return;
 		}
 	} while (!pciestatus.bits.endofpacket);
 
-	return (i * 8);
+	/* There isn't a great way to deal with the fact that the PCIe core moves
+	 * data around depending on the address of the data. As we would rather
+	 * not have higher layers understand, the recieve function needs to know
+	 * an unfortunate amount about the semantics of the TLP.
+	 */
 
+	out->header = (TLPDoubleWord *)buffer;
+	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)out->header;
+
+	switch (dword0->fmt) {
+	case TLPFMT_3DW_NODATA:
+	case TLPFMT_3DW_DATA:
+		out->header_length = 12;
+		break;
+	case TLPFMT_4DW_NODATA:
+	case TLPFMT_4DW_DATA:
+		out->header_length = 16;
+		break;
+	default:
+		assert(false);
+	}
+
+	/* The TLPs that carry data are Memory Write, Memory Write Locked, IO
+	 * Write, Config Write Types 0 and 1, Completion with Data, Completion
+	 * with Data Locked. */
+
+	bool aligned;
+	if (tlp_fmt_has_data(dword0->fmt)) {
+		if (tlp_get_alignment_from_header(out->header) == TDA_ALIGNED) {
+			out->data = out->header + 4;
+		} else {
+			if (tlp_fmt_is_4dw(dword0->fmt)) {
+				out->data = out->header + 5;
+			} else {
+				out->data = out->header + 3;
+			}
+		}
+	} else {
+		out->data = NULL;
+		out->data_length = 0;
+	}
 }
+
 
 void
 drain_pcie_core()
@@ -111,9 +167,13 @@ bswap32_within_64(uint64_t input)
 /* tlp is a pointer to the tlp, tlp_len is the length of the tlp in bytes. */
 /* returns 0 on success. */
 int
-send_tlp(TLPQuadWord *header, int header_len, TLPQuadWord *data, int data_len,
-	enum tlp_data_alignment data_alignment)
+send_tlp(struct RawTLP *tlp)
 {
+	/* XXX: This function used to take quad word pointers -- now it takes a
+	 * raw_tlp, and makes assumptions about alignment. It should be
+	 * reconstructed. It is potentially an unsafe cast.
+	 */
+
 	/* Special case for:
 	 * 3DW, Unaligned data. Send qword of remaining header dword, first data.
 	 *   Construct qwords from unaligned data and send.
@@ -132,8 +192,12 @@ send_tlp(TLPQuadWord *header, int header_len, TLPQuadWord *data, int data_len,
 
 	int byte_index;
 	volatile PCIeStatus statusword;
+	TLPQuadWord *header = (TLPQuadWord *)tlp->header;
+	TLPQuadWord *data = (TLPQuadWord *)tlp->data;
 	TLPQuadWord sendqword;
-	TLPDoubleWord *data_dword = (TLPDoubleWord *)data;
+
+	enum tlp_data_alignment data_alignment =
+		tlp_get_alignment_from_header(tlp->header);
 
 	// Stops the TX queue from draining whilst we're filling it.
 	IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 0);
@@ -145,7 +209,7 @@ send_tlp(TLPQuadWord *header, int header_len, TLPQuadWord *data, int data_len,
 
 	statusword.word = 0;
 
-	if (header_len == 12 && data_alignment == TDA_UNALIGNED) {
+	if (tlp->header_length == 12 && data_alignment == TDA_UNALIGNED) {
 		/* Because this is big endian, the bits of the dword with the smallest
 		 * offset are the most significant. The header word has the smallest
 		 * offset from the start, so has to be shifted in to the most
@@ -156,32 +220,32 @@ send_tlp(TLPQuadWord *header, int header_len, TLPQuadWord *data, int data_len,
 
 		TLPDoubleWord header_dword = header[1] >> 32;
 		sendqword = (TLPQuadWord)(bswap32(header[1] >> 32)) << 32;
-		if (data_len > 0) {
-			/*sendqword |= merge_data;*/
-			sendqword |= bswap32((TLPDoubleWord)data[0]);
+		if (tlp->data_length > 0) {
+			sendqword |= tlp->data[0];
 		}
-		statusword.bits.endofpacket = (data_len <= 4);
+		statusword.bits.endofpacket = (tlp->data_length <= 4);
 		WR_STATUS(statusword.word);
 		WR_DATA(sendqword);
-		for (byte_index = 4; byte_index < data_len; byte_index += 8) {
+		for (byte_index = 4; byte_index < tlp->data_length; byte_index += 8) {
 			while (1) {
 				printf("PROBABLY BROKEN LOOP!");
 				for (int i = 0; i < 100000; ++i) {
 					asm("nop");
 				}
 			}
-			statusword.bits.endofpacket = ((byte_index + 8) >= data_len);
-			sendqword = (TLPQuadWord)(data_dword[byte_index / 4]) << 32;
-			sendqword |= data_dword[(byte_index / 4) + 1];
+			statusword.bits.endofpacket =
+				((byte_index + 8) >= tlp->data_length);
+			sendqword = (TLPQuadWord)(tlp->data[byte_index / 4]) << 32;
+			sendqword |= tlp->data[(byte_index / 4) + 1];
 			WR_STATUS(statusword.word);
 			WR_DATA(sendqword);
 		}
 	} else {
-		statusword.bits.endofpacket = (data_len == 0);
+		statusword.bits.endofpacket = (tlp->data_length == 0);
 		WR_STATUS(statusword.word);
 		WR_DATA(bswap32_within_64(header[1]));
-		for (byte_index = 0; byte_index < data_len; byte_index += 8) {
-			statusword.bits.endofpacket = ((byte_index + 8) >= data_len);
+		for (byte_index = 0; byte_index < tlp->data_length; byte_index += 8) {
+			statusword.bits.endofpacket = ((byte_index + 8) >= tlp->data_length);
 			WR_STATUS(statusword.word);
 			WR_DATA(data[byte_index / 8]);
 		}
@@ -189,15 +253,6 @@ send_tlp(TLPQuadWord *header, int header_len, TLPQuadWord *data, int data_len,
 
 	// Release queued data
 	IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 1);
-
-	/*if (header_len == 12 && data_alignment == TDA_UNALIGNED) {*/
-		/*printf("data[0]: 0x%0lx. sendqword: 0x%0lx. data_len: %d. \n",*/
-			/*data[0], sendqword, data_len);*/
-		/*[>printf("Took special path.\n");<]*/
-		/*[>printf("Last sendqword was: %lx.\n", sendqword);<]*/
-		/*[>printf("data_len was: %d. endofpacket?: %d\n", data_len,<]*/
-			/*[>statusword.bits.endofpacket);<]*/
-	/*}*/
 
 	return 0;
 #undef WR_STATUS

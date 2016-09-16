@@ -159,7 +159,7 @@ SOURCES := $(shell find . \
 	! -name "pcie-*.c" $(DONT_FIND_TEMPLATES) -name "*.c" \
 	| sed '/niosbare/d' \
 	| sed '/beribare/d' \
-	| sed 's|./||') $(BACKEND_$(TARGET))
+	| sed 's|./||') pcie-core.c $(BACKEND_$(TARGET))
 endif
 O_FILES := $(addprefix $(TARGET_DIR)/,$(SOURCES:.c=.o))
 HEADERS := $(shell find . -name "*.h")
