@@ -204,22 +204,12 @@ generate_packet(struct PacketGeneratorState *state, struct RawTLP *out)
 		return PR_NO_RESPONSE;
 	}
 
-	/* Start by constructing reads of 32 bit addresses */
+	create_memory_read_header(out, 1, state->device_id, 0, 0, 0xF,
+		state->next_read);
 
-	for (i = 0; i < 3; ++i) {
-		out->header[i] = 0;
-	}
+	state->next_read += 4;
 
-	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)out->header;
-	struct TLP64RequestDWord1 *request_dword1 =
-		(struct TLP64RequestDWord1 *)(out->header + 1);
-	TLPDoubleWord *address = (out->header + 2);
-
-	dword0->fmt = TLPFMT_3DW_NODATA;
-	dword0->length = 0;
-	dword0->type = M;
-
-	return PR_NO_RESPONSE;
+	return PR_RESPONSE;
 }
 
 enum packet_response
@@ -473,7 +463,7 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 
 		break;
 	case CPL:
-		assert(false);
+		putchar('!');
 		break;
 	default:
 		log_log(LS_RECV_UNKNOWN, LIF_NONE, 0, LOG_NEWLINE);
@@ -658,9 +648,7 @@ main(int argc, char *argv[])
 	puts("PCIe Core Drained. Let's go.");
 
 	while (1) {
-		do {
-			wait_for_tlp(tlp_in_quadword, sizeof(tlp_in_quadword), &raw_tlp_in);
-		} while (!is_raw_tlp_valid(&raw_tlp_in));
+		wait_for_tlp(tlp_in_quadword, sizeof(tlp_in_quadword), &raw_tlp_in);
 
 #ifdef POSTGRES
 		if (tlp_in_len == TRACE_COMPLETE) {
