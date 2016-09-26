@@ -486,6 +486,8 @@ static void e1000e_pci_realize(PCIDevice *pci_dev, Error **errp)
     qemu_macaddr_default_if_unset(&s->conf.macaddr);
     macaddr = s->conf.macaddr.a;
 
+	/* XXX: cr437 added this to get msix without initialising an apic. */
+	msi_supported = true;
     _e1000e_init_msix(s);
 
     if (pcie_endpoint_cap_v1_init(pci_dev, E1000E_PCIE_OFFSET) < 0) {
@@ -670,10 +672,10 @@ static Property e1000e_properties[] = {
 static uint32_t e1000e_config_read(PCIDevice *d,
     uint32_t address, int len)
 {
-    if (address >= 0x1c && address <= 0x24) {
-        /*PDBG("Addr 0x%x Returning 0.", address);*/
-        return 0;
-    }
+    /*if (address >= 0x1c && address <= 0x24) {*/
+        /*[>PDBG("Addr 0x%x Returning 0.", address);<]*/
+        /*return 0;*/
+    /*}*/
 
     return pci_default_read_config(d, address, len);
 }

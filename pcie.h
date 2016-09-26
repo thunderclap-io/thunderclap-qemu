@@ -33,6 +33,21 @@ is_raw_tlp_valid(struct RawTLP *tlp)
 	return tlp->header_length != -1;
 }
 
+#ifdef POSTGRES
+inline void
+set_raw_tlp_trace_finished(struct RawTLP *out)
+{
+	set_raw_tlp_invalid(out);
+	out->data_length = -2;
+}
+
+inline bool
+is_raw_tlp_trace_finished(struct RawTLP *tlp)
+{
+	return !is_raw_tlp_valid(tlp) && (tlp->data_length == -2);
+}
+#endif
+
 enum tlp_type {
 	M					= 0x0, // Memory
 	M_LK				= 0x1, // Memory Locked

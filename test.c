@@ -463,7 +463,6 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 
 		break;
 	case CPL:
-		putchar('!');
 		break;
 	default:
 		log_log(LS_RECV_UNKNOWN, LIF_NONE, 0, LOG_NEWLINE);
@@ -651,7 +650,7 @@ main(int argc, char *argv[])
 		wait_for_tlp(tlp_in_quadword, sizeof(tlp_in_quadword), &raw_tlp_in);
 
 #ifdef POSTGRES
-		if (tlp_in_len == TRACE_COMPLETE) {
+		if (is_raw_tlp_trace_finished(&raw_tlp_in)) {
 			PDBG("Reached end of trace! Checked %d TLPs.", TLPS_CHECKED);
 			exit(0);
 		}
@@ -661,7 +660,8 @@ main(int argc, char *argv[])
 			response = respond_to_packet(&packet_generator_state, &raw_tlp_in,
 				&raw_tlp_out);
 		} else {
-			response = generate_packet(&packet_generator_state, &raw_tlp_out);
+			/*response = generate_packet(&packet_generator_state, &raw_tlp_out);*/
+			response = PR_NO_RESPONSE;
 		}
 
 		if (response != PR_NO_RESPONSE) {

@@ -23,6 +23,5 @@ void
 drain_pcie_core();
 
 #ifdef POSTGRES
-#define TRACE_COMPLETE	-2
 extern int TLPS_CHECKED;
 #endif

@@ -254,31 +254,32 @@ POSTGRES_BIGINT_FIELD(data);
 /* Generates a TLP given a PGresult that has as row 0 a record from the trace
  * table. Returns the length of the TLP in bytes. */
 /* TLPDoubleWord is a more natural way to manipulate the TLP Data */
-static int
-tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
+static void
+tlp_from_postgres(PGresult *result, TLPQuadWord *buffer, int buffer_len,
+	struct RawTLP *out)
 {
 	/* Strictly, this should probably all be done with a massive union. */
 	struct TLP64DWord0 *header0 = (struct TLP64DWord0 *)buffer;
 
 	struct TLP64MessageRequestDWord1 *message_req =
-		(struct TLP64MessageRequestDWord1 *)(buffer + 1);
+		(struct TLP64MessageRequestDWord1 *)(header0 + 1);
 
 	struct TLP64RequestDWord1 *header_req =
-		(struct TLP64RequestDWord1 *)(buffer + 1);
+		(struct TLP64RequestDWord1 *)(header0 + 1);
 
 	struct TLP64CompletionDWord1 *compl_dword1 =
-		(struct TLP64CompletionDWord1 *)(buffer + 1);
+		(struct TLP64CompletionDWord1 *)(header0 + 1);
 
-	TLPDoubleWord *dword2 = (buffer + 2);
+	TLPDoubleWord *dword2 = (((TLPDoubleWord *)buffer) + 2);
 
 	struct TLP64ConfigRequestDWord2 *config_dword2 =
-		(struct TLP64ConfigRequestDWord2 *)(buffer + 2);
+		(struct TLP64ConfigRequestDWord2 *)(dword2);
 
 	struct TLP64CompletionDWord2 *compl_dword2 =
-		(struct TLP64CompletionDWord2 *)(buffer + 2);
+		(struct TLP64CompletionDWord2 *)(dword2);
 
-	TLPDoubleWord *dword3 = (buffer + 3);
-	TLPDoubleWord *dword4 = (buffer + 4);
+	TLPDoubleWord *dword3 = dword2 + 1;
+	TLPDoubleWord *dword4 = dword3 + 1;
 
 	header0->tc = 0; // Assume traffic class best effort
 	header0->th = 0; // Assume no traffic processing hints.
@@ -407,22 +408,27 @@ tlp_from_postgres(PGresult *result, TLPDoubleWord *buffer, int buffer_len)
 
 	int i;
 
+	if (tlp_fmt_is_4dw(header0->fmt)) {
+		out->header_length = 16;
+	} else {
+		out->header_length = 12;
+	}
+
+	out->header = (TLPDoubleWord *)buffer;
 
 	if (data_length > 0) {
 		uint64_t data = get_postgres_data(result);
 		TLPDoubleWord *data_dword = (TLPDoubleWord *)&data;
-		TLPDoubleWord *data_dest;
 		if (tlp_type == PG_CFG_WR_0 && (reg % 8 == 0)) {
-			data_dest = dword4;
+			out->data = dword4;
 		} else {
-			data_dest = dword3;
+			out->data = dword3;
 		}
 		for (i = 0; i < (data_length / sizeof(TLPDoubleWord)); ++i) {
-			data_dest[i] = data_dword[i];
+			out->data[i] = data_dword[i];
 		}
 	}
-
-	return length;
+	out->data_length = data_length;
 }
 
 /* We also use this to intercept BAR settings so that we don't send memory
@@ -560,12 +566,9 @@ print_last_sent_packet_ids()
 
 int last_packet;
 
-/* tlp_len is length of the buffer in bytes. */
-/* Return -1 if 1024 attempts to poll the buffer fail. */
-int
-wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
+void
+wait_for_tlp(volatile TLPQuadWord *buffer, int buffer_len, struct RawTLP *out)
 {
-	int ret_value;
 	/* TODO: Check we don't buffer overrun. */
 	PGresult *result = PQgetResult(postgres_connection_downstream);
 	
@@ -574,29 +577,28 @@ wait_for_tlp(volatile TLPQuadWord *tlp, int tlp_len)
 		PQclear(result);
 		result = PQgetResult(postgres_connection_downstream);
 		if (result == NULL) {
-			return TRACE_COMPLETE;
+			return set_raw_tlp_trace_finished(out);
 		}
 	}
 
 	last_packet = get_postgres_packet(result);
 
-	TLPDoubleWord *tlp_dword = (TLPDoubleWord *)tlp;
 #ifdef PRINT_IDS
 	DEBUG_PRINTF("Simulating receiving ");
 #endif
-	ret_value = tlp_from_postgres(result, tlp_dword, tlp_len);
-	last_recvd_ids[(recvd_count % ID_BUFFER_SIZE)] = get_postgres_packet(result);
+	tlp_from_postgres(result, buffer, buffer_len, out);
+	last_recvd_ids[(recvd_count % ID_BUFFER_SIZE)] =
+		get_postgres_packet(result);
 	++recvd_count;
 
 	assert(PQntuples(result) == 1);
 	if (get_postgres_register(result) == 0x18 &&
 		get_postgres_tlp_type(result) == PG_CFG_WR_0 &&
 		get_postgres_device_id(result) == 256) {
-		io_region = tlp_dword[3]; /* Endianness swapped. */
+		io_region = out->data[0];
 	}
 
 	PQclear(result);
-	return ret_value;
 }
 
 void
@@ -619,25 +621,21 @@ should_send_tlp_for_result(PGresult *result)
 
 int TLPS_CHECKED = 0;
 
-/* tlp is a pointer to the tlp, tlp_len is the length of the tlp in bytes. */
-/* returns 0 on success. */
 int
-send_tlp(TLPQuadWord *header, int header_len, TLPQuadWord *data, int data_len,
-	enum tlp_data_alignment data_alignment)
+send_tlp(struct RawTLP *actual)
 {
-	assert(header_len == 12 || header_len == 16);
-	assert(data_len % 4 == 0);
+	assert(actual->header_length == 12 || actual->data_length == 16);
+	assert(actual->data_length % 4 == 0);
 
 	int i, response;
-	int tlp_len = header_len + data_len;
 
 	PGresult *result = PQgetResult(postgres_connection_upstream);
 	assert(result != NULL);
 
-	TLPQuadWord expected[64];
+	struct RawTLP expected;
+	TLPQuadWord expected_buffer[64];
 	int buffer_len = 64 * sizeof(TLPQuadWord);
-	assert(tlp_len <= buffer_len);
-	memset(expected, 0, buffer_len);
+	memset(expected_buffer, 0, buffer_len);
 #ifdef PRINT_IDS
 	DEBUG_PRINTF("Simulating sending ");
 #endif
@@ -660,65 +658,30 @@ send_tlp(TLPQuadWord *header, int header_len, TLPQuadWord *data, int data_len,
 		assert(last_sent_packet_id() > last_recvd_packet_id());
 	}
 
-	response = tlp_from_postgres(result, (TLPDoubleWord *)expected, buffer_len);
+	tlp_from_postgres(result, expected_buffer, buffer_len, &expected);
 
-	bool match = true;
-
-	if (response != tlp_len) {
-		PDBG("Trying to send tlp of length %d. Exected %d. Packet %d. Checked %d.",
-			tlp_len, response, get_postgres_packet(result), sent_count);
-		print_last_recvd_packet_ids();
-		print_last_sent_packet_ids();
-		assert(response == tlp_len);
-		match = false;
-	}
-
-	TLPDoubleWord *expected_dword = (TLPDoubleWord *)expected;
-	TLPDoubleWord *data_dword = (TLPDoubleWord *)data;
+	assert(actual->header_length == expected.header_length);
+	assert(actual->data_length == expected.data_length);
 
 	if (mask_next_postgres_completion_data) {
 		mask_next_postgres_completion_data = false;
-		expected_dword[3] = expected_dword[3] & postgres_completion_mask;
-		*data_dword = (*data_dword) & postgres_completion_mask;
+		actual->data[0] = actual->data[0] & postgres_completion_mask;
+		expected.data[0] = expected.data[0] & postgres_completion_mask;
 	}
 
-	uint8_t *expected_byte = (uint8_t *)expected;
-	uint8_t *header_byte = (uint8_t *)header;
-	uint8_t *data_byte = (uint8_t *)data;
-
-#define TLP_BYTE(K) \
-	((K < header_len) ? header_byte[K] : data_byte[K - header_len])
-
-	uint8_t actual;
-
-	for (i = 0; i < tlp_len; ++i) {
-		match = match && (expected_byte[i] == TLP_BYTE(i));
-	}
-	
-	if (ignore_next_postgres_completion) {
-		match = true;
-		ignore_next_postgres_completion = false;
-	} else {
+	if (!ignore_next_postgres_completion) {
 		++TLPS_CHECKED;
-	}
 
-	if (!match) {
-		PDBG("Attempted packet send mismatch (checked %d, packet %d)",
-			TLPS_CHECKED, get_postgres_packet(result));
-		for (i = 0; i < tlp_len; ++i) {
-			DEBUG_PRINTF("%03d: Exp - 0x%02x; Act - 0x%02x",
-				i, expected_byte[i], TLP_BYTE(i));
-			if (expected_byte[i] != TLP_BYTE(i)) {
-				DEBUG_PRINTF(" !");
-			}
-			DEBUG_PRINTF("\n");
+		for (i = 0; i < (actual->header_length / sizeof(TLPDoubleWord)); ++i) {
+			assert(actual->header[i] == expected.header[i]);
 		}
-		print_last_recvd_packet_ids();
-		return -1;
+
+		for (i = 0; i < (actual->data_length / sizeof(TLPDoubleWord)); ++i ) {
+			assert(actual->data[i] == expected.data[i]);
+		}
 	}
 
 	return 0;
-#undef TLP_BYTE
 }
 
 
