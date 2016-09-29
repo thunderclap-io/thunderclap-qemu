@@ -250,9 +250,13 @@ NICState *qemu_new_nic(NetClientInfo *info,
                        const char *name,
                        void *opaque)
 {
+	printf("qemu_new_nic called.\n");
+
     NetClientState **peers = conf->peers.ncs;
     NICState *nic;
     int i, queues = MAX(1, conf->peers.queues);
+
+	printf("Creating new nic with %d queues.\n", queues);
 
     assert(info->type == NET_CLIENT_OPTIONS_KIND_NIC);
     assert(info->size >= sizeof(NICState));
@@ -900,6 +904,12 @@ static int net_client_init1(const void *object, int is_netdev, Error **errp)
     return 0;
 }
 
+/* due to cr437, so I can initialise a client programmatically without
+ * worrying about faffinf with visitirs. */
+int net_client_netdev_init(const Netdev *netdev, Error **errp)
+{
+	return net_client_init1(netdev, 1, errp);
+}
 
 static void net_visit(Visitor *v, int is_netdev, void **object, Error **errp)
 {
@@ -1292,10 +1302,12 @@ static int net_init_netdev(QemuOpts *opts, void *dummy)
 
 int net_init_clients(void)
 {
+	printf("~~~~~~~~~~ Init client.\n");
     QemuOptsList *net = qemu_find_opts("net");
 
     if (default_net) {
         /* if no clients, we use a default config */
+		printf("~~~~ Init default.\n");
         qemu_opts_set(net, NULL, "type", "nic", &error_abort);
 #ifdef CONFIG_SLIRP
         qemu_opts_set(net, NULL, "type", "user", &error_abort);

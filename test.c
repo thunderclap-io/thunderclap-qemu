@@ -118,6 +118,18 @@ print_last_recvd_packet_ids();
 #endif
 
 #ifndef DUMMY
+
+static Object *qdev_get_peripheral(void)
+{
+    static Object *dev;
+
+    if (dev == NULL) {
+        dev = container_get(qdev_get_machine(), "/peripheral");
+    }
+
+    return dev;
+}
+
 static DeviceClass
 *qdev_get_device_class(const char **driver, Error **errp)
 {
@@ -416,7 +428,7 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 		pci_io_region = &(state->pci_dev->io_regions[2]);
 		assert(pci_io_region->addr != PCI_BAR_UNMAPPED);
 		if (req_addr < pci_io_region->addr) {
-			PDBG("Trying to map req with addr %x in BAR with addr %x.",
+			PDBG("Trying to map req with addr %lx in BAR with addr %lx.",
 				req_addr, pci_io_region->addr);
 			PDBG("Last packet: %d", last_packet);
 		}
@@ -484,7 +496,8 @@ main(int argc, char *argv[])
 	/*const char *driver = "e1000-82540em";*/
 #ifndef DUMMY
 	const char *driver = "e1000e";
-	const char *id = "the-e1000e";
+	const char *nic_id = "the-e1000e";
+	const char *netdev_id = "the-netdev";
 
 	MachineClass *machine_class;
     DeviceClass *dc;
@@ -565,6 +578,35 @@ main(int argc, char *argv[])
 	}
 	printf("Network clients initialised.\n");
 
+	/* Create a client netdev */
+	struct Netdev netdev;
+	struct NetClientOptions net_client_options;
+	struct NetdevUserOptions nuo;
+
+	netdev.id = (char *)netdev_id;
+	netdev.opts = &net_client_options;
+
+	net_client_options.kind = NET_CLIENT_OPTIONS_KIND_USER;
+	net_client_options.user = &nuo;
+
+	memset(&nuo, 0, sizeof(nuo));
+	nuo.has_hostname = false;
+	nuo.has_q_restrict = true;
+	nuo.has_q_restrict = false;
+	nuo.has_ip = false;
+	nuo.has_net = false;
+	nuo.has_host = false;
+	nuo.has_tftp = false;
+	nuo.has_bootfile = false;
+	nuo.has_dhcpstart = false;
+	nuo.has_dns = false;
+	nuo.has_dnssearch = false;
+	nuo.has_smb = false;
+
+	net_client_netdev_init(&netdev, &err);
+
+	assert(err == NULL);
+
     /* find driver */
     dc = qdev_get_device_class(&driver, &err);
     if (!dc) {
@@ -591,13 +633,21 @@ main(int argc, char *argv[])
         qdev_set_parent_bus(dev, &(pci_bus->qbus));
     }
 
-	printf("Setting device id...\n");
-	dev->id = id;
+	printf("Setting device nic_id...\n");
+	dev->id = nic_id;
 
-    /*if (dev->id) {*/
-        /*object_property_add_child(qdev_get_peripheral(), dev->id,*/
-                                  /*OBJECT(dev), NULL);*/
-	/*}*/
+	if (dev->id) {
+		object_property_add_child(qdev_get_peripheral(), dev->id,
+								  OBJECT(dev), &err);
+		assert(err == NULL);
+	}
+
+	object_property_set_str(OBJECT(dev), netdev_id, "netdev", &err);
+	if (err != NULL) {
+		qerror_report_err(err);
+		error_free(err);
+		assert(false);
+	}
 
 	printf("Setting device realized...\n");
 	// This will realize the device if it isn't already, shockingly.

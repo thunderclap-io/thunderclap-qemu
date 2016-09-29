@@ -61,9 +61,8 @@ tlp_get_alignment_from_header(TLPDoubleWord *header)
 }
 
 /* tlp_len is length of the buffer in bytes. */
-/* If 10000 attempts to poll fail, set both length fields to -1, both pointers
- * to null. */
-/* 10000 cycles ~ 0.1ms */
+/* This is non block -- will return if nothing to do, because the main loop
+ * has to be interspersed with. */
 void
 wait_for_tlp(volatile TLPQuadWord *buffer, int buffer_len, struct RawTLP *out)
 {
@@ -77,7 +76,7 @@ wait_for_tlp(volatile TLPQuadWord *buffer, int buffer_len, struct RawTLP *out)
 	do {
 		ready = IORD64(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_READY);
 		++retry_attempt;
-	} while (ready == 0 && retry_attempt < 10000);
+	} while (ready == 0 && retry_attempt < 1);
 
 	if (!ready) {
 		set_raw_tlp_invalid(out);
