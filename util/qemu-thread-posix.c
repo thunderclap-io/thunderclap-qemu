@@ -71,15 +71,6 @@ void qemu_mutex_destroy(QemuMutex *mutex)
 void qemu_mutex_lock(QemuMutex *mutex)
 {
     int err;
-	if (mutex <= (QemuMutex *)4095) {
-		printf("Bad Mutex: %p. Ignoring lock call...", mutex);
-		void *buffer[16];
-		int size = backtrace(buffer, 16);
-		for (int i = 0; i < size; ++i) {
-			printf("%p\n", buffer[i]);
-		}
-		return;
-	}
 
     err = pthread_mutex_lock(&mutex->lock);
     if (err)
@@ -94,20 +85,11 @@ int qemu_mutex_trylock(QemuMutex *mutex)
 void qemu_mutex_unlock(QemuMutex *mutex)
 {
     int err;
-	if (mutex <= (QemuMutex *)4095) {
-		printf("Bad Mutex: %p. Ignoring unlock call...", mutex);
-		void *buffer[16];
-		int size = backtrace(buffer, 16);
-		for (int i = 0; i < size; ++i) {
-			printf("%p\n", buffer[i]);
-		}
-		return;
-	}
-
 
     err = pthread_mutex_unlock(&mutex->lock);
-    if (err)
+    if (err) {
         error_exit(err, __func__);
+	}
 }
 
 void qemu_cond_init(QemuCond *cond)

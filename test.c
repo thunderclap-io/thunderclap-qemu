@@ -75,6 +75,7 @@
 
 #include <stdbool.h>
 
+#include "block/coroutine.h"
 #ifndef DUMMY
 #include "qom/object.h"
 #include "hw/pci/pci.h"
@@ -83,6 +84,7 @@
 #include "hw/pci-host/q35.h"
 #include "qapi/qmp/qerror.h"
 #include "qemu/config-file.h"
+#include "sysemu/cpus.h"
 #endif
 
 #include "pcie-backend.h"
@@ -487,6 +489,18 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 	return response;
 }
 
+void coroutine_fn process_packet(void *opaque)
+{
+	while (true) {
+		printf("Hello, coroutine world!\n");
+		qemu_coroutine_yield();
+	}
+}
+
+void enter_co_bh(void *opaque) {
+	Coroutine *co = opaque;
+	qemu_coroutine_enter(co, NULL);
+}
 
 int
 main(int argc, char *argv[])
@@ -504,8 +518,17 @@ main(int argc, char *argv[])
     DeviceState *dev;
     Error *err = NULL;
 
-	/* Otherwise it will try to delete a non-existent clock - segfault. */
-	init_clocks();
+	/* Initiliase main loop, which has to run to shuttle data between NIC and
+	 * client. */
+
+	qemu_init_main_loop(&err);
+	assert(err == NULL);
+
+	/* This sets up a load of mutexes and condition variables for the main
+	 * loop. Locking of the iothread seems to have to happen directly after
+	 * it. I have no idea why. */
+	qemu_init_cpu_loop();
+    qemu_mutex_lock_iothread();
 
 	/* This needs to be called, otherwise the types are never registered. */
 	module_call_init(MODULE_INIT_QOM);
@@ -696,6 +719,14 @@ main(int argc, char *argv[])
 	drain_pcie_core();
 	puts("PCIe Core Drained. Let's go.");
 
+	Coroutine *co = qemu_coroutine_create(process_packet);
+	QEMUBH *start_bh = qemu_bh_new(enter_co_bh, co);
+
+	while (1) {
+		qemu_bh_schedule(start_bh);
+		main_loop_wait(false);
+	}
+
 	while (1) {
 		wait_for_tlp(tlp_in_quadword, sizeof(tlp_in_quadword), &raw_tlp_in);
 
@@ -710,6 +741,7 @@ main(int argc, char *argv[])
 			response = respond_to_packet(&packet_generator_state, &raw_tlp_in,
 				&raw_tlp_out);
 		} else {
+			main_loop_wait(true); /* true means non blocking. */
 			/*response = generate_packet(&packet_generator_state, &raw_tlp_out);*/
 			response = PR_NO_RESPONSE;
 		}

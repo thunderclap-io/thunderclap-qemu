@@ -569,6 +569,15 @@ int last_packet;
 void
 wait_for_tlp(volatile TLPQuadWord *buffer, int buffer_len, struct RawTLP *out)
 {
+	/* This gives us an approximation to packets not arriving, so lets us run
+	 * the main loop. It probably isn't worth doing anything more elaborate
+	 * (checking against timestamp? */
+	static int call_count = 0;
+	if (call_count % 10 != 0) {
+		set_raw_tlp_invalid(out);
+		return;
+	}
+	++call_count;
 	/* TODO: Check we don't buffer overrun. */
 	PGresult *result = PQgetResult(postgres_connection_downstream);
 	

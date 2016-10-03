@@ -18,7 +18,7 @@ struct RawTLP {
 	TLPDoubleWord *data;
 };
 
-inline void
+static inline void
 set_raw_tlp_invalid(struct RawTLP *out)
 {
 	out->header_length = -1;
@@ -27,21 +27,21 @@ set_raw_tlp_invalid(struct RawTLP *out)
 	out->data = NULL;
 }
 
-inline bool
+static inline bool
 is_raw_tlp_valid(struct RawTLP *tlp)
 {
 	return tlp->header_length != -1;
 }
 
 #ifdef POSTGRES
-inline void
+static inline void
 set_raw_tlp_trace_finished(struct RawTLP *out)
 {
 	set_raw_tlp_invalid(out);
 	out->data_length = -2;
 }
 
-inline bool
+static inline bool
 is_raw_tlp_trace_finished(struct RawTLP *tlp)
 {
 	return !is_raw_tlp_valid(tlp) && (tlp->data_length == -2);
@@ -76,13 +76,13 @@ enum tlp_fmt {
 #define TLPFMT_WITHDATA		0x2
 #define TLPFMT_PREFIX		0x4
 
-inline bool
+static inline bool
 tlp_fmt_has_data(enum tlp_fmt fmt)
 {
 	return fmt & TLPFMT_WITHDATA;
 }
 
-inline bool
+static inline bool
 tlp_fmt_is_4dw(enum tlp_fmt fmt)
 {
 	return fmt & TLPFMT_4DW;
