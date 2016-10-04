@@ -1893,6 +1893,7 @@ _e1000e_restart_autoneg(E1000ECore *core)
     if (have_autoneg(core)) {
         e1000_link_down(core);
         trace_e1000e_link_negotiation_start();
+		printf("Restarting autoneg, time to fire in .5s.\n");
         timer_mod(core->autoneg_timer,
                   qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 500);
     }
@@ -1973,8 +1974,8 @@ _e1000e_core_reset_mac(E1000ECore *core)
 static void
 set_ctrl(E1000ECore *core, int index, uint32_t val)
 {
-	PDBG("Setting CTRL to 0x%x. GIO Master Disable to %d",
-		val, (val >> 2) & 1);
+	/*PDBG("Setting CTRL to 0x%x. GIO Master Disable to %d",*/
+		/*val, (val >> 2) & 1);*/
     trace_e1000e_core_ctrl_write(index, val);
 
     /* RST is self clearing */
@@ -2354,6 +2355,7 @@ set_interrupt_cause(E1000ECore *core, uint32_t val)
 static void
 _e1000e_autoneg_timer(void *opaque)
 {
+	printf("_e1000e_autoneg_timer done.\n");
     E1000ECore *core = opaque;
     if (!qemu_get_queue(core->owner_nic)->link_down) {
         e1000_link_up(core);
@@ -2566,7 +2568,7 @@ set_dlen(E1000ECore *core, int index, uint32_t val)
 static void
 set_tctl(E1000ECore *core, int index, uint32_t val)
 {
-	PDBG("Setting TCTL to 0x%x", val);
+	/*PDBG("Setting TCTL to 0x%x", val);*/
     E1000E_TxRing txr;
     core->mac[index] = val;
 
@@ -3468,6 +3470,7 @@ e1000e_core_post_load(E1000ECore *core)
     if (have_autoneg(core) &&
         !(core->phy[0][PHY_STATUS] & MII_SR_AUTONEG_COMPLETE)) {
         nc->link_down = false;
+		printf("In post load, setting autoneg timer to fire in .5s.\n");
         timer_mod(core->autoneg_timer,
                   qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 500);
     }

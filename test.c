@@ -77,13 +77,14 @@
 
 #include "block/coroutine.h"
 #ifndef DUMMY
-#include "qom/object.h"
+#include "hw/i386/pc.h"
 #include "hw/pci/pci.h"
 #include "hw/pci/pci_bus.h"
-#include "hw/i386/pc.h"
 #include "hw/pci-host/q35.h"
 #include "qapi/qmp/qerror.h"
 #include "qemu/config-file.h"
+#include "qemu/timer.h"
+#include "qom/object.h"
 #include "sysemu/cpus.h"
 #endif
 
@@ -491,24 +492,8 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 
 void coroutine_fn process_packet(void *opaque)
 {
-	while (true) {
-		printf("Hello, coroutine world!\n");
-		qemu_coroutine_yield();
-	}
-}
+	printf("Starting packet processing coroutine.\n");
 
-void enter_co_bh(void *opaque) {
-	Coroutine *co = opaque;
-	qemu_coroutine_enter(co, NULL);
-}
-
-int
-main(int argc, char *argv[])
-{
-	log_set_strings(log_strings);
-	puts("Starting.");
-	/*const char *driver = "e1000-82540em";*/
-#ifndef DUMMY
 	const char *driver = "e1000e";
 	const char *nic_id = "the-e1000e";
 	const char *netdev_id = "the-netdev";
@@ -517,24 +502,10 @@ main(int argc, char *argv[])
     DeviceClass *dc;
     DeviceState *dev;
     Error *err = NULL;
-
-	/* Initiliase main loop, which has to run to shuttle data between NIC and
-	 * client. */
-
-	qemu_init_main_loop(&err);
-	assert(err == NULL);
-
-	/* This sets up a load of mutexes and condition variables for the main
-	 * loop. Locking of the iothread seems to have to happen directly after
-	 * it. I have no idea why. */
-	qemu_init_cpu_loop();
-    qemu_mutex_lock_iothread();
-
-	/* This needs to be called, otherwise the types are never registered. */
-	module_call_init(MODULE_INIT_QOM);
-
-    qemu_add_opts(&qemu_netdev_opts);
-    qemu_add_opts(&qemu_net_opts);
+	MemoryRegion *pci_memory;
+	struct Netdev netdev;
+	struct NetClientOptions net_client_options;
+	struct NetdevUserOptions nuo;
 
 	/* Stuff needs to exist within the context of a mchine, apparently. The
 	 * device attempts to realize the machine within the course of getting
@@ -542,70 +513,30 @@ main(int argc, char *argv[])
 	 */
     module_call_init(MODULE_INIT_MACHINE);
     machine_class = find_default_machine();
-
-	printf("Initialised modules, found default machine.\n");
-
 	current_machine = MACHINE(object_new(object_class_get_name(
                           OBJECT_CLASS(machine_class))));
-
-	printf("Created machine, attached to root object.\n");
-
-    object_property_add_child(object_get_root(), "machine",
-                              OBJECT(current_machine), &error_abort);
-
-	printf("Attached machine to root object.\n");
-
-	/* This sets up the appropriate address spaces. */
-	cpu_exec_init_all();
-
-	printf("Done cpu init.\n");
-
-	MemoryRegion *pci_memory;
+    /*object_property_add_child(object_get_root(), "machine",*/
+                              /*OBJECT(current_machine), &error_abort);*/
 	pci_memory = g_new(MemoryRegion, 1);
 	memory_region_init(pci_memory, NULL, "my-pci-memory", UINT64_MAX);
-
-	printf("Created pci memory region.\n");
-
 	// Something to do with interrupts
 	GSIState *gsi_state = g_malloc0(sizeof(*gsi_state));
 	qemu_irq *gsi = qemu_allocate_irqs(gsi_handler, gsi_state, GSI_NUM_PINS);
-
-	printf("Done gsi stuff.\n");
-
 	Q35PCIHost *q35_host;
 	q35_host = Q35_HOST_DEVICE(qdev_create(NULL, TYPE_Q35_HOST_DEVICE));
-    /*q35_host->mch.ram_memory = ram_memory;*/
     q35_host->mch.pci_address_space = pci_memory;
     q35_host->mch.system_memory = get_system_memory();
     q35_host->mch.address_space_io = get_system_io();
-	PDBG("System IO name: %s", get_system_io()->name);
-    /*q35_host->mch.below_4g_mem_size = below_4g_mem_size;*/
-    /*q35_host->mch.above_4g_mem_size = above_4g_mem_size;*/
-    /*q35_host->mch.guest_info = guest_info;*/
-
-	printf("Created q35.\n");
-
-	// Actually get round to creating the bus!
 	PCIHostState *phb;
 	PCIBus *pci_bus;
-
     qdev_init_nofail(DEVICE(q35_host));
     phb = PCI_HOST_BRIDGE(q35_host);
     pci_bus = phb->bus;
-
-	printf("Created bus.\n");
-
 	if (net_init_clients() < 0) {
 		printf("Failed to initialise network clients :(\n");
 		exit(1);
 	}
-	printf("Network clients initialised.\n");
-
 	/* Create a client netdev */
-	struct Netdev netdev;
-	struct NetClientOptions net_client_options;
-	struct NetdevUserOptions nuo;
-
 	netdev.id = (char *)netdev_id;
 	netdev.opts = &net_client_options;
 
@@ -627,31 +558,21 @@ main(int argc, char *argv[])
 	nuo.has_smb = false;
 
 	net_client_netdev_init(&netdev, &err);
-
 	assert(err == NULL);
 
     /* find driver */
     dc = qdev_get_device_class(&driver, &err);
     if (!dc) {
 		printf("Didn't find NIC device class -- failing :(\n");
-        return 1;
+        exit(1);
     }
-
-	printf("Found device class.\n");
-
     /* find bus */
 	if (!pci_bus /*|| qbus_is_full(bus)*/) {
 		error_setg(&err, "No '%s' bus found for device '%s'",
 			dc->bus_type, driver);
-		return 2;
+		exit(2);
 	}
-
-	printf("Creating device...\n");
-    /* create device */
     dev = DEVICE(object_new(driver));
-
-	printf("Setting parent bus...\n");
-
     if (pci_bus) {
         qdev_set_parent_bus(dev, &(pci_bus->qbus));
     }
@@ -672,62 +593,28 @@ main(int argc, char *argv[])
 		assert(false);
 	}
 
-	printf("Setting device realized...\n");
 	// This will realize the device if it isn't already, shockingly.
 	object_property_set_bool(OBJECT(dev), true, "realized", &err);
-
 	PCIDevice *pci_dev = PCI_DEVICE(dev);
-	/* Use pci_host_config read common to reply to read responses.
-	 * This calls the config_read function on the device.
-	 * For the e1000e, this is a thin wrapper over pci_default_read_config,
-	 * from hw/pci/pci.c
-	 */
-	printf("%x.\n", pci_host_config_read_common(pci_dev, 0, 4, 4));
-#endif // not DUMMY
 
-    int init = pcie_hardware_init(argc, argv, &physmem);
-    if (init)
-    	return init;
-
-	int i, send_result;
-	int header_length, data_length;
-	bool ignore_next_io_completion = false;
-	bool mask_next_io_completion_data = false;
-	uint16_t length, device_id, requester_id;
-	uint32_t io_completion_mask, loweraddress;
-	uint64_t addr, req_addr;
+	int send_result;
 
 	enum packet_response response;
-	enum tlp_data_alignment alignment;
-
 	TLPQuadWord tlp_in_quadword[32];
 	TLPQuadWord tlp_out_header[2];
 	TLPQuadWord tlp_out_data[16];
-
 	struct RawTLP raw_tlp_in;
 	struct RawTLP raw_tlp_out;
 	raw_tlp_out.header = (TLPDoubleWord *)tlp_out_header;
 	raw_tlp_out.data = (TLPDoubleWord *)tlp_out_data;
-
-	int received_count = 0;
-	write_leds(received_count);
-
 	struct PacketGeneratorState packet_generator_state;
+
 	initialise_packet_generator_state(&packet_generator_state);
 	packet_generator_state.pci_dev = pci_dev;
 
-	drain_pcie_core();
-	puts("PCIe Core Drained. Let's go.");
+	printf("Init done. Let's go.\n");
 
-	Coroutine *co = qemu_coroutine_create(process_packet);
-	QEMUBH *start_bh = qemu_bh_new(enter_co_bh, co);
-
-	while (1) {
-		qemu_bh_schedule(start_bh);
-		main_loop_wait(false);
-	}
-
-	while (1) {
+	while (true) {
 		wait_for_tlp(tlp_in_quadword, sizeof(tlp_in_quadword), &raw_tlp_in);
 
 #ifdef POSTGRES
@@ -737,13 +624,12 @@ main(int argc, char *argv[])
 		}
 #endif
 
+		response = PR_NO_RESPONSE;
 		if (is_raw_tlp_valid(&raw_tlp_in)) {
 			response = respond_to_packet(&packet_generator_state, &raw_tlp_in,
 				&raw_tlp_out);
 		} else {
-			main_loop_wait(true); /* true means non blocking. */
-			/*response = generate_packet(&packet_generator_state, &raw_tlp_out);*/
-			response = PR_NO_RESPONSE;
+			qemu_coroutine_yield();
 		}
 
 		if (response != PR_NO_RESPONSE) {
@@ -751,6 +637,63 @@ main(int argc, char *argv[])
 			assert(send_result != -1);
 		}
 	}
+}
+
+void enter_co_bh(void *opaque) {
+	Coroutine *co = opaque;
+	qemu_coroutine_enter(co, NULL);
+}
+
+int
+main(int argc, char *argv[])
+{
+    Error *err = NULL;
+	use_icount = 0;
+
+	log_set_strings(log_strings);
+	puts("Starting.");
+	/*const char *driver = "e1000-82540em";*/
+#ifndef DUMMY
+	/* Initiliase main loop, which has to run to shuttle data between NIC and
+	 * client. */
+	qemu_init_main_loop(&err);
+	assert(err == NULL);
+
+	/* This sets up a load of mutexes and condition variables for the main
+	 * loop. Locking of the iothread seems to have to happen directly after
+	 * it. I have no idea why. */
+	qemu_init_cpu_loop();
+    qemu_mutex_lock_iothread();
+
+	/* This needs to be called, otherwise the types are never registered. */
+	module_call_init(MODULE_INIT_QOM);
+	/* This sets up the appropriate address spaces. */
+	cpu_exec_init_all();
+
+    qemu_add_opts(&qemu_netdev_opts);
+    qemu_add_opts(&qemu_net_opts);
+
+#endif // not DUMMY
+
+    int init = pcie_hardware_init(argc, argv, &physmem);
+    if (init)
+    	return init;
+
+	uint64_t addr, req_addr;
+
+	drain_pcie_core();
+	puts("PCIe Core Drained. Let's go.");
+
+	Coroutine *co = qemu_coroutine_create(process_packet);
+	QEMUBH *start_bh = qemu_bh_new(enter_co_bh, co);
+
+	printf("About to start main loop.\n");
+
+	while (1) {
+		qemu_bh_schedule(start_bh);
+		main_loop_wait(true);
+	}
+
 
 	return 0;
 }

@@ -183,7 +183,10 @@ get_postgres_msg_routing(const PGresult *result)
 	}
 }
 
-enum postgres_message_code { SET_SLOT_POWER_LIMIT = 0x50 };
+enum postgres_message_code {
+	SET_SLOT_POWER_LIMIT = 0x50,
+	VENDOR_DEFINED_TYPE_1 = 0x7F
+};
 
 static enum postgres_message_code
 get_postgres_message_code(const PGresult *result)
@@ -193,7 +196,10 @@ get_postgres_message_code(const PGresult *result)
 		PQgetvalue(result, 0, message_code_field_num);
 	if (strcmp(field_text, "Set_Slot_Power_Limit") == 0) {
 		return SET_SLOT_POWER_LIMIT;
+	} else if (strcmp(field_text, "Vendor_Defined_Type1") == 0) {
+		return VENDOR_DEFINED_TYPE_1;
 	} else {
+		printf("Unrecognised message code: '%s'\n.", field_text);
 		assert(false);
 		return -1;
 	}
@@ -573,10 +579,10 @@ wait_for_tlp(volatile TLPQuadWord *buffer, int buffer_len, struct RawTLP *out)
 	 * the main loop. It probably isn't worth doing anything more elaborate
 	 * (checking against timestamp? */
 	static int call_count = 0;
-	if (call_count % 10 != 0) {
-		set_raw_tlp_invalid(out);
-		return;
-	}
+	/*if (call_count % 10 != 0) {*/
+		/*set_raw_tlp_invalid(out);*/
+		/*return;*/
+	/*}*/
 	++call_count;
 	/* TODO: Check we don't buffer overrun. */
 	PGresult *result = PQgetResult(postgres_connection_downstream);
