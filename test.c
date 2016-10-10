@@ -103,17 +103,6 @@
 
 
 #ifdef POSTGRES
-bool ignore_next_postgres_completion;
-bool mask_next_postgres_completion_data;
-uint32_t postgres_completion_mask;
-
-#define PG_STATUS_MASK \
-	bswap32(~(E1000_STATUS_FD | E1000_STATUS_ASDV_100 | E1000_STATUS_ASDV_1000 \
-		| E1000_STATUS_GIO_MASTER_ENABLE ))
-
-
-/* The capbility list is different for many small reasons, which is why we
- * want this. */
 
 void
 print_last_recvd_packet_ids();
@@ -236,8 +225,6 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 	enum tlp_completion_status completion_status;
 	bool read_error = false;
 	bool write_error = false;
-	bool ignore_next_io_completion = false;
-	bool mask_next_io_completion_data = false;
 	uint16_t length, requester_id;
 	uint32_t io_completion_mask, loweraddress;
 	uint64_t addr, req_addr, data_buffer;
@@ -301,25 +288,6 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 				print_last_recvd_packet_ids();
 			}
 
-			if (rel_addr == 0x0) {
-				mask_next_postgres_completion_data = true;
-				postgres_completion_mask =
-					bswap32(~uint32_mask_enable_bits(19, 19));
-				/* 19 is apparently a software controllable IO pin, so I
-				 * don't think we particularly care. */
-			} else if (rel_addr == 0x8) {
-				mask_next_postgres_completion_data = true;
-				postgres_completion_mask = PG_STATUS_MASK;
-			} else if (rel_addr == 0x10 || rel_addr == 0x5B58) {
-				/* 1) EEPROM or Flash
-				 * 2) Second software semaphore, not present on this
-				 * card.
-				 */
-				ignore_next_postgres_completion = true;
-			} else if (rel_addr == 0x8) {
-				mask_next_postgres_completion_data = true;
-				postgres_completion_mask = PG_STATUS_MASK;
-			}
 #endif
 			assert(!read_error);
 
@@ -362,26 +330,10 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 #else
 				out->data[0] = pci_host_config_read_common(
 					state->pci_dev, req_addr, req_addr + 4, 4);
-#endif
 
-#ifdef POSTGRES
-				if (req_addr == 0 || req_addr == 0xC) {
-					/* Model number and ?cacheline size? */
-					mask_next_postgres_completion_data = true;
-					postgres_completion_mask = 0xFFFF00FF;
-				} else if (req_addr == 4) {
-					mask_next_postgres_completion_data = true;
-					postgres_completion_mask = 0x00FFFFFF;
-				} else if (req_addr == 8) {
-					/* Revision ID */
-					mask_next_postgres_completion_data = true;
-					postgres_completion_mask = 0x00FFFFFF;
-				} else if (req_addr == 0x2C) {
-					/* Subsystem ID and Subsystem vendor ID */
-					ignore_next_postgres_completion = true;
-				}
+				/*printf("CfgRd0 of 0x%x: data 0x%x.\n",*/
+					/*req_addr, out->data[0]);*/
 #endif
-
 			} else {
 				out->data_length = 0;
 #ifndef DUMMY
@@ -457,24 +409,8 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 #endif
 		}
 
-#ifdef POSTGRES
-		if (ignore_next_io_completion) {
-			ignore_next_io_completion = false;
-			ignore_next_postgres_completion = true;
-		}
-#endif
-
 		create_completion_header(out, dir, state->device_id,
 			TLPCS_SUCCESSFUL_COMPLETION, 4, requester_id, req_bits->tag, 0);
-
-#ifdef POSTGRES
-		if (dir == TLPD_WRITE && card_reg == 0x10) {
-			ignore_next_io_completion = true;
-		} else if (dir == TLPD_READ && card_reg == 0x8) {
-			mask_next_postgres_completion_data = true;
-			postgres_completion_mask = PG_STATUS_MASK;
-		}
-#endif
 
 		break;
 	case CPL:

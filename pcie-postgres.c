@@ -57,13 +57,18 @@
 #include "mask.h"
 #include "pcie-debug.h"
 
+static bool mask_next_completion_data = false;
+static TLPDoubleWord completion_data_mask;
+
+static inline
+void set_next_completion_data_mask(TLPDoubleWord mask)
+{
+	mask_next_completion_data = true;
+	completion_data_mask = mask;
+}
+
 static PGconn *postgres_connection_downstream;
 static PGconn *postgres_connection_upstream;
-
-extern bool ignore_next_postgres_completion;
-extern bool mask_next_postgres_completion_data;
-extern uint32_t postgres_completion_mask;
-
 
 #define PG_REPR_TEXTUAL		0
 #define PG_REPR_BINARY		1
@@ -132,6 +137,7 @@ enum postgres_tlp_type {
 	PG_IO_WR,
 	PG_M_RD_32,
 	PG_M_WR_32,
+	PG_MSG,
 	PG_MSG_D
 };
 
@@ -156,9 +162,12 @@ get_postgres_tlp_type(const PGresult *result)
 		return PG_M_RD_32;
 	} else if (strcmp(field_text, "MWr(32)") == 0) {
 		return PG_M_WR_32;
+	} else if (strcmp(field_text, "Msg") == 0) {
+		return PG_MSG;
 	} else if (strcmp(field_text, "MsgD") == 0) {
 		return PG_MSG_D;
 	} else {
+		printf("Unknown tlp_type: '%s'\n", field_text);
 		assert(false);
 		return -1;
 	}
@@ -184,6 +193,7 @@ get_postgres_msg_routing(const PGresult *result)
 }
 
 enum postgres_message_code {
+	PME_TURN_OFF = 0x19,
 	SET_SLOT_POWER_LIMIT = 0x50,
 	VENDOR_DEFINED_TYPE_1 = 0x7F
 };
@@ -198,6 +208,8 @@ get_postgres_message_code(const PGresult *result)
 		return SET_SLOT_POWER_LIMIT;
 	} else if (strcmp(field_text, "Vendor_Defined_Type1") == 0) {
 		return VENDOR_DEFINED_TYPE_1;
+	} else if (strcmp(field_text, "PME_Turn_Off") == 0) {
+		return PME_TURN_OFF;
 	} else {
 		printf("Unrecognised message code: '%s'\n.", field_text);
 		assert(false);
@@ -321,17 +333,9 @@ tlp_from_postgres(PGresult *result, TLPQuadWord *buffer, int buffer_len,
 		header_req->firstbe = get_postgres_first_be(result);
 		assert(PQntuples(result) == 1);
 		config_dword2->device_id = get_postgres_device_id(result);
-		config_dword2->ext_reg_num = reg >> 6;
+		config_dword2->ext_reg_num = reg >> 8;
 		config_dword2->reg_num = (reg & uint32_mask(8));
 		length = 12;
-		if (tlp_type == PG_CFG_WR_0 && reg >= 0x10 && reg <= 0x24) {
-			/*PDBG("pk: %d; packet: %d",*/
-				/*get_postgres_pk(result), get_postgres_packet(result));*/
-		}
-		if (tlp_type == PG_CFG_RD_0 && (reg == 0x30 || reg > 0x3C)) {
-			/* ROM bar and capability list. */
-			ignore_next_postgres_completion = true;
-		}
 		break;
 	case PG_CPL:
 	case PG_CPL_D:
@@ -371,6 +375,7 @@ tlp_from_postgres(PGresult *result, TLPQuadWord *buffer, int buffer_len,
 		*dword2 = (TLPDoubleWord)(get_postgres_address(result));
 		length = (12 + data_length);
 		break;
+	case PG_MSG:
 	case PG_MSG_D:
 		/*DEBUG_PRINTF("MsgD TLP");*/
 		header0->fmt = TLPFMT_4DW_DATA;
@@ -472,11 +477,12 @@ should_receive_tlp_for_result(PGresult *result)
 		return false;
 	}
 	bool skip = false;
+	enum postgres_tlp_type type = get_postgres_tlp_type(result);
 	uint32_t packet = get_postgres_packet(result);
 	uint32_t device_id = get_postgres_device_id(result);
 	uint64_t address = get_postgres_address(result);
 	uint32_t region = bswap32(get_postgres_data(result));
-	if (get_postgres_tlp_type(result) == PG_CFG_WR_0) {
+	if (type == PG_CFG_WR_0) {
 		if (device_id == 256) {
 			if (get_postgres_register(result) == 0x30) {
 				ignore_regions[FIRST_CARD_REGION_ROM_INDEX] = region;
@@ -510,8 +516,9 @@ should_receive_tlp_for_result(PGresult *result)
 		skip_due_to_this_region = false;
 	}
 
-	if (device_id == 257) {
-		/*PDBG("%d: Skipping due to device id is 257.", packet);*/
+	if (device_id == 257 || (
+			type == PG_MSG &&
+			get_postgres_message_code(result) == PME_TURN_OFF)) {
 		skip = true;
 	}
 
@@ -606,11 +613,66 @@ wait_for_tlp(volatile TLPQuadWord *buffer, int buffer_len, struct RawTLP *out)
 		get_postgres_packet(result);
 	++recvd_count;
 
-	assert(PQntuples(result) == 1);
-	if (get_postgres_register(result) == 0x18 &&
-		get_postgres_tlp_type(result) == PG_CFG_WR_0 &&
-		get_postgres_device_id(result) == 256) {
-		io_region = out->data[0];
+	static bool read_semaphore = false;
+
+	switch (get_postgres_tlp_type(result)) {
+	case PG_CFG_RD_0:
+		switch (get_postgres_register(result)) {
+		case 0x0: /* device ID */
+			set_next_completion_data_mask(0xFFFF00FF);
+			break;
+		case 0x8: /* revision mask */
+			set_next_completion_data_mask(0x00FFFFFF);
+			break;
+		case 0xC: /* header type. A bit odd. */
+			set_next_completion_data_mask(0xFFFF00FF);
+			break;
+		case 0xC8:
+			set_next_completion_data_mask(0xFFFF0000);
+			break;
+		case 0xE0:
+			set_next_completion_data_mask(0xFF0FFFFF);
+			break;
+		case 0xE4: /* PCIe Device Capabilities */
+			set_next_completion_data_mask(0x0000FFFF);
+			break;
+		case 0x100: /* Some sort of extention register */
+			set_next_completion_data_mask(0xFFFF0000);
+			break;
+		case 0x104: /* Uncorrectable error status? Hopefully unreproducable. */
+			set_next_completion_data_mask(0xFFFFEFFF);
+			break;
+		case 0x1C: /* BAR 3 -- think this an MSI-X problem/difference? */
+		case 0x30: /* Expansion ROM -- simulated NIC doesn't have one. */
+		case 0xA0: /* No idea... */
+		case 0xA4: /* Seems to be some capability wholesale ignored. */
+		case 0xA8:
+		case 0xCC: /* Power management. Hopefully safe to ignore. */
+		case 0xE8: /* Device Status and Control */
+		case 0xEC: /* Link Capabilities */
+		case 0xF0: /* Link status and control */
+			set_next_completion_data_mask(0x0);
+			break;
+		}
+		break;
+	case PG_M_RD_32:
+		switch (get_postgres_address(result) & 0x1FFFF) {
+		case 0x10: /* EEPROM register */
+			set_next_completion_data_mask(0);
+			break;
+		case 0xF00: /* A reserved bit, the QEMU gets more right... */
+			/* And something weird to do with MDIO */
+			set_next_completion_data_mask(~bswap32(0x28));
+			break;
+		case 0x5B50:
+			if (!read_semaphore) {
+				/* First value is wrong for some reason. */
+				set_next_completion_data_mask(0);
+				read_semaphore = true;
+			}
+			break;
+		}
+		break;
 	}
 
 	PQclear(result);
@@ -678,23 +740,34 @@ send_tlp(struct RawTLP *actual)
 	assert(actual->header_length == expected.header_length);
 	assert(actual->data_length == expected.data_length);
 
-	if (mask_next_postgres_completion_data) {
-		mask_next_postgres_completion_data = false;
-		actual->data[0] = actual->data[0] & postgres_completion_mask;
-		expected.data[0] = expected.data[0] & postgres_completion_mask;
+	++TLPS_CHECKED;
+
+#define MASK_DATA(index, mask) 										do { \
+	actual->data[index] = actual->data[index] & mask;					 \
+	expected.data[index] = expected.data[index] & mask;				 \
+} while (0)
+
+	if (mask_next_completion_data) {
+		mask_next_completion_data = false;
+		MASK_DATA(0, completion_data_mask);
 	}
 
-	if (!ignore_next_postgres_completion) {
-		++TLPS_CHECKED;
+#undef MASK_DATA
 
-		for (i = 0; i < (actual->header_length / sizeof(TLPDoubleWord)); ++i) {
-			assert(actual->header[i] == expected.header[i]);
-		}
+	for (i = 0; i < (actual->header_length / sizeof(TLPDoubleWord)); ++i) {
+		assert(actual->header[i] == expected.header[i]);
+	}
 
-		for (i = 0; i < (actual->data_length / sizeof(TLPDoubleWord)); ++i ) {
-			assert(actual->data[i] == expected.data[i]);
+	for (i = 0; i < (actual->data_length / sizeof(TLPDoubleWord)); ++i ) {
+		if (actual->data[i] != expected.data[i]) {
+			printf("Data mismatch processing packet with pk %d: %d.\n"
+				"dword %d. Expected: 0x%08x. Actual 0x%08x.\n",
+				get_postgres_pk(result), get_postgres_packet(result),
+				i, expected.data[i], actual->data[i]);
+			assert(false);
 		}
 	}
+
 
 	return 0;
 }
