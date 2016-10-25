@@ -40,9 +40,9 @@ create_completion_header(struct RawTLP *tlp,
 }
 
 void
-create_memory_read_header(struct RawTLP *tlp, uint16_t length,
-	uint16_t requester_id, uint8_t tag, uint8_t lastbe, uint8_t firstbe,
-	uint64_t address)
+create_memory_request_header(struct RawTLP *tlp, enum tlp_direction direction,
+	uint16_t length, uint16_t requester_id, uint8_t tag,
+	uint8_t lastbe, uint8_t firstbe, uint64_t address)
 {
 	/* XXX: 32 bit only for now */
 	int i;
@@ -50,13 +50,15 @@ create_memory_read_header(struct RawTLP *tlp, uint16_t length,
 	for (i = 0; i < 3; ++i) {
 		tlp->header[i] = 0;
 	}
+	tlp->header_length = 3;
 
 	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)tlp->header;
 	struct TLP64RequestDWord1 *request_dword1 =
 		(struct TLP64RequestDWord1 *)(tlp->header + 1);
 	TLPDoubleWord *address_dword2 = (tlp->header + 2);
 
-	dword0->fmt = TLPFMT_3DW_NODATA;
+	dword0->fmt = (direction == TLPD_READ) ?
+		TLPFMT_3DW_NODATA : TLPFMT_3DW_DATA;
 	dword0->length = length;
 	dword0->type = M;
 

@@ -270,6 +270,7 @@ static int net_slirp_init(NetClientState *peer, const char *model,
     return 0;
 
 error:
+	printf("ERROR INITIALISING SLIRP");
     qemu_del_net_client(nc);
     return -1;
 }

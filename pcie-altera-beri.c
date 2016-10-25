@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include "qemu/bswap.h"
+#include "hw/pci/pci.h"
 #include "pcie.h"
 #include "mask.h"
 #include "pcie-debug.h"
@@ -8,6 +9,70 @@
 #include "beri-io.h"
 #include "pcie-backend.h"
 #include "log.h"
+
+/*
+ * We should handle tags with more sophistication than we do -- each part of
+ * the core should use a specific tag, but this would require modifying calls
+ * to pci_dma_read. For tags see page 88 of the manual. I use 8, which is the
+ * transmit side reading from memory.
+ */
+int pci_dma_read(PCIDevice *dev, dma_addr_t addr, void *buf, dma_addr_t len)
+{
+	assert(addr < (1L << 33));
+	assert(len < 512);
+	/* This should be extracted from Max_Read_Request_Size in the Device
+	 * Control Register. */
+
+	TLPQuadWord read_req_tlp_buffer[2];
+	struct RawTLP read_req_tlp;
+	read_req_tlp.header = (TLPDoubleWord *)read_req_tlp_buffer;
+
+	TLPQuadWord read_resp_tlp_buffer[66];
+	struct RawTLP read_resp_tlp;
+	set_raw_tlp_invalid(&read_resp_tlp);
+
+	create_memory_request_header(&read_req_tlp, TLPD_READ, len, dev->devfn, 8,
+		0xFF, 0xFF, addr);
+	int send_result = send_tlp(&read_req_tlp);
+	assert(send_result != -1);
+
+	do {
+		wait_for_tlp(read_resp_tlp_buffer, sizeof(read_resp_tlp_buffer),
+			&read_resp_tlp);
+	} while (!is_raw_tlp_valid(&read_resp_tlp));
+
+	for (int i = 0; i < len; ++i) {
+		((uint8_t *)buf)[i] = ((uint8_t *)(read_resp_tlp.data))[i];
+	}
+
+	return 0;
+}
+
+int pci_dma_write(PCIDevice *dev, dma_addr_t addr, const void *buf,
+	dma_addr_t len)
+{
+	assert(addr < (1L << 33));
+
+	TLPQuadWord write_req_header_buffer[2];
+	TLPQuadWord *write_data = malloc(len);
+
+	for (int i = 0; i < len; ++i) {
+		((uint8_t *)write_data)[i] = ((const uint8_t *)buf)[i];
+	}
+
+	struct RawTLP write_req_tlp;
+	write_req_tlp.header = (TLPDoubleWord *)write_req_header_buffer;
+	write_req_tlp.data = (TLPDoubleWord *)write_data;
+	write_req_tlp.data_length = len;
+
+	create_memory_request_header(&write_req_tlp, TLPD_WRITE, len, dev->devfn,
+		0, 0xFF, 0xFF, addr);
+	int send_result = send_tlp(&write_req_tlp);
+	assert(send_result != -1);
+
+	free(write_data);
+	return 0;
+}
 
 void
 initialise_leds()
@@ -76,7 +141,7 @@ wait_for_tlp(volatile TLPQuadWord *buffer, int buffer_len, struct RawTLP *out)
 	do {
 		ready = IORD64(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_READY);
 		++retry_attempt;
-	} while (ready == 0 && retry_attempt < 1);
+	} while (ready == 0 && retry_attempt < 10000);
 
 	if (!ready) {
 		set_raw_tlp_invalid(out);

@@ -1883,6 +1883,7 @@ e1000_link_down(E1000ECore *core)
 static void
 e1000_link_up(E1000ECore *core)
 {
+	PDBG(".");
     core->mac[STATUS] |= E1000_STATUS_LU;
     core->phy[0][PHY_STATUS] |= MII_SR_LINK_STATUS;
 }
@@ -1893,10 +1894,14 @@ _e1000e_restart_autoneg(E1000ECore *core)
     if (have_autoneg(core)) {
         e1000_link_down(core);
         trace_e1000e_link_negotiation_start();
-		printf("Restarting autoneg, time to fire in .5s.\n");
+		PDBG("Restarting autoneg, time to fire in .5s. Now: %d. Then: %d.",
+			qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL),
+			qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 500);
         timer_mod(core->autoneg_timer,
                   qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 500);
-    }
+    } else {
+		PDBG("Restarting autoneg, but no autoneg support.");
+	}
 }
 
 static void
@@ -1935,14 +1940,17 @@ e1000e_core_set_link_status(E1000ECore *core)
     uint32_t old_status = core->mac[STATUS];
 
     if (nc->link_down) {
+		PDBG("Setting link status down.");
         e1000_link_down(core);
     } else {
         if (have_autoneg(core) &&
             !(core->phy[0][PHY_STATUS] & MII_SR_AUTONEG_COMPLETE)) {
+			PDBG("Queing auto-neg.");
             /* emulate auto-negotiation if supported */
             timer_mod(core->autoneg_timer,
                       qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 500);
         } else {
+			PDBG("Not bothering with auto-neg.");
             e1000_link_up(core);
         }
     }
@@ -2355,7 +2363,7 @@ set_interrupt_cause(E1000ECore *core, uint32_t val)
 static void
 _e1000e_autoneg_timer(void *opaque)
 {
-	printf("_e1000e_autoneg_timer done.\n");
+	PDBG("_e1000e_autoneg_timer done.");
     E1000ECore *core = opaque;
     if (!qemu_get_queue(core->owner_nic)->link_down) {
         e1000_link_up(core);
@@ -3270,6 +3278,7 @@ e1000e_core_pci_realize(E1000ECore      *core,
 {
     int i;
 
+	PDBG("Initiliasing autoneg timer.");
     core->autoneg_timer = timer_new_ms(QEMU_CLOCK_VIRTUAL,
                                        _e1000e_autoneg_timer, core);
     _e1000e_intrmgr_pci_realize(core);

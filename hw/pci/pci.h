@@ -683,17 +683,30 @@ static inline int pci_dma_rw(PCIDevice *dev, dma_addr_t addr,
     return 0;
 }
 
+/* If BERIBSD is defined, we are using the hardcodre to do real PCIe
+ * transactions. This is expensive, so we implement it in the appropriate
+ * file.
+ */
+#ifdef BERIBSD
+int pci_dma_read(PCIDevice *dev, dma_addr_t addr, void *buf, dma_addr_t len);
+#else
 static inline int pci_dma_read(PCIDevice *dev, dma_addr_t addr,
                                void *buf, dma_addr_t len)
 {
     return pci_dma_rw(dev, addr, buf, len, DMA_DIRECTION_TO_DEVICE);
 }
+#endif
 
+#ifdef BERIBSD
+int pci_dma_write(PCIDevice *dev, dma_addr_t addr, const void *buf,
+	dma_addr_t len);
+#else
 static inline int pci_dma_write(PCIDevice *dev, dma_addr_t addr,
                                 const void *buf, dma_addr_t len)
 {
     return pci_dma_rw(dev, addr, (void *) buf, len, DMA_DIRECTION_FROM_DEVICE);
 }
+#endif
 
 #define PCI_DMA_DEFINE_LDST(_l, _s, _bits)                              \
     static inline uint##_bits##_t ld##_l##_pci_dma(PCIDevice *dev,      \

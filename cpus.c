@@ -22,6 +22,8 @@
  * THE SOFTWARE.
  */
 
+#include "pcie-debug.h"
+
 /* Needed early for CONFIG_BSD etc. */
 #include "config-host.h"
 

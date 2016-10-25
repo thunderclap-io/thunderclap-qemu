@@ -39,7 +39,7 @@
  *
  * Macros in qemu/module.h
  * __attribute__((constructor_)), means the function will be called by default
- * before entering main. Horrible horrible horrible!
+ * before entering main.
  *
  * So, register_dso_module_init(e1000_register_types, MODULE_INIT_QOM) will
  * get called. This sets up a list of "dso_inits".
@@ -189,14 +189,12 @@ struct PacketGeneratorState {
 	PCIDevice *pci_dev;
 
 	uint32_t next_read;
-	int32_t device_id;
 };
 
 void
 initialise_packet_generator_state(struct PacketGeneratorState *state)
 {
 	state->next_read = 0;
-	state->device_id = -1;
 }
 
 enum packet_response
@@ -204,12 +202,12 @@ generate_packet(struct PacketGeneratorState *state, struct RawTLP *out)
 {
 	int i;
 
-	if (state->device_id == -1) {
+	if (state->pci_dev->devfn == -1) {
 		return PR_NO_RESPONSE;
 	}
 
-	create_memory_read_header(out, 1, state->device_id, 0, 0, 0xF,
-		state->next_read);
+	create_memory_request_header(out, TLPD_READ, 1, state->pci_dev->devfn,
+		0, 0, 0xF, state->next_read);
 
 	state->next_read += 4;
 
@@ -302,7 +300,7 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 
 			out->header_length = 12;
 			out->data_length = 4;
-			create_completion_header(out, dir, state->device_id,
+			create_completion_header(out, dir, state->pci_dev->devfn,
 				TLPCS_SUCCESSFUL_COMPLETION, bytecount, requester_id,
 				req_bits->tag, loweraddress);
 		} else { /* dir == TLPD_WRITE */
@@ -321,7 +319,7 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 		if ((config_request_dword2->device_id & uint32_mask(3)) == 0) {
 			/* Mask to get function num -- we are 0 */
 			completion_status = TLPCS_SUCCESSFUL_COMPLETION;
-			state->device_id = config_request_dword2->device_id;
+			state->pci_dev->devfn = config_request_dword2->device_id;
 
 			if (dir == TLPD_READ) {
 				out->data_length = 4;
@@ -353,8 +351,8 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 		}
 
 		out->header_length = 12;
-		create_completion_header(out, dir, state->device_id, completion_status,
-			4, requester_id, req_bits->tag, 0);
+		create_completion_header(out, dir, state->pci_dev->devfn,
+			completion_status, 4, requester_id, req_bits->tag, 0);
 
 		break;
 	case IO:
@@ -385,7 +383,7 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 		if (req_addr < pci_io_region->addr) {
 			PDBG("Trying to map req with addr %lx in BAR with addr %lx.",
 				req_addr, pci_io_region->addr);
-			PDBG("Last packet: %d", last_packet);
+			/*PDBG("Last packet: %d", last_packet);*/
 		}
 		assert(req_addr >= pci_io_region->addr);
 		target_region = pci_io_region->memory;
@@ -409,7 +407,7 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 #endif
 		}
 
-		create_completion_header(out, dir, state->device_id,
+		create_completion_header(out, dir, state->pci_dev->devfn,
 			TLPCS_SUCCESSFUL_COMPLETION, 4, requester_id, req_bits->tag, 0);
 
 		break;
@@ -535,6 +533,10 @@ void coroutine_fn process_packet(void *opaque)
 
 	int send_result;
 
+#ifdef POSTGRES
+	bool finished_trace = false;
+#endif
+
 	enum packet_response response;
 	TLPQuadWord tlp_in_quadword[32];
 	TLPQuadWord tlp_out_header[2];
@@ -555,7 +557,10 @@ void coroutine_fn process_packet(void *opaque)
 
 #ifdef POSTGRES
 		if (is_raw_tlp_trace_finished(&raw_tlp_in)) {
-			PDBG("Reached end of trace! Checked %d TLPs.", TLPS_CHECKED);
+			if (!finished_trace) {
+				PDBG("Reached end of trace! Checked %d TLPs.", TLPS_CHECKED);
+				finished_trace = true;
+			}
 			exit(0);
 		}
 #endif
@@ -622,6 +627,8 @@ main(int argc, char *argv[])
 
 	Coroutine *co = qemu_coroutine_create(process_packet);
 	QEMUBH *start_bh = qemu_bh_new(enter_co_bh, co);
+
+	vm_start();
 
 	printf("About to start main loop.\n");
 

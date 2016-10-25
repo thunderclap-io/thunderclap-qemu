@@ -21,6 +21,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+#include "pcie-debug.h"
 
 #include "qemu-common.h"
 #include "qemu/timer.h"
@@ -216,7 +217,7 @@ static int os_host_main_loop_wait(int64_t timeout)
      * print a message to the screen.  If we run into this condition, create
      * a fake timeout in order to give the VCPU threads a chance to run.
      */
-    if (!timeout && (spin_counter > MAX_MAIN_LOOP_SPIN)) {
+    if (false && !timeout && (spin_counter > MAX_MAIN_LOOP_SPIN)) {
         static bool notified;
 
         if (!notified && !qtest_enabled()) {
@@ -471,7 +472,7 @@ int main_loop_wait(int nonblocking)
 
     if (nonblocking) {
         timeout = 0;
-    }
+	}
 
     /* poll any events */
     g_array_set_size(gpollfds, 0); /* reset for new iteration */

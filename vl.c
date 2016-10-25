@@ -620,10 +620,20 @@ static void runstate_init(void)
     qemu_mutex_init(&vmstop_lock);
 }
 
+static void ensure_runstate_initialised()
+{
+	static bool initialised = false;
+	if (!initialised) {
+		runstate_init();
+		initialised = true;
+	}
+}
+
 /* This function will abort() on invalid state transitions */
 void runstate_set(RunState new_state)
 {
     assert(new_state < RUN_STATE_MAX);
+	ensure_runstate_initialised();
 
     if (!runstate_valid_transitions[current_run_state][new_state]) {
         fprintf(stderr, "ERROR: invalid runstate transition: '%s' -> '%s'\n",

@@ -204,9 +204,9 @@ create_completion_header(struct RawTLP *tlp,
 	uint16_t requester_id, uint8_t tag, uint8_t loweraddress);
 
 void
-create_memory_read_header(struct RawTLP *tlp, uint16_t length,
-	uint16_t requester_id, uint8_t tag, uint8_t lastbe, uint8_t firstbe,
-	uint64_t address);
+create_memory_request_header(struct RawTLP *tlp, enum tlp_direction direction,
+	uint16_t length, uint16_t requester_id, uint8_t tag, uint8_t lastbe,
+	uint8_t firstbe, uint64_t address);
 
 
 #endif
