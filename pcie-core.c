@@ -1,8 +1,11 @@
 #include "pcie.h"
+#include "pcie-debug.h"
 
+#include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
 
+/* length is used as the PCIe field, so is in DWords i.e. units of 32 bits. */
 void
 create_completion_header(struct RawTLP *tlp,
 	enum tlp_direction direction, uint16_t completer_id,
@@ -47,10 +50,15 @@ create_memory_request_header(struct RawTLP *tlp, enum tlp_direction direction,
 	/* XXX: 32 bit only for now */
 	int i;
 
-	for (i = 0; i < 3; ++i) {
+	for (i = 0; i < 4; ++i) {
 		tlp->header[i] = 0;
 	}
-	tlp->header_length = 3;
+	tlp->header_length = 12;
+	if (direction == TLPD_READ) {
+		tlp->data_length = 0;
+	} else {
+		tlp->data_length = length * sizeof(TLPDoubleWord);
+	}
 
 	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)tlp->header;
 	struct TLP64RequestDWord1 *request_dword1 =

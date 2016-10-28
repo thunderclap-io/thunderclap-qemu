@@ -1056,7 +1056,7 @@ bool memory_region_access_valid(MemoryRegion *mr,
         if (!mr->ops->valid.accepts(mr->opaque, addr + i, access_size,
                                     is_write)) {
 			PDBG("Memory region %s does not accept %s access to addr 0x%lx of %d"
-				" bytes", is_write ? "write" : "read", mr->name, addr + i,
+				" bytes", mr->name, is_write ? "write" : "read",  addr + i,
 				access_size);
             return false;
         }
@@ -1089,6 +1089,7 @@ static bool memory_region_dispatch_read(MemoryRegion *mr,
                                         uint64_t *pval,
                                         unsigned size)
 {
+	/*PDBG(".");*/
     if (!memory_region_access_valid(mr, addr, size, false)) {
         *pval = unassigned_mem_read(mr, addr, size);
         return true;
@@ -2012,6 +2013,7 @@ bool io_mem_read(MemoryRegion *mr, hwaddr addr, uint64_t *pval, unsigned size)
 #ifdef DUMMY
 	assert(false); /* Attempting mem read when DUMMY defined! */
 #endif
+	/*PDBG(".");*/
     return memory_region_dispatch_read(mr, addr, pval, size);
 }
 

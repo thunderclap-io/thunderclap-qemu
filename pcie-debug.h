@@ -1,7 +1,7 @@
 #ifndef DEBUG_H
 #define DEBUG_H
 
-//#include <stdio.h>
+#include <stdio.h>
 
 #ifdef PCIE_DEBUG
 #define PDBG(...)				do {									\

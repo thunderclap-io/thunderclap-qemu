@@ -6,6 +6,7 @@
  * This work is licensed under the terms of the GNU General Public License
  * (GNU GPL), version 2 or later.
  */
+#include "pcie-debug.h"
 
 #include "sysemu/block-backend.h"
 #include "sysemu/dma.h"
@@ -18,6 +19,7 @@
 
 int dma_memory_set(AddressSpace *as, dma_addr_t addr, uint8_t c, dma_addr_t len)
 {
+	PDBG(".");
     dma_barrier(as, DMA_DIRECTION_FROM_DEVICE);
 
 #define FILLBUF_SIZE 512
@@ -85,6 +87,7 @@ static void dma_blk_cb(void *opaque, int ret);
 
 static void reschedule_dma(void *opaque)
 {
+	PDBG(".");
     DMAAIOCB *dbs = (DMAAIOCB *)opaque;
 
     qemu_bh_delete(dbs->bh);
@@ -130,6 +133,8 @@ static void dma_complete(DMAAIOCB *dbs, int ret)
 
 static void dma_blk_cb(void *opaque, int ret)
 {
+	PDBG(".");
+
     DMAAIOCB *dbs = (DMAAIOCB *)opaque;
     dma_addr_t cur_addr, cur_len;
     void *mem;
@@ -196,6 +201,8 @@ BlockAIOCB *dma_blk_io(
     DMAIOFunc *io_func, BlockCompletionFunc *cb,
     void *opaque, DMADirection dir)
 {
+	PDBG(".");
+
     DMAAIOCB *dbs = blk_aio_get(&dma_aiocb_info, blk, cb, opaque);
 
     trace_dma_blk_io(dbs, blk, sector_num, (dir == DMA_DIRECTION_TO_DEVICE));

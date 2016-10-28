@@ -16,6 +16,8 @@
  * You should have received a copy of the GNU Lesser General Public
  * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
+#include "pcie-debug.h"
+
 #include "config.h"
 #ifndef _WIN32
 #include <sys/types.h>
@@ -1944,6 +1946,8 @@ static const MemoryRegionOps watch_mem_ops = {
 static uint64_t subpage_read(void *opaque, hwaddr addr,
                              unsigned len)
 {
+	PDBG(".");
+
     subpage_t *subpage = opaque;
     uint8_t buf[8];
 
@@ -2314,6 +2318,8 @@ bool address_space_rw(AddressSpace *as, hwaddr addr, uint8_t *buf,
     MemoryRegion *mr;
     bool error = false;
 
+	PDBG(".");
+
     while (len > 0) {
         l = len;
         mr = address_space_translate(as, addr, &addr1, &l, is_write);
@@ -2399,11 +2405,13 @@ bool address_space_rw(AddressSpace *as, hwaddr addr, uint8_t *buf,
 bool address_space_write(AddressSpace *as, hwaddr addr,
                          const uint8_t *buf, int len)
 {
+	PDBG(".");
     return address_space_rw(as, addr, (uint8_t *)buf, len, true);
 }
 
 bool address_space_read(AddressSpace *as, hwaddr addr, uint8_t *buf, int len)
 {
+	PDBG(".");
     return address_space_rw(as, addr, buf, len, false);
 }
 
@@ -2411,6 +2419,7 @@ bool address_space_read(AddressSpace *as, hwaddr addr, uint8_t *buf, int len)
 void cpu_physical_memory_rw(hwaddr addr, uint8_t *buf,
                             int len, int is_write)
 {
+	PDBG(".");
     address_space_rw(&address_space_memory, addr, buf, len, is_write);
 }
 
@@ -2529,6 +2538,8 @@ bool address_space_access_valid(AddressSpace *as, hwaddr addr, int len, bool is_
     MemoryRegion *mr;
     hwaddr l, xlat;
 
+	PDBG(".");
+
     while (len > 0) {
         l = len;
         mr = address_space_translate(as, addr, &xlat, &l, is_write);
@@ -2557,6 +2568,8 @@ void *address_space_map(AddressSpace *as,
                         hwaddr *plen,
                         bool is_write)
 {
+	PDBG(".");
+
     hwaddr len = *plen;
     hwaddr done = 0;
     hwaddr l, xlat, base;
@@ -2643,17 +2656,25 @@ void address_space_unmap(AddressSpace *as, void *buffer, hwaddr len,
     cpu_notify_map_clients();
 }
 
+extern uint32_t global_devfn;
+
 void *cpu_physical_memory_map(hwaddr addr,
                               hwaddr *plen,
                               int is_write)
 {
-    return address_space_map(&address_space_memory, addr, plen, is_write);
+	assert(!is_write);
+	uint8_t *buffer = malloc(*plen);
+
+	perform_dma_read(buffer, *plen, global_devfn, 8, addr);
+
+	return buffer;
 }
 
 void cpu_physical_memory_unmap(void *buffer, hwaddr len,
                                int is_write, hwaddr access_len)
 {
-    return address_space_unmap(&address_space_memory, buffer, len, is_write, access_len);
+	assert(!is_write);
+	free(buffer);
 }
 
 /* warning: addr must be aligned */
@@ -2776,6 +2797,7 @@ uint64_t ldq_be_phys(AddressSpace *as, hwaddr addr)
 /* XXX: optimize */
 uint32_t ldub_phys(AddressSpace *as, hwaddr addr)
 {
+	PDBG(".");
     uint8_t val;
     address_space_rw(as, addr, &val, 1, 0);
     return val;
@@ -2930,6 +2952,7 @@ void stl_be_phys(AddressSpace *as, hwaddr addr, uint32_t val)
 /* XXX: optimize */
 void stb_phys(AddressSpace *as, hwaddr addr, uint32_t val)
 {
+	PDBG(".");
     uint8_t v = val;
     address_space_rw(as, addr, &v, 1, 1);
 }
@@ -2993,18 +3016,21 @@ void stw_be_phys(AddressSpace *as, hwaddr addr, uint32_t val)
 /* XXX: optimize */
 void stq_phys(AddressSpace *as, hwaddr addr, uint64_t val)
 {
+	PDBG(".");
     val = tswap64(val);
     address_space_rw(as, addr, (void *) &val, 8, 1);
 }
 
 void stq_le_phys(AddressSpace *as, hwaddr addr, uint64_t val)
 {
+	PDBG(".");
     val = cpu_to_le64(val);
     address_space_rw(as, addr, (void *) &val, 8, 1);
 }
 
 void stq_be_phys(AddressSpace *as, hwaddr addr, uint64_t val)
 {
+	PDBG(".");
     val = cpu_to_be64(val);
     address_space_rw(as, addr, (void *) &val, 8, 1);
 }
@@ -3013,6 +3039,7 @@ void stq_be_phys(AddressSpace *as, hwaddr addr, uint64_t val)
 int cpu_memory_rw_debug(CPUState *cpu, target_ulong addr,
                         uint8_t *buf, int len, int is_write)
 {
+	PDBG(".");
     int l;
     hwaddr phys_addr;
     target_ulong page;

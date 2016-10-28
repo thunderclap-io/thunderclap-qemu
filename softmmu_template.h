@@ -21,6 +21,7 @@
  * You should have received a copy of the GNU Lesser General Public
  * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
+#include "pcie-debug.h"
 #include "qemu/timer.h"
 #include "exec/address-spaces.h"
 #include "exec/memory.h"
@@ -147,6 +148,8 @@ static inline DATA_TYPE glue(io_read, SUFFIX)(CPUArchState *env,
                                               target_ulong addr,
                                               uintptr_t retaddr)
 {
+	PDBG(".");
+
     uint64_t val;
     CPUState *cpu = ENV_GET_CPU(env);
     MemoryRegion *mr = iotlb_to_region(cpu, physaddr);

@@ -101,6 +101,8 @@
 
 #include "mask.h"
 
+uint32_t global_devfn;
+
 
 #ifdef POSTGRES
 
@@ -285,8 +287,11 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 			if (read_error) {
 				print_last_recvd_packet_ids();
 			}
-
 #endif
+			if (read_error) {
+				printf("READ ERROR!! Whilst attempting memory read of address "
+					"0x%lx.\n", rel_addr);
+			}
 			assert(!read_error);
 
 			for (i = 0; i < 4; ++i) {
@@ -320,6 +325,7 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 			/* Mask to get function num -- we are 0 */
 			completion_status = TLPCS_SUCCESSFUL_COMPLETION;
 			state->pci_dev->devfn = config_request_dword2->device_id;
+			global_devfn = state->pci_dev->devfn;
 
 			if (dir == TLPD_READ) {
 				out->data_length = 4;
@@ -412,6 +418,7 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 
 		break;
 	case CPL:
+		printf("Got completion in main loop!\n");
 		break;
 	default:
 		log_log(LS_RECV_UNKNOWN, LIF_NONE, 0, LOG_NEWLINE);
@@ -593,6 +600,11 @@ main(int argc, char *argv[])
 
 	log_set_strings(log_strings);
 	puts("Starting.");
+
+	address_space_io.name = "ATTEMPTING TO USE SYSTEM IO ADDRESS SPACE. "
+		"ILLEGAL.";
+	address_space_memory.name = "ATTEMPTING TO USE SYSTEM MEMORY ADDRESS "
+		"SPACE. ILLEGAL.";
 	/*const char *driver = "e1000-82540em";*/
 #ifndef DUMMY
 	/* Initiliase main loop, which has to run to shuttle data between NIC and

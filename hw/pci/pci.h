@@ -690,22 +690,22 @@ static inline int pci_dma_rw(PCIDevice *dev, dma_addr_t addr,
 #ifdef BERIBSD
 int pci_dma_read(PCIDevice *dev, dma_addr_t addr, void *buf, dma_addr_t len);
 #else
-static inline int pci_dma_read(PCIDevice *dev, dma_addr_t addr,
-                               void *buf, dma_addr_t len)
-{
-    return pci_dma_rw(dev, addr, buf, len, DMA_DIRECTION_TO_DEVICE);
-}
+//static inline int pci_dma_read(PCIDevice *dev, dma_addr_t addr,
+                               //void *buf, dma_addr_t len)
+//{
+    //return pci_dma_rw(dev, addr, buf, len, DMA_DIRECTION_TO_DEVICE);
+//}
 #endif
 
 #ifdef BERIBSD
 int pci_dma_write(PCIDevice *dev, dma_addr_t addr, const void *buf,
 	dma_addr_t len);
 #else
-static inline int pci_dma_write(PCIDevice *dev, dma_addr_t addr,
-                                const void *buf, dma_addr_t len)
-{
-    return pci_dma_rw(dev, addr, (void *) buf, len, DMA_DIRECTION_FROM_DEVICE);
-}
+//static inline int pci_dma_write(PCIDevice *dev, dma_addr_t addr,
+                                //const void *buf, dma_addr_t len)
+//{
+    //return pci_dma_rw(dev, addr, (void *) buf, len, DMA_DIRECTION_FROM_DEVICE);
+//}
 #endif
 
 #define PCI_DMA_DEFINE_LDST(_l, _s, _bits)                              \
@@ -733,6 +733,7 @@ PCI_DMA_DEFINE_LDST(q_be, q_be, 64);
 static inline void *pci_dma_map(PCIDevice *dev, dma_addr_t addr,
                                 dma_addr_t *plen, DMADirection dir)
 {
+	PDBG(".");
     void *buf;
 
     buf = dma_memory_map(pci_get_address_space(dev), addr, plen, dir);

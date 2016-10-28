@@ -10,6 +10,8 @@
 #ifndef DMA_H
 #define DMA_H
 
+#include "pcie-debug.h"
+
 #include <stdio.h>
 #include "exec/memory.h"
 #include "exec/address-spaces.h"
@@ -88,6 +90,7 @@ static inline int dma_memory_rw_relaxed(AddressSpace *as, dma_addr_t addr,
                                         void *buf, dma_addr_t len,
                                         DMADirection dir)
 {
+	PDBG(".");
     return address_space_rw(as, addr, buf, len, dir == DMA_DIRECTION_FROM_DEVICE);
 }
 
@@ -116,6 +119,7 @@ static inline int dma_memory_rw(AddressSpace *as, dma_addr_t addr,
 static inline int dma_memory_read(AddressSpace *as, dma_addr_t addr,
                                   void *buf, dma_addr_t len)
 {
+	PDBG(".");
     return dma_memory_rw(as, addr, buf, len, DMA_DIRECTION_TO_DEVICE);
 }
 
@@ -132,6 +136,8 @@ static inline void *dma_memory_map(AddressSpace *as,
                                    dma_addr_t addr, dma_addr_t *len,
                                    DMADirection dir)
 {
+	PDBG(".");
+
     hwaddr xlen = *len;
     void *p;
 

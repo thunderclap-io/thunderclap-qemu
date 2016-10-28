@@ -30,7 +30,7 @@ set_raw_tlp_invalid(struct RawTLP *out)
 static inline bool
 is_raw_tlp_valid(struct RawTLP *tlp)
 {
-	return tlp->header_length != -1;
+	return tlp->header_length != -1 && tlp->header != NULL;
 }
 
 #ifdef POSTGRES
@@ -208,5 +208,7 @@ create_memory_request_header(struct RawTLP *tlp, enum tlp_direction direction,
 	uint16_t length, uint16_t requester_id, uint8_t tag, uint8_t lastbe,
 	uint8_t firstbe, uint64_t address);
 
+int perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
+	uint8_t tag, uint64_t address);
 
 #endif

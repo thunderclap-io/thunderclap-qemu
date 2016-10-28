@@ -7,21 +7,70 @@
 #include "pcie-debug.h"
 #include "pciefpga.h"
 #include "beri-io.h"
+#include "pcie.h"
 #include "pcie-backend.h"
 #include "log.h"
 
-/*
- * We should handle tags with more sophistication than we do -- each part of
- * the core should use a specific tag, but this would require modifying calls
- * to pci_dma_read. For tags see page 88 of the manual. I use 8, which is the
- * transmit side reading from memory.
- */
-int pci_dma_read(PCIDevice *dev, dma_addr_t addr, void *buf, dma_addr_t len)
+static inline bool
+is_cpl_d(struct RawTLP *tlp)
 {
-	assert(addr < (1L << 33));
-	assert(len < 512);
+	assert(tlp->header_length != -1);
+	assert(tlp->header != NULL);
+	assert(is_raw_tlp_valid(tlp));
+	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)tlp->header;
+	return dword0->type == CPL && tlp_fmt_has_data(dword0->fmt);
+}
+
+/* Request is not a whole number of dwords, so we need to read one more dword,
+ * then use the lastbe to select the parts we want. I had to work this out on
+ * paper. It works.
+ */
+struct byte_enables {
+	uint8_t first;
+	uint8_t last;
+};
+
+static inline uint16_t
+calculate_dword_length(uint16_t byte_len)
+{
+	return ((byte_len + 3) / 4) * 4;
+}
+
+static inline uint8_t
+last_be_for_length(uint16_t byte_len)
+{
+	return ((1 << (4 - (calculate_dword_length(byte_len) - byte_len))) - 1);
+}
+
+static inline struct byte_enables
+calculate_bes_for_length(uint16_t byte_len)
+{
+	struct byte_enables bes;
+	bes.last = last_be_for_length(byte_len);
+	if (calculate_dword_length(byte_len) / sizeof(TLPDoubleWord) == 1) {
+		bes.first = bes.last;
+		bes.last = 0;
+	} else {
+		bes.first = 0xF;
+	}
+	return bes;
+}
+
+/* length is in bytes. */
+int
+perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
+	uint8_t tag, uint64_t address)
+{
 	/* This should be extracted from Max_Read_Request_Size in the Device
 	 * Control Register. */
+
+	assert(length > 0);
+
+	uint8_t lastbe = 0xF, firstbe = 0xF;
+
+	assert(buf != NULL);
+	assert(address < (1L << 33));
+	assert(length < 512);
 
 	TLPQuadWord read_req_tlp_buffer[2];
 	struct RawTLP read_req_tlp;
@@ -31,44 +80,104 @@ int pci_dma_read(PCIDevice *dev, dma_addr_t addr, void *buf, dma_addr_t len)
 	struct RawTLP read_resp_tlp;
 	set_raw_tlp_invalid(&read_resp_tlp);
 
-	create_memory_request_header(&read_req_tlp, TLPD_READ, len, dev->devfn, 8,
-		0xFF, 0xFF, addr);
+	uint16_t ceil_length = calculate_dword_length(length);
+	struct byte_enables bes = calculate_bes_for_length(length);
+
+	/*PDBG("length: %d, ceil_length: %d, lastbe: 0x%x, firstbe: 0x%x.",*/
+		/*length, ceil_length, lastbe, firstbe);*/
+
+	create_memory_request_header(&read_req_tlp, TLPD_READ,
+		ceil_length / 4, requester_id, tag, bes.last, bes.first,
+		address);
 	int send_result = send_tlp(&read_req_tlp);
 	assert(send_result != -1);
 
-	do {
-		wait_for_tlp(read_resp_tlp_buffer, sizeof(read_resp_tlp_buffer),
-			&read_resp_tlp);
-	} while (!is_raw_tlp_valid(&read_resp_tlp));
+	/* i is total amount of data read; j is data from specific completion.
+	 * Data for long reads (more than 32 dwords) will come back as multiple
+	 * completions.
+	 */
+	int i = 0, j;
 
-	for (int i = 0; i < len; ++i) {
-		((uint8_t *)buf)[i] = ((uint8_t *)(read_resp_tlp.data))[i];
+	while (i < length) {
+		while (true) {
+			wait_for_tlp(read_resp_tlp_buffer, sizeof(read_resp_tlp_buffer),
+				&read_resp_tlp);
+
+			if (is_raw_tlp_valid(&read_resp_tlp)) {
+				if (is_cpl_d(&read_resp_tlp)) {
+					break;
+				}
+			}
+		}
+
+		struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)read_resp_tlp.header;
+
+		assert(tlp_fmt_has_data(dword0->fmt));
+		assert(read_resp_tlp.header != NULL);
+		assert(read_resp_tlp.data != NULL);
+
+		for (j = 0; j < (dword0->length * sizeof(TLPDoubleWord)) &&
+				(i + j) < length; ++j) {
+			buf[i + j] = ((uint8_t *)(read_resp_tlp.data))[j];
+			/*PDBG("i: %d, j: %d, i + j: %d, buf[i + j]: %d.",*/
+				/*i, j, i + j, buf[i + j]);*/
+		}
+
+		i += (dword0->length * sizeof(TLPDoubleWord));
+		/*PDBG("i: %d. length: %d", i, length);*/
 	}
+
+	/*PDBG("Done reading.");*/
 
 	return 0;
 }
-
-int pci_dma_write(PCIDevice *dev, dma_addr_t addr, const void *buf,
-	dma_addr_t len)
+/*
+ * We should handle tags with more sophistication than we do -- each part of
+ * the core should use a specific tag, but this would require modifying calls
+ * to pci_dma_read. For tags see page 88 of the manual. I use 8, which is the
+ * transmit side reading from memory.
+ */
+int
+pci_dma_read(PCIDevice *dev, dma_addr_t addr, void *buf, dma_addr_t len)
 {
+	return perform_dma_read((uint8_t *)buf, len, dev->devfn, 8, addr);
+}
+
+int
+pci_dma_write(PCIDevice *dev, dma_addr_t addr, const void *buf, dma_addr_t len)
+{
+	/*PDBG(".");*/
+	const uint16_t SEND_LIMIT = 128; /* bytes */
+
 	assert(addr < (1L << 33));
 
 	TLPQuadWord write_req_header_buffer[2];
-	TLPQuadWord *write_data = malloc(len);
+	TLPQuadWord *write_data = aligned_alloc(8, ((len + 7) / 8) * 8);
 
 	for (int i = 0; i < len; ++i) {
 		((uint8_t *)write_data)[i] = ((const uint8_t *)buf)[i];
 	}
 
+	uint16_t send_amount, send_dwords, left_to_send, cursor = 0;
+	uint16_t dword_length = calculate_dword_length(len);
+
 	struct RawTLP write_req_tlp;
 	write_req_tlp.header = (TLPDoubleWord *)write_req_header_buffer;
-	write_req_tlp.data = (TLPDoubleWord *)write_data;
-	write_req_tlp.data_length = len;
 
-	create_memory_request_header(&write_req_tlp, TLPD_WRITE, len, dev->devfn,
-		0, 0xFF, 0xFF, addr);
-	int send_result = send_tlp(&write_req_tlp);
-	assert(send_result != -1);
+	do {
+		write_req_tlp.data = (TLPDoubleWord *)(write_data +
+			cursor / sizeof(TLPQuadWord));
+		left_to_send = len - cursor;
+		send_amount = left_to_send < SEND_LIMIT ? left_to_send : SEND_LIMIT;
+		struct byte_enables bes = calculate_bes_for_length(send_amount);
+		send_dwords = calculate_dword_length(send_amount);
+		create_memory_request_header(&write_req_tlp, TLPD_WRITE,
+			send_dwords / sizeof(TLPDoubleWord), dev->devfn, 0,
+			bes.last, bes.first, addr + cursor);
+		int send_result = send_tlp(&write_req_tlp);
+		assert(send_result != -1);
+		cursor += send_dwords;
+	} while (cursor < dword_length);
 
 	free(write_data);
 	return 0;
@@ -111,15 +220,22 @@ read_hw_counter()
 	return retval;
 }
 
+
 static inline enum tlp_data_alignment
 tlp_get_alignment_from_header(TLPDoubleWord *header)
 {
 	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)header;
 	if ((dword0->type == M || dword0->type == M_LK) &&
 		tlp_fmt_is_4dw(dword0->fmt)) {
+		/*if (print)*/
+			/*PDBG("4DW M Header. Addr: %x. Aligned? %d.", header[3],*/
+				/*(header[3] % 8) == 0);*/
 		/* 64 bit address */
 		return (header[3] % 8) == 0 ? TDA_ALIGNED : TDA_UNALIGNED;
 	} else {
+		/*if (print)*/
+			/*PDBG("3DW M Header. Addr: %x. Aligned? %d.", header[2],*/
+				/*(header[2] % 8) == 0);*/
 		/* Lower bits of relevant address are always in the same place. */
 		return (header[2] % 8) == 0 ? TDA_ALIGNED : TDA_UNALIGNED;
 	}
@@ -272,6 +388,8 @@ send_tlp(struct RawTLP *tlp)
 	WR_DATA(bswap32_within_64(header[0]));
 
 	statusword.word = 0;
+
+	assert(tlp->header_length == 12 || tlp->header_length == 16);
 
 	if (tlp->header_length == 12 && data_alignment == TDA_UNALIGNED) {
 		/* Because this is big endian, the bits of the dword with the smallest
