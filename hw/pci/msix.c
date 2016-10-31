@@ -13,6 +13,9 @@
  * Contributions after 2012-01-13 are licensed under the terms of the
  * GNU GPL, version 2 or (at your option) any later version.
  */
+#ifdef BERIBSD
+#include "pcie.h"
+#endif
 
 #include "hw/hw.h"
 #include "hw/pci/msi.h"
@@ -450,7 +453,12 @@ void msix_notify(PCIDevice *dev, unsigned vector)
 
     msg = msix_get_message(dev, vector);
 
+#ifdef BERIBSD
+	uint32_t data = bswap32(msg.data);
+	perform_dma_write(&data, 4, dev->devfn, 0x1E, msg.address);
+#else
     stl_le_phys(&dev->bus_master_as, msg.address, msg.data);
+#endif
 }
 
 void msix_reset(PCIDevice *dev)

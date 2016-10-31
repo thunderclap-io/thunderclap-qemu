@@ -144,22 +144,22 @@ pci_dma_read(PCIDevice *dev, dma_addr_t addr, void *buf, dma_addr_t len)
 }
 
 int
-pci_dma_write(PCIDevice *dev, dma_addr_t addr, const void *buf, dma_addr_t len)
+perform_dma_write(const uint8_t* buf, int16_t length, uint16_t requester_id,
+	uint8_t tag, uint64_t address)
 {
-	/*PDBG(".");*/
+	assert(address < (1L << 33));
+
 	const uint16_t SEND_LIMIT = 128; /* bytes */
-
-	assert(addr < (1L << 33));
-
 	TLPQuadWord write_req_header_buffer[2];
-	TLPQuadWord *write_data = aligned_alloc(8, ((len + 7) / 8) * 8);
+	TLPQuadWord *write_data = aligned_alloc(8, ((length + 7) / 8) * 8);
+	/* TODO: Only do this if the data is confirmed to be misaligned. */
 
-	for (int i = 0; i < len; ++i) {
+	for (int i = 0; i < length; ++i) {
 		((uint8_t *)write_data)[i] = ((const uint8_t *)buf)[i];
 	}
 
 	uint16_t send_amount, send_dwords, left_to_send, cursor = 0;
-	uint16_t dword_length = calculate_dword_length(len);
+	uint16_t dword_length = calculate_dword_length(length);
 
 	struct RawTLP write_req_tlp;
 	write_req_tlp.header = (TLPDoubleWord *)write_req_header_buffer;
@@ -167,13 +167,13 @@ pci_dma_write(PCIDevice *dev, dma_addr_t addr, const void *buf, dma_addr_t len)
 	do {
 		write_req_tlp.data = (TLPDoubleWord *)(write_data +
 			cursor / sizeof(TLPQuadWord));
-		left_to_send = len - cursor;
+		left_to_send = length - cursor;
 		send_amount = left_to_send < SEND_LIMIT ? left_to_send : SEND_LIMIT;
 		struct byte_enables bes = calculate_bes_for_length(send_amount);
 		send_dwords = calculate_dword_length(send_amount);
 		create_memory_request_header(&write_req_tlp, TLPD_WRITE,
-			send_dwords / sizeof(TLPDoubleWord), dev->devfn, 0,
-			bes.last, bes.first, addr + cursor);
+			send_dwords / sizeof(TLPDoubleWord), requester_id, tag,
+			bes.last, bes.first, address + cursor);
 		int send_result = send_tlp(&write_req_tlp);
 		assert(send_result != -1);
 		cursor += send_dwords;
@@ -181,6 +181,12 @@ pci_dma_write(PCIDevice *dev, dma_addr_t addr, const void *buf, dma_addr_t len)
 
 	free(write_data);
 	return 0;
+}
+
+int
+pci_dma_write(PCIDevice *dev, dma_addr_t addr, const void *buf, dma_addr_t len)
+{
+	return perform_dma_write(buf, len, dev->devfn, 0, addr);
 }
 
 void
