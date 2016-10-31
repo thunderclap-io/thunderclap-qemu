@@ -257,7 +257,7 @@ wait_for_tlp(volatile TLPQuadWord *buffer, int buffer_len, struct RawTLP *out)
 	do {
 		ready = IORD64(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_READY);
 		++retry_attempt;
-	} while (ready == 0 && retry_attempt < 10000);
+	} while (ready == 0 && retry_attempt < 1000);
 
 	if (!ready) {
 		set_raw_tlp_invalid(out);

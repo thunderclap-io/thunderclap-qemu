@@ -1055,9 +1055,9 @@ bool memory_region_access_valid(MemoryRegion *mr,
     for (i = 0; i < size; i += access_size) {
         if (!mr->ops->valid.accepts(mr->opaque, addr + i, access_size,
                                     is_write)) {
-			PDBG("Memory region %s does not accept %s access to addr 0x%lx of %d"
-				" bytes", mr->name, is_write ? "write" : "read",  addr + i,
-				access_size);
+			/*PDBG("Memory region %s does not accept %s access to addr 0x%lx of %d"*/
+				/*" bytes", mr->name, is_write ? "write" : "read",  addr + i,*/
+				/*access_size);*/
             return false;
         }
     }
@@ -1121,6 +1121,7 @@ static bool memory_region_dispatch_write(MemoryRegion *mr,
                                   mr->ops->impl.max_access_size,
                                   memory_region_write_accessor, mr);
     } else {
+		PDBG("Region %s doing old style write access.\n", mr->name);
         access_with_adjusted_size(addr, &data, size, 1, 4,
                                   memory_region_oldmmio_write_accessor, mr);
     }

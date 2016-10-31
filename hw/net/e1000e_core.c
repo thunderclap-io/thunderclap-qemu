@@ -1883,7 +1883,6 @@ e1000_link_down(E1000ECore *core)
 static void
 e1000_link_up(E1000ECore *core)
 {
-	PDBG(".");
     core->mac[STATUS] |= E1000_STATUS_LU;
     core->phy[0][PHY_STATUS] |= MII_SR_LINK_STATUS;
 }
@@ -1894,13 +1893,13 @@ _e1000e_restart_autoneg(E1000ECore *core)
     if (have_autoneg(core)) {
         e1000_link_down(core);
         trace_e1000e_link_negotiation_start();
-		PDBG("Restarting autoneg, time to fire in .5s. Now: %d. Then: %d.",
-			qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL),
-			qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 500);
+		/*PDBG("Restarting autoneg, time to fire in .5s. Now: %d. Then: %d.",*/
+			/*qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL),*/
+			/*qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 500);*/
         timer_mod(core->autoneg_timer,
                   qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 500);
     } else {
-		PDBG("Restarting autoneg, but no autoneg support.");
+		/*PDBG("Restarting autoneg, but no autoneg support.");*/
 	}
 }
 
@@ -1940,17 +1939,17 @@ e1000e_core_set_link_status(E1000ECore *core)
     uint32_t old_status = core->mac[STATUS];
 
     if (nc->link_down) {
-		PDBG("Setting link status down.");
+		/*PDBG("Setting link status down.");*/
         e1000_link_down(core);
     } else {
         if (have_autoneg(core) &&
             !(core->phy[0][PHY_STATUS] & MII_SR_AUTONEG_COMPLETE)) {
-			PDBG("Queing auto-neg.");
+			/*PDBG("Queing auto-neg.");*/
             /* emulate auto-negotiation if supported */
             timer_mod(core->autoneg_timer,
                       qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 500);
         } else {
-			PDBG("Not bothering with auto-neg.");
+			/*PDBG("Not bothering with auto-neg.");*/
             e1000_link_up(core);
         }
     }
@@ -2179,6 +2178,7 @@ _e1000e_eitr_should_postpone(E1000ECore *core, int idx)
 static void
 _e1000e_msix_notify_one(E1000ECore *core, uint32_t cause, uint32_t int_cfg)
 {
+	/*PDBG(".");*/
     if (E1000_IVAR_ENTRY_VALID(int_cfg)) {
         uint32_t vec = E1000_IVAR_ENTRY_VEC(int_cfg);
         if (vec < E1000E_MSIX_VEC_NUM) {
@@ -2205,26 +2205,31 @@ static void
 _e1000e_msix_notify(E1000ECore *core, uint32_t causes)
 {
     if (causes & E1000_ICR_RXQ0) {
+		/*PDBG("RXQ0");*/
         _e1000e_msix_notify_one(core, E1000_ICR_RXQ0,
                                 E1000_IVAR_RXQ0(core->mac[IVAR]));
     }
 
     if (causes & E1000_ICR_RXQ1) {
+		/*PDBG("RXQ1");*/
         _e1000e_msix_notify_one(core, E1000_ICR_RXQ1,
                                 E1000_IVAR_RXQ1(core->mac[IVAR]));
     }
 
     if (causes & E1000_ICR_TXQ0) {
+		/*PDBG("TXQ0");*/
         _e1000e_msix_notify_one(core, E1000_ICR_TXQ0,
                                 E1000_IVAR_TXQ0(core->mac[IVAR]));
     }
 
     if (causes & E1000_ICR_TXQ1) {
+		/*PDBG("TXQ1");*/
         _e1000e_msix_notify_one(core, E1000_ICR_TXQ1,
                                 E1000_IVAR_TXQ1(core->mac[IVAR]));
     }
 
     if (causes & E1000_ICR_OTHER) {
+		/*PDBG("OTHER");*/
         _e1000e_msix_notify_one(core, E1000_ICR_OTHER,
                                 E1000_IVAR_OTHER(core->mac[IVAR]));
     }
@@ -2289,6 +2294,7 @@ _e1000e_fix_icr_asserted(E1000ECore *core)
 static void
 _e1000e_send_msi(E1000ECore *core, bool msix)
 {
+	/*PDBG(".");*/
     uint32_t causes = core->mac[ICR] & core->mac[IMS] & ~E1000_ICR_ASSERTED;
 
     if (msix) {
@@ -2350,6 +2356,7 @@ _e1000e_update_interrupt_state(E1000ECore *core)
 static void
 set_interrupt_cause(E1000ECore *core, uint32_t val)
 {
+	/*PDBG(".");*/
     trace_e1000e_irq_set_cause_entry(val, core->mac[ICR]);
 
     val |= _e1000e_intmgr_collect_delayed_causes(core);

@@ -17,6 +17,9 @@
  * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 #include "pcie-debug.h"
+#ifdef BERIBSD
+#include "pcie.h"
+#endif
 
 #include "config.h"
 #ifndef _WIN32
@@ -2897,6 +2900,8 @@ static inline void stl_phys_internal(AddressSpace *as,
                                      hwaddr addr, uint32_t val,
                                      enum device_endian endian)
 {
+	PDBG(".");
+
     uint8_t *ptr;
     MemoryRegion *mr;
     hwaddr l = 4;
@@ -2941,6 +2946,7 @@ void stl_phys(AddressSpace *as, hwaddr addr, uint32_t val)
 
 void stl_le_phys(AddressSpace *as, hwaddr addr, uint32_t val)
 {
+	PDBG(".");
     stl_phys_internal(as, addr, val, DEVICE_LITTLE_ENDIAN);
 }
 

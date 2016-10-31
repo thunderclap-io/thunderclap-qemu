@@ -59,6 +59,8 @@
 #include <stdbool.h>
 #include "pcie-debug.h"
 #ifndef DUMMY
+#include "exec/memory.h"
+#include "exec/memory-internal.h"
 #include "hw/net/e1000_regs.h"
 #endif
 
@@ -242,8 +244,9 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 	enum packet_response response = PR_NO_RESPONSE;
 
 #ifndef DUMMY
+	bool found_subregion;
 	PCIIORegion *pci_io_region;
-	MemoryRegion *target_region;
+	MemoryRegion *target_region, *subregion;
 	hwaddr rel_addr;
 #endif
 
@@ -265,11 +268,45 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 		bytecount = 0;
 #ifndef DUMMY
 		/* TODO: Different operation for flash? */
-		pci_io_region = &(state->pci_dev->io_regions[0]);
-		assert(pci_io_region->addr != PCI_BAR_UNMAPPED);
-		assert(in->header[2] >= pci_io_region->addr);
+		for (i = 0; i < PCI_NUM_REGIONS; ++i) {
+			pci_io_region = &(state->pci_dev->io_regions[i]);
+			if (((pci_io_region->type & PCI_BASE_ADDRESS_SPACE) ==
+				PCI_BASE_ADDRESS_SPACE_MEMORY) &&
+				in->header[2] >= pci_io_region->addr &&
+				in->header[2] < pci_io_region->addr + pci_io_region->size) {
+				break;
+			} else {
+				pci_io_region = NULL;
+			}
+		}
+		if (pci_io_region == NULL) {
+			printf("ADDRESS 0x%X.", in->header[2]);
+			assert(false);
+		}
 		target_region = pci_io_region->memory;
 		rel_addr = in->header[2] - pci_io_region->addr;
+		/* Memory regions can contain other regions. We should do a recursive
+		 * search really, but QEMU's functions for doing it are complicated
+		 * and slow.
+		 */
+		if (!memory_region_access_valid(target_region, rel_addr, 4, false)) {
+			found_subregion = false;
+
+			QTAILQ_FOREACH(subregion, &target_region->subregions,
+					subregions_link) {
+				if (rel_addr >= subregion->addr &&
+						rel_addr <
+						(subregion->addr + int128_get64(subregion->size))) {
+					target_region = subregion;
+					rel_addr -= subregion->addr;
+					found_subregion = true;
+					break;
+				}
+			}
+
+			assert(found_subregion);
+		}
+
 		loweraddress = rel_addr;
 #endif
 

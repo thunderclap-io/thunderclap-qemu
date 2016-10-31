@@ -197,7 +197,15 @@ static uint64_t msix_pba_mmio_read(void *opaque, hwaddr addr,
         dev->msix_vector_poll_notifier(dev, vector_start, vector_end);
     }
 
-    return pci_get_long(dev->msix_pba + addr);
+    uint64_t res = pci_get_long(dev->msix_pba + addr);
+	/*PDBG("Read PBA addr 0x%lx: 0x%lx.", addr, res);*/
+	return res;
+}
+
+static bool accepts_read_only(void *opaque, hwaddr addr, unsigned size,
+	bool is_write)
+{
+	return !is_write;
 }
 
 static const MemoryRegionOps msix_pba_mmio_ops = {
@@ -206,6 +214,7 @@ static const MemoryRegionOps msix_pba_mmio_ops = {
     .valid = {
         .min_access_size = 4,
         .max_access_size = 4,
+		.accepts = accepts_read_only
     },
 };
 
@@ -244,6 +253,8 @@ int msix_init(struct PCIDevice *dev, unsigned short nentries,
 
     table_size = nentries * PCI_MSIX_ENTRY_SIZE;
     pba_size = QEMU_ALIGN_UP(nentries, 64) / 8;
+
+	/*PDBG("Init MSIX size: 0x%x. PBA size: 0x%x", table_size, pba_size);*/
 
     /* Sanity test: table & pba don't overlap, fit within BARs, min aligned */
     if ((table_bar_nr == pba_bar_nr &&
@@ -424,11 +435,15 @@ int msix_enabled(PCIDevice *dev)
 /* Send an MSI-X message */
 void msix_notify(PCIDevice *dev, unsigned vector)
 {
+	/*PDBG(".");*/
     MSIMessage msg;
 
-    if (vector >= dev->msix_entries_nr || !dev->msix_entry_used[vector])
+    if (vector >= dev->msix_entries_nr || !dev->msix_entry_used[vector]) {
+		/*PDBG("Not sending interrupt due to invalid interrupt.");*/
         return;
+	}
     if (msix_is_masked(dev, vector)) {
+		/*PDBG("Not sending interrupt due to masking.");*/
         msix_set_pending(dev, vector);
         return;
     }

@@ -357,6 +357,7 @@ _e1000e_init_msix(E1000EState *s)
 
     if (0 > res) {
         trace_e1000e_msix_init_fail(res);
+		printf("Initialising MSIX failed: %s\n", strerror(-res));
     } else {
         if (!_e1000e_use_msix_vectors(s, E1000E_MSIX_VEC_NUM)) {
             msix_uninit(d, &s->msix, &s->msix);
