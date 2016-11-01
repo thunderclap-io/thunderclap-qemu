@@ -175,7 +175,7 @@ $(TARGET_DIR)/test.dump: $(TARGET_DIR)/test
 	$(OBJDUMP) -ChdS $< > $@
 
 $(TARGET_DIR)/%.o: %.c
-	@echo "Bulding $<..."
+	@echo "Building $<..."
 	@mkdir -p $(dir $@)
 	@$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
 

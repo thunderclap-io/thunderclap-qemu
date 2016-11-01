@@ -624,14 +624,28 @@ void coroutine_fn process_packet(void *opaque)
 	}
 }
 
-void enter_co_bh(void *opaque) {
+void enter_co_bh(void *opaque)
+{
 	Coroutine *co = opaque;
 	qemu_coroutine_enter(co, NULL);
+}
+
+void handle_sigtrap(int signum, siginfo_t *siginfo, void *uctx)
+{
+	assert(signum == SIGTRAP);
+	printf("SIGTRAP! Fault on: %p.\n", siginfo->si_addr);
 }
 
 int
 main(int argc, char *argv[])
 {
+	struct sigaction sigtrap_action = {
+		.sa_sigaction = handle_sigtrap,
+		.sa_flags = SA_SIGINFO
+	};
+
+	sigaction(SIGTRAP, &sigtrap_action, NULL);
+
     Error *err = NULL;
 	use_icount = 0;
 
@@ -642,6 +656,9 @@ main(int argc, char *argv[])
 		"ILLEGAL.";
 	address_space_memory.name = "ATTEMPTING TO USE SYSTEM MEMORY ADDRESS "
 		"SPACE. ILLEGAL.";
+
+	/*printf("MHSIZE: 0x%x.\n", MHSIZE);*/
+	/*printf("MPKTHSIZE: 0x%x.\n", MPKTHSIZE);*/
 	/*const char *driver = "e1000-82540em";*/
 #ifndef DUMMY
 	/* Initiliase main loop, which has to run to shuttle data between NIC and

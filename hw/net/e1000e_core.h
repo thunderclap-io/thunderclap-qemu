@@ -59,7 +59,7 @@ typedef struct E1000IntrDelayTimer_st {
     VMSTATE_TIMER_PTR(_f.timer, _s),           \
     VMSTATE_BOOL(_f.running, _s)               \
 
-typedef struct E1000Core_st {
+struct E1000Core_st {
     uint32_t mac[E1000E_MAC_SIZE];
     uint16_t phy[E1000E_PHY_PAGES][E1000E_PHY_PAGE_SIZE];
     uint16_t eeprom[E1000E_EEPROM_SIZE];

@@ -635,6 +635,7 @@ static void cpu_handle_guest_debug(CPUState *cpu)
 
 static void cpu_signal(int sig)
 {
+	PDBG(". %s", strsignal(sig));
     if (current_cpu) {
         cpu_exit(current_cpu);
     }

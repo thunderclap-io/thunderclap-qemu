@@ -53,6 +53,9 @@
 
 #include "trace.h"
 
+void
+print_rx_buffer_address_information(E1000ECore *core);
+
 #define _E1000E_MIN_XITR (500) /* No more then 7813 interrupts per
                                   second according to spec 10.2.4.2 */
 
@@ -860,9 +863,22 @@ _e1000e_ring_base(E1000ECore *core, const E1000E_RingInfo *r)
 }
 
 static inline uint64_t
+_e1000e_ring_descriptor_address(E1000ECore *core, const E1000E_RingInfo *r,
+    int offset)
+{
+    return _e1000e_ring_base(core, r) + E1000_RING_DESC_LEN * offset;
+}
+
+static inline uint64_t
 _e1000e_ring_head_descr(E1000ECore *core, const E1000E_RingInfo *r)
 {
-    return _e1000e_ring_base(core, r) + E1000_RING_DESC_LEN * core->mac[r->dh];
+    return _e1000e_ring_descriptor_address(core, r, core->mac[r->dh]);
+}
+
+static inline uint64_t
+_e1000e_ring_tail_descr(E1000ECore *core, const E1000E_RingInfo *r)
+{
+    return _e1000e_ring_descriptor_address(core, r, core->mac[r->dt]);
 }
 
 static inline void
@@ -1001,6 +1017,8 @@ start_recv(E1000ECore *core)
     int i;
 
     trace_e1000e_rx_start_recv();
+
+	print_rx_buffer_address_information(core);
 
     for (i = 0; i <= core->max_queue_num; i++) {
         qemu_flush_queued_packets(qemu_get_subqueue(core->owner_nic, i));
@@ -2114,6 +2132,7 @@ calc_rxdesclen(E1000ECore *core)
 static void
 set_rx_control(E1000ECore *core, int index, uint32_t val)
 {
+	PDBG(".");
     core->mac[RCTL] = val;
     trace_e1000e_rx_set_rctl(core->mac[RCTL]);
 
@@ -2501,7 +2520,7 @@ static void
 set_rdt(E1000ECore *core, int index, uint32_t val)
 {
     core->mac[index] = val & 0xffff;
-    trace_e1000e_rx_set_rdt(_e1000e_mq_queue_idx(RDT0, index), val);
+    /*trace_e1000e_rx_set_rdt(_e1000e_mq_queue_idx(RDT0, index), val);*/
     start_recv(core);
 }
 
@@ -3494,4 +3513,77 @@ e1000e_core_post_load(E1000ECore *core)
     _e1000e_intrmgr_post_load(core);
 
     return 0;
+}
+
+
+/*
+ * ----------------------------------------------
+ *
+ *  Attack toolkit starts here.
+ *
+ *  These live here, because they need to use e1000e internals aware features
+ *  quite intimately in order to work well.
+ *
+ *  By cr437@cam.ac.uk
+ *
+ *  ---------------------------------------------
+ */
+
+/*
+ * This is cannibalised out of '_e1000e_write_paket_to_guest', so the names
+ * aren't always what I'd choose.
+ *
+ * Some of it comes from the function that calls 'write_paket',
+ * e1000e_e_receive_iov.
+ */
+void
+print_rx_buffer_address_information(E1000ECore *core)
+{
+    E1000E_RxRing rxr;
+    E1000E_RSSInfo rss_info;
+
+    PCIDevice *d = core->owner;
+    uint8_t desc[E1000_MAX_RX_DESC_LEN];
+    hwaddr ba[MAX_PS_BUFFERS]; /* Buffer addresses */
+    dma_addr_t cursor_addr, tail_addr, wrap_addr;
+    const E1000E_RingInfo *rxi = rxr.i;
+
+	if (core->rx_desc_len == 0) {
+		PDBG("rx_desc_len not initialised, not doing anything.\n");
+		return;
+	}
+
+	/* 0 is the queue. Should do something with RSS to confirm this is
+	 * correct. */
+    _e1000e_rx_ring_init(core, &rxr, 0);
+
+	int i = 0;
+	cursor_addr = _e1000e_ring_head_descr(core, rxi);
+	tail_addr = _e1000e_ring_tail_descr(core, rxi);
+	wrap_addr = _e1000e_ring_descriptor_address(core, rxi,
+		core->mac[rxi->dlen]);
+
+	while (cursor_addr != tail_addr) {
+		++i;
+		pci_dma_read(d, cursor_addr, &desc, core->rx_desc_len);
+		read_rx_descriptor(core, desc, &ba);
+
+		printf("RX Buffer: 0x%lx.", ba[0]);
+		if (ba[0] % 2048 == 0) {
+			printf(" Address is 2K aligned. Probably a cluster.");
+		} else if ((ba[0] - 0x20) % 256 == 0) {
+			printf(" Address is MHSIZE offset from 256 aligned. Probably "
+				"mbuf without packet header.");
+		} else if ((ba[0] - 0x58) % 256 == 0) {
+			printf(" Address is MPKTHSIZE offset from 256 aligned. Probably "
+				"mbuf with packet header.");
+		}
+		putchar('\n');
+
+		cursor_addr += E1000_RING_DESC_LEN;
+		if (cursor_addr == wrap_addr) {
+			cursor_addr = _e1000e_ring_base(core, rxi);
+		}
+	}
+	printf("Examined %d RX buffers.\n");
 }
