@@ -35,6 +35,9 @@
 #include "pcie-debug.h"
 #include "log.h"
 
+#include <sys/param.h>
+#include <sys/mbuf.h>
+
 #include "hw/hw.h"
 #include "hw/pci/pci.h"
 #include "net/net.h"
@@ -53,8 +56,8 @@
 
 #include "trace.h"
 
-void
-print_rx_buffer_address_information(E1000ECore *core);
+void print_rx_buffer_address_information(E1000ECore *core);
+void print_tx_buffer_address_information(E1000ECore *core);
 
 #define _E1000E_MIN_XITR (500) /* No more then 7813 interrupts per
                                   second according to spec 10.2.4.2 */
@@ -1018,7 +1021,7 @@ start_recv(E1000ECore *core)
 
     trace_e1000e_rx_start_recv();
 
-	print_rx_buffer_address_information(core);
+	/*print_rx_buffer_address_information(core);*/
 
     for (i = 0; i <= core->max_queue_num; i++) {
         qemu_flush_queued_packets(qemu_get_subqueue(core->owner_nic, i));
@@ -2622,6 +2625,8 @@ set_tdt(E1000ECore *core, int index, uint32_t val)
 
     core->mac[index] = val & 0xffff;
 
+	print_tx_buffer_address_information(core);
+
     _e1000e_tx_ring_init(core, &txr, _e1000e_mq_queue_idx(TDT, index));
     start_xmit(core, &txr);
 }
@@ -3528,34 +3533,45 @@ e1000e_core_post_load(E1000ECore *core)
  *
  *  ---------------------------------------------
  */
-
-/*
- * This is cannibalised out of '_e1000e_write_paket_to_guest', so the names
- * aren't always what I'd choose.
- *
- * Some of it comes from the function that calls 'write_paket',
- * e1000e_e_receive_iov.
- */
 void
-print_rx_buffer_address_information(E1000ECore *core)
+print_host_mbuf_information(const uint8_t* buffer)
 {
-    E1000E_RxRing rxr;
-    E1000E_RSSInfo rss_info;
+	struct mbuf *mbuf = (struct mbuf *)buffer;
+	printf("m_next: 0x%lx.\n", le64_to_cpu((uint64_t)mbuf->m_next));
+	printf("m_nextpkt: 0x%lx.\n", le64_to_cpu((uint64_t)mbuf->m_nextpkt));
+	printf("m_data: 0x%lx.\n", le64_to_cpu((uint64_t)mbuf->m_data));
+	printf("m_len: %d.", le32_to_cpu(mbuf->m_len));
+}
 
-    PCIDevice *d = core->owner;
+typedef hwaddr (*get_buffer_address_fp)(E1000ECore *, dma_addr_t);
+
+hwaddr
+get_buffer_address_from_rx_descriptor(E1000ECore *core,
+	dma_addr_t rx_descriptor_addr)
+{
     uint8_t desc[E1000_MAX_RX_DESC_LEN];
     hwaddr ba[MAX_PS_BUFFERS]; /* Buffer addresses */
+	pci_dma_read(core->owner, rx_descriptor_addr, &desc, core->rx_desc_len);
+	read_rx_descriptor(core, desc, &ba);
+	return ba[0];
+}
+
+hwaddr
+get_buffer_address_from_tx_descriptor(E1000ECore *core,
+	dma_addr_t descriptor_addr)
+{
+	struct e1000_tx_desc desc;
+	pci_dma_read(core->owner, descriptor_addr, &desc, sizeof(desc));
+	return le64_to_cpu(desc.buffer_addr);
+}
+
+void
+print_ring_address_information(E1000ECore *core, const E1000E_RingInfo *rxi,
+	get_buffer_address_fp get_buffer_address)
+{
+	hwaddr ba;
     dma_addr_t cursor_addr, tail_addr, wrap_addr;
-    const E1000E_RingInfo *rxi = rxr.i;
-
-	if (core->rx_desc_len == 0) {
-		PDBG("rx_desc_len not initialised, not doing anything.\n");
-		return;
-	}
-
-	/* 0 is the queue. Should do something with RSS to confirm this is
-	 * correct. */
-    _e1000e_rx_ring_init(core, &rxr, 0);
+	uint8_t mbuf_buffer[sizeof(struct mbuf)];
 
 	int i = 0;
 	cursor_addr = _e1000e_ring_head_descr(core, rxi);
@@ -3565,18 +3581,23 @@ print_rx_buffer_address_information(E1000ECore *core)
 
 	while (cursor_addr != tail_addr) {
 		++i;
-		pci_dma_read(d, cursor_addr, &desc, core->rx_desc_len);
-		read_rx_descriptor(core, desc, &ba);
+		ba = get_buffer_address(core, cursor_addr);
 
-		printf("RX Buffer: 0x%lx.", ba[0]);
-		if (ba[0] % 2048 == 0) {
+		printf("Buffer: 0x%lx.", ba);
+		if (ba % 2048 == 0) {
 			printf(" Address is 2K aligned. Probably a cluster.");
-		} else if ((ba[0] - 0x20) % 256 == 0) {
-			printf(" Address is MHSIZE offset from 256 aligned. Probably "
-				"mbuf without packet header.");
-		} else if ((ba[0] - 0x58) % 256 == 0) {
-			printf(" Address is MPKTHSIZE offset from 256 aligned. Probably "
-				"mbuf with packet header.");
+		} else {
+			if ((ba - 0x20) % 256 == 0) {
+				printf(" Address is MHSIZE offset from 256 aligned. Probably "
+					"mbuf without packet header.");
+			} else if ((ba - 0x58) % 256 == 0) {
+				printf(" Address is MPKTHSIZE offset from 256 aligned. Probably "
+					"mbuf with packet header.");
+			}
+			putchar('\n');
+			pci_dma_read(core->owner, ba & ~0xFF, mbuf_buffer,
+				sizeof(struct mbuf));
+			print_host_mbuf_information(mbuf_buffer);
 		}
 		putchar('\n');
 
@@ -3585,5 +3606,32 @@ print_rx_buffer_address_information(E1000ECore *core)
 			cursor_addr = _e1000e_ring_base(core, rxi);
 		}
 	}
-	printf("Examined %d RX buffers.\n");
+	printf("Examined %d buffers.\n", i);
+}
+
+void
+print_rx_buffer_address_information(E1000ECore *core)
+{
+    E1000E_RxRing rxr;
+    const E1000E_RingInfo *rxi = rxr.i;
+
+	if (core->rx_desc_len == 0) {
+		PDBG("rx_desc_len not initialised, not doing anything.\n");
+		return;
+	}
+	/* 0 is the queue. Should do something with RSS to confirm this is
+	 * correct. */
+    _e1000e_rx_ring_init(core, &rxr, 0);
+	print_ring_address_information(core, rxi,
+		get_buffer_address_from_rx_descriptor);
+}
+
+void
+print_tx_buffer_address_information(E1000ECore *core)
+{
+	E1000E_TxRing txr;
+	const E1000E_RingInfo *txi = txr.i;
+	_e1000e_tx_ring_init(core, &txr, 0);
+	print_ring_address_information(core, txi,
+		get_buffer_address_from_tx_descriptor);
 }
