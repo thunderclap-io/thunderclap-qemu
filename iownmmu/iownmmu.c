@@ -113,7 +113,7 @@ uint64_t kaslr_slide_symbol_process(void *mem, uint64_t unused, uint64_t symbol_
 
   // if we find the desired pointer on this page, return the slide
   for (int32_t i = 0; i < 512; i++) {
-    // first 7 hex digits (0xffffff8) and last 5 should be unmodified by KASLR
+    // first 7 hex digits and last 5 should be unmodified by KASLR
     if (((page[i] & 0xfffff) == (symbol_static_address & 0xfffff)) &&
         ((page[i] & 0xfffffff000000000) == (symbol_static_address & 0xfffffff000000000))) {
       uint64_t slide = page[i] - symbol_static_address;
