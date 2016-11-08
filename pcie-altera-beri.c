@@ -69,7 +69,6 @@ perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
 	uint8_t lastbe = 0xF, firstbe = 0xF;
 
 	assert(buf != NULL);
-	assert(address < (1L << 33));
 	assert(length < 512);
 
 	TLPQuadWord read_req_tlp_buffer[2];
@@ -147,8 +146,6 @@ int
 perform_dma_write(const uint8_t* buf, int16_t length, uint16_t requester_id,
 	uint8_t tag, uint64_t address)
 {
-	assert(address < (1L << 33));
-
 	const uint16_t SEND_LIMIT = 128; /* bytes */
 	TLPQuadWord write_req_header_buffer[2];
 	TLPQuadWord *write_data = aligned_alloc(8, ((length + 7) / 8) * 8);

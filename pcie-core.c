@@ -47,13 +47,18 @@ create_memory_request_header(struct RawTLP *tlp, enum tlp_direction direction,
 	uint16_t length, uint16_t requester_id, uint8_t tag,
 	uint8_t lastbe, uint8_t firstbe, uint64_t address)
 {
-	/* XXX: 32 bit only for now */
+	bool large_address = (address >= (1LL << 32));
+
 	int i;
 
 	for (i = 0; i < 4; ++i) {
 		tlp->header[i] = 0;
 	}
-	tlp->header_length = 12;
+	if (large_address) {
+		tlp->header_length = 16;
+	} else {
+		tlp->header_length = 12;
+	}
 	if (direction == TLPD_READ) {
 		tlp->data_length = 0;
 	} else {
@@ -64,9 +69,15 @@ create_memory_request_header(struct RawTLP *tlp, enum tlp_direction direction,
 	struct TLP64RequestDWord1 *request_dword1 =
 		(struct TLP64RequestDWord1 *)(tlp->header + 1);
 	TLPDoubleWord *address_dword2 = (tlp->header + 2);
+	TLPDoubleWord *address_dword3 = (tlp->header + 3);
 
-	dword0->fmt = (direction == TLPD_READ) ?
-		TLPFMT_3DW_NODATA : TLPFMT_3DW_DATA;
+	dword0->fmt = 0;
+	if (tlp->header_length == 16) {
+		dword0->fmt |= TLPFMT_4DW;
+	}
+	if (direction == TLPD_WRITE) {
+		dword0->fmt |= TLPFMT_WITHDATA;
+	}
 	dword0->length = length;
 	dword0->type = M;
 
@@ -75,5 +86,10 @@ create_memory_request_header(struct RawTLP *tlp, enum tlp_direction direction,
 	request_dword1->lastbe = lastbe;
 	request_dword1->firstbe = firstbe;
 
-	*address_dword2 = (TLPDoubleWord)address;
+	if (large_address) {
+		*address_dword2 = (TLPDoubleWord)(address >> 32);
+		*address_dword3 = (TLPDoubleWord)address;
+	} else {
+		*address_dword2 = (TLPDoubleWord)address;
+	}
 }
