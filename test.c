@@ -59,6 +59,7 @@
 #include <stdbool.h>
 #include "pcie-debug.h"
 #ifndef DUMMY
+#include "hw/pci/pci.h"
 #include "exec/memory.h"
 #include "exec/memory-internal.h"
 #include "hw/net/e1000_regs.h"
@@ -193,7 +194,7 @@ enum packet_response {
 struct PacketGeneratorState {
 	PCIDevice *pci_dev;
 
-	uint32_t next_read;
+	uint64_t next_read;
 };
 
 void
@@ -201,6 +202,13 @@ initialise_packet_generator_state(struct PacketGeneratorState *state)
 {
 	state->next_read = 0;
 }
+
+static bool
+e1000e_ats_enabled(PCIDevice *pci_dev)
+{
+	return pci_get_word(pci_dev->config + E1000E_ATS_OFFSET + 6) & (1 << 15);
+}
+
 
 enum packet_response
 generate_packet(struct PacketGeneratorState *state, struct RawTLP *out)
@@ -211,10 +219,10 @@ generate_packet(struct PacketGeneratorState *state, struct RawTLP *out)
 		return PR_NO_RESPONSE;
 	}
 
-	create_memory_request_header(out, TLPD_READ, 1, state->pci_dev->devfn,
-		0, 0, 0xF, state->next_read);
-
-	state->next_read += 4;
+	if (e1000e_ats_enabled(state->pci_dev)) {
+		create_memory_request_header(out, TLPD_READ, TLP_AT_TRANSLATED, 8,
+			state->pci_dev->devfn, 0, 0xF, 0xF, state->next_read);
+	}
 
 	return PR_RESPONSE;
 }
@@ -312,6 +320,7 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 #endif
 
 		if (dir == TLPD_READ) {
+			requester_id = request_dword1->requester_id;
 #ifdef DUMMY
 			read_error = false;
 			out->data[0] = 0xBEDEBEDE;
@@ -403,6 +412,7 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 		assert(request_dword1->firstbe == 0xf); /* Only seen trace. */
 
 		response = PR_RESPONSE;
+		requester_id = request_dword1->requester_id;
 		out->header_length = 12;
 
 		/*
@@ -456,7 +466,12 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 
 		break;
 	case CPL:
-		printf("Got completion in main loop!\n");
+		if (tlp_fmt_has_data(dword0->fmt)) {
+			uint64_t *qword_data_p = (uint64_t *)in->data;
+			uint64_t qword_data = le64_to_cpu(*qword_data_p);
+			printf("%lx: %lx\n", state->next_read, qword_data);
+			state->next_read += 4096;
+		}
 		break;
 	default:
 		log_log(LS_RECV_UNKNOWN, LIF_NONE, 0, LOG_NEWLINE);
@@ -615,12 +630,16 @@ void coroutine_fn process_packet(void *opaque)
 			response = respond_to_packet(&packet_generator_state, &raw_tlp_in,
 				&raw_tlp_out);
 		} else {
-			qemu_coroutine_yield();
+			/*response = generate_packet(&packet_generator_state, &raw_tlp_out);*/
 		}
 
 		if (response != PR_NO_RESPONSE) {
 			send_result = send_tlp(&raw_tlp_out);
 			assert(send_result != -1);
+		}
+
+		if (!is_raw_tlp_valid(&raw_tlp_in)) {
+			qemu_coroutine_yield();
 		}
 	}
 }

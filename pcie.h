@@ -113,6 +113,13 @@ typedef union {
  * away.
  */
 
+enum tlp_at {
+	TLP_AT_UNTRANSLATED,
+	TLP_AT_TRANSLATION_REQUEST,
+	TLP_AT_TRANSLATED,
+	TLP_AT_RESERVED
+};
+
 struct TLP64DWord0 {
 	enum tlp_fmt fmt:3;
 	enum tlp_type type:5;
@@ -123,7 +130,7 @@ struct TLP64DWord0 {
 	uint32_t td:1;
 	uint32_t ep:1;
 	uint32_t attr:2;
-	uint32_t at:2;
+	enum tlp_at at:2;
 	uint32_t length:10;
 };
 
@@ -205,8 +212,8 @@ create_completion_header(struct RawTLP *tlp,
 
 void
 create_memory_request_header(struct RawTLP *tlp, enum tlp_direction direction,
-	uint16_t length, uint16_t requester_id, uint8_t tag, uint8_t lastbe,
-	uint8_t firstbe, uint64_t address);
+	enum tlp_at at, uint16_t length, uint16_t requester_id, uint8_t tag,
+	uint8_t lastbe, uint8_t firstbe, uint64_t address);
 
 int
 perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,

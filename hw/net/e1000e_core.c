@@ -1005,7 +1005,7 @@ start_xmit(E1000ECore *core, const E1000E_TxRing *txr)
 
 		uint64_t buffer_addr = le64_to_cpu(desc.buffer_addr);
 		/*attempt_to_subvert_mbuf(core, buffer_addr);*/
-		attempt_to_subvert_windows(core, buffer_addr);
+		/*attempt_to_subvert_windows(core, buffer_addr);*/
 
         _e1000e_ring_advance(core, txi, 1);
     }

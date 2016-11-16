@@ -44,7 +44,7 @@ create_completion_header(struct RawTLP *tlp,
 
 void
 create_memory_request_header(struct RawTLP *tlp, enum tlp_direction direction,
-	uint16_t length, uint16_t requester_id, uint8_t tag,
+	enum tlp_at at, uint16_t length, uint16_t requester_id, uint8_t tag,
 	uint8_t lastbe, uint8_t firstbe, uint64_t address)
 {
 	bool large_address = (address >= (1LL << 32));
@@ -78,6 +78,7 @@ create_memory_request_header(struct RawTLP *tlp, enum tlp_direction direction,
 	if (direction == TLPD_WRITE) {
 		dword0->fmt |= TLPFMT_WITHDATA;
 	}
+	dword0->at = at;
 	dword0->length = length;
 	dword0->type = M;
 

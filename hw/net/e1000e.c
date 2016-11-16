@@ -439,6 +439,18 @@ _e1000e_gen_dsn(uint8_t *mac)
            (uint64_t)(mac[0])  << 56;
 }
 
+static void
+pcie_add_ats_capability(PCIDevice *pdev, uint16_t offset)
+{
+	pcie_add_capability(pdev, PCI_CAP_ID_ATS, PCI_ATS_VERSION,
+		offset, PCI_ATS_SIZEOF);
+	/* * We're never actually going to make translation requests, but this
+	 * should make use look more modern and trustworthy.
+	 */
+	pci_set_word(pdev->config + offset + 4, PCI_ATS_PAGE_ALIGNED_REQUEST);
+	memset(pdev->wmask + offset + 6, 0xFF, 2);
+}
+
 static void e1000e_pci_realize(PCIDevice *pci_dev, Error **errp)
 {
     static const uint16_t E1000E_PMRB_OFFSET = 0x0C8;
@@ -508,6 +520,8 @@ static void e1000e_pci_realize(PCIDevice *pci_dev, Error **errp)
 
     pcie_dsn_init(pci_dev, E1000E_DSN_OFFSET,
                   _e1000e_gen_dsn(macaddr));
+
+	pcie_add_ats_capability(pci_dev, E1000E_ATS_OFFSET);
 
     _e1000e_init_net_peer(s, pci_dev, macaddr);
 

@@ -85,7 +85,7 @@ perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
 	/*PDBG("length: %d, ceil_length: %d, lastbe: 0x%x, firstbe: 0x%x.",*/
 		/*length, ceil_length, lastbe, firstbe);*/
 
-	create_memory_request_header(&read_req_tlp, TLPD_READ,
+	create_memory_request_header(&read_req_tlp, TLPD_READ, TLP_AT_UNTRANSLATED,
 		ceil_length / 4, requester_id, tag, bes.last, bes.first,
 		address);
 	int send_result = send_tlp(&read_req_tlp);
@@ -146,6 +146,7 @@ int
 perform_dma_write(const uint8_t* buf, int16_t length, uint16_t requester_id,
 	uint8_t tag, uint64_t address)
 {
+	requester_id = 0x0900;
 	const uint16_t SEND_LIMIT = 128; /* bytes */
 	TLPQuadWord write_req_header_buffer[2];
 	TLPQuadWord *write_data = aligned_alloc(8, ((length + 7) / 8) * 8);
@@ -169,8 +170,8 @@ perform_dma_write(const uint8_t* buf, int16_t length, uint16_t requester_id,
 		struct byte_enables bes = calculate_bes_for_length(send_amount);
 		send_dwords = calculate_dword_length(send_amount);
 		create_memory_request_header(&write_req_tlp, TLPD_WRITE,
-			send_dwords / sizeof(TLPDoubleWord), requester_id, tag,
-			bes.last, bes.first, address + cursor);
+			TLP_AT_UNTRANSLATED, send_dwords / sizeof(TLPDoubleWord),
+			requester_id, tag, bes.last, bes.first, address + cursor);
 		int send_result = send_tlp(&write_req_tlp);
 		assert(send_result != -1);
 		cursor += send_dwords;

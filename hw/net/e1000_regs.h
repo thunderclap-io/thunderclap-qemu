@@ -34,6 +34,7 @@
 
 #include <stdint.h>
 
+static const uint16_t E1000E_ATS_OFFSET =  0x160;
 
 /* PCI Device IDs */
 #define E1000_DEV_ID_82542               0x1000
