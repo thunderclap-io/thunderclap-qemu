@@ -35,8 +35,10 @@
 #include "pcie-debug.h"
 #include "log.h"
 
+#ifndef POSTGRES
 #include <sys/param.h>
 #include <sys/mbuf.h>
+#endif
 
 #include "hw/hw.h"
 #include "hw/pci/pci.h"
@@ -3549,6 +3551,7 @@ e1000e_core_post_load(E1000ECore *core)
  *
  *  ---------------------------------------------
  */
+#ifndef POSTGRES
 void
 print_mbuf_flags(int m_flags)
 {
@@ -3939,3 +3942,4 @@ print_tx_buffer_address_information(E1000ECore *core)
 	for_each_buffer_address(core, txi, get_buffer_address_from_tx_descriptor,
 		print_buffer_address_information, NULL, core);
 }
+#endif

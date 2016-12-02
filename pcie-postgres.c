@@ -915,3 +915,26 @@ pcie_hardware_init(int argc, char **argv, volatile uint8_t **physmem)
 
 	return 0;
 }
+
+
+int
+pci_dma_read(PCIDevice *dev, dma_addr_t addr, void *buf, dma_addr_t len)
+{
+	printf("WARNING! Postgres backend doesn't simulate host memory.\n");
+	return 0;
+}
+
+int
+pci_dma_write(PCIDevice *dev, dma_addr_t addr, const void *buf, dma_addr_t len)
+{
+	printf("WARNING! Postgres backend doesn't simulate host memory.\n");
+	return 0;
+}
+
+int
+perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
+	uint8_t tag, uint64_t address)
+{
+	printf("WARNING! Postgres backend doesn't simulate host memory.\n");
+	return 0;
+}

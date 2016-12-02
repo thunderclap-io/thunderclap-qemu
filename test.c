@@ -74,6 +74,7 @@
 #include <signal.h>
 #include <stdlib.h>
 #include <sys/endian.h>
+#include <sys/param.h>
 #include <sys/mbuf.h>
 #endif
 
