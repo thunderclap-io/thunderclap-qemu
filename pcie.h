@@ -60,6 +60,33 @@ enum tlp_type {
 	T_CFG				= 0x1B, // These are deprecated
 };
 
+static inline const char *
+tlp_type_str(enum tlp_type type)
+{
+	switch (type) {
+	case M:
+		return "M";
+	case M_LK:
+		return "M_LK";
+	case IO:
+		return "IO";
+	case CFG_0:
+		return "CFG_0";
+	case CFG_1:
+		return "CFG_1";
+	case CPL:
+		return "CPL";
+	case CPL_LK:
+		return "CPL_LK";
+	case MSG:
+		return "MSG";
+	case T_CFG:
+		return "T_CFG";
+	default:
+		return "[unrecognised]";
+	}
+}
+
 enum tlp_direction {
 	TLPD_READ = 0, TLPD_WRITE = 1
 };
@@ -222,5 +249,28 @@ perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
 int
 perform_dma_write(const uint8_t* buf, int16_t length, uint16_t requester_id,
 	uint8_t tag, uint64_t address);
+
+static inline enum tlp_type
+get_tlp_type(const struct RawTLP *tlp)
+{
+	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)(tlp->header);
+	return dword0->type;
+}
+
+static inline uint64_t
+get_config_req_addr(const struct RawTLP *tlp)
+{
+	struct TLP64ConfigRequestDWord2 *config_request_dword2 =
+		(struct TLP64ConfigRequestDWord2 *)(tlp->header + 2);
+	return (config_request_dword2->ext_reg_num << 8) |
+		config_request_dword2->reg_num;
+}
+
+static enum tlp_direction
+get_tlp_direction(const struct RawTLP *tlp)
+{
+	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)tlp->header;
+	return ((dword0->fmt & 2) >> 1);
+}
 
 #endif

@@ -1,6 +1,15 @@
 #include "pcie.h"
 
 extern volatile uint8_t *physmem;
+extern volatile uint8_t *led_phys_mem;
+
+static inline void
+write_leds(uint32_t data)
+{
+#ifdef BERI
+	*led_phys_mem = ~data;
+#endif
+}
 
 int
 pcie_hardware_init(int argc, char **argv, volatile uint8_t **physmem);

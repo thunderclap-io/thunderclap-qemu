@@ -34,11 +34,12 @@
 
 SEP :=, 
 TARGETS = beribsd$(SEP)postgres$(SEP)beribare$(SEP)niosbare
-TARGET ?= postgres
+TARGET ?= beribsd
 DUMMY ?= 0
 LOG ?= 0
 PRINT_IDS ?= 0
 PROFILE ?= 0
+
 
 ifndef PCIE_QEMU_CHERI_SDK
 $(error Variable PCIE_QEMU_CHERI_SDK is not set)
@@ -161,19 +162,31 @@ SOURCES := $(shell find . \
 	| sed '/beribare/d' \
 	| sed 's|./||') pcie-core.c $(BACKEND_$(TARGET))
 endif
+
 O_FILES := $(addprefix $(TARGET_DIR)/,$(SOURCES:.c=.o))
 HEADERS := $(shell find . -name "*.h")
+
+SNOOP_O_FILES := snoop-mac.o pcie-core.o beri-io.o $(BACKEND_$(TARGET):.c=.o)
+SNOOP_PREREQS := $(addprefix $(TARGET_DIR)/,$(SNOOP_O_FILES))
+$(TARGET_DIR)/snoop-mac: $(SNOOP_PREREQS)
+	@echo "Linking..."
+	@$(CC) $(LDFLAGS) -o $@ $^ $(LOADLIBS) $(LDLIBS)
+
+.PHONY: snoop-mac
+snoop-mac: $(TARGET_DIR)/snoop-mac
+	@echo "Built snoop-mac as $(TARGET_DIR)/snoop-mac"
 
 $(TARGET_DIR)/test: $(O_FILES)
 	@echo "Linking..."
 	@$(CC) $(LDFLAGS) -o $@ $^ $(LOADLIBS) $(LDLIBS)
 
-$(TARGET_DIR)/test-no-source.dump: $(TARGET_DIR)/test
+$(TARGET_DIR)/%-no-source.dump: $(TARGET_DIR)/%
 	$(OBJDUMP) -Cdz $< > $@
 
-$(TARGET_DIR)/test.dump: $(TARGET_DIR)/test
+$(TARGET_DIR)/%.dump: $(TARGET_DIR)/%
 	$(OBJDUMP) -ChdS $< > $@
 
+$(TARGET_DIR)/pcie-altera-beri.o: pcie.h
 $(TARGET_DIR)/%.o: %.c
 	@echo "Building $<..."
 	@mkdir -p $(dir $@)

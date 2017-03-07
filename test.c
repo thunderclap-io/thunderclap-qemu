@@ -166,16 +166,6 @@ static DeviceClass
 MachineState *current_machine;
 #endif
 #endif
-volatile uint8_t *led_phys_mem;
-
-
-static inline void
-write_leds(uint32_t data)
-{
-#ifdef BERI
-	*led_phys_mem = ~data;
-#endif
-}
 
 #ifndef DUMMY
 long
@@ -366,8 +356,7 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 		response = PR_RESPONSE;
 		requester_id = request_dword1->requester_id;
 
-		req_addr = config_request_dword2->ext_reg_num;
-		req_addr = (req_addr << 8) | config_request_dword2->reg_num;
+		req_addr = get_config_req_addr(in);
 
 		if ((config_request_dword2->device_id & uint32_mask(3)) == 0) {
 			/* Mask to get function num -- we are 0 */

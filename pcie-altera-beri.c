@@ -11,12 +11,13 @@
 #include "pcie-backend.h"
 #include "log.h"
 
+volatile uint8_t *led_phys_mem;
+
 static inline bool
 is_cpl_d(struct RawTLP *tlp)
 {
 	assert(tlp->header_length != -1);
 	assert(tlp->header != NULL);
-	assert(is_raw_tlp_valid(tlp));
 	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)tlp->header;
 	return dword0->type == CPL && tlp_fmt_has_data(dword0->fmt);
 }
@@ -56,7 +57,7 @@ calculate_bes_for_length(uint16_t byte_len)
 	return bes;
 }
 
-/* length is in bytes. */
+/* length is in bytes.  Returns 0 on completion, -1 if UR. */
 int
 perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
 	uint8_t tag, uint64_t address)
@@ -78,6 +79,8 @@ perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
 	TLPQuadWord read_resp_tlp_buffer[66];
 	struct RawTLP read_resp_tlp;
 	set_raw_tlp_invalid(&read_resp_tlp);
+	struct TLP64DWord0 *read_resp_dword0;
+	struct TLP64CompletionDWord1 *read_resp_dword1;
 
 	uint16_t ceil_length = calculate_dword_length(length);
 	struct byte_enables bes = calculate_bes_for_length(length);
@@ -99,14 +102,31 @@ perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
 
 	while (i < length) {
 		while (true) {
+			/* Spin, dropping packets that aren't meant for us. A slightlt
+			 * unstable behaviour.
+			 */
 			wait_for_tlp(read_resp_tlp_buffer, sizeof(read_resp_tlp_buffer),
 				&read_resp_tlp);
 
 			if (is_raw_tlp_valid(&read_resp_tlp)) {
-				if (is_cpl_d(&read_resp_tlp)) {
-					break;
+				assert(read_resp_tlp.header_length != -1);
+				assert(read_resp_tlp.header != NULL);
+				read_resp_dword0 = (struct TLP64DWord0 *)(read_resp_tlp.header);
+
+				if (read_resp_dword0->type == CPL) {
+					read_resp_dword1 = (struct TLP64CompletionDWord1 *)(
+						read_resp_tlp.header + 1);
+					if (tlp_fmt_has_data(read_resp_dword0->fmt)) {
+						break;
+					} else if (read_resp_dword1->status ==
+						TLPCS_UNSUPPORTED_REQUEST) {
+						printf("Unsupported request. Returning.\n");
+						return -1;
+					}
 				}
 			}
+			printf("Chewing through %s TLP.\n",
+				tlp_type_str(get_tlp_type(&read_resp_tlp)));
 		}
 
 		struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)read_resp_tlp.header;
