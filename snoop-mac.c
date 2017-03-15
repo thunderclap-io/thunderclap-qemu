@@ -59,16 +59,96 @@ struct bcm5701_send_buffer_descriptor {
 	uint16_t reserved;
 };
 
+enum bcm5701_send_flags {
+	BSF_TCP_UDP_CKSUM = (1 << 0),
+	BSF_IP_CKSUM = (1 << 1),
+	BSF_PACKET_END = (1 << 2),
+	// 3, 4, 5 are reserved
+	BSF_VLAN_TAG = (1 << 6),
+	BSF_COAL_NOW = (1 << 7),
+	BSF_CPU_PRE_DMA = (1 << 8),
+	BSF_CPU_POST_DMA = (1 << 9),
+	// 10, 11, 12, 13, 14, are reserved
+	BSD_DONT_GEN_CRC = (1 << 15)
+};
+
 void
 print_descriptors(struct bcm5701_send_buffer_descriptor *descriptor,
 	uint64_t count)
 {
 	for (uint64_t i = 0; i < count; ++i) {
-		printf("host_address: 0x%09lx; flags: 0x%x; length: %d; "
+		printf("host_address: 0x%016lx; flags: 0x%04x; length: 0x%04x;\n\t"
 			"vlan_tag: 0x%04x; reserved: 0x%04x.\n",
 			descriptor[i].host_address, descriptor[i].flags,
 			descriptor[i].length, descriptor[i].vlan_tag,
 			descriptor[i].reserved);
+	}
+}
+
+bool
+any_descriptor_nonzero(struct bcm5701_send_buffer_descriptor *descriptor,
+	uint64_t count)
+{
+	for (uint64_t i = 0; i < count; ++i) {
+		if (descriptor[i].host_address || descriptor[i].flags ||
+			descriptor[i].length || descriptor[i].vlan_tag ||
+			descriptor[i].reserved) {
+			return true;
+		}
+	}
+	return false;
+}
+
+bool
+is_probably_descriptor(const struct bcm5701_send_buffer_descriptor *buffer)
+{
+	return ((buffer->flags &
+		(uint32_mask_enable_bits(5, 3) | uint32_mask_enable_bits(14, 10)))
+		== 0) && buffer->length != 0;
+}
+
+void
+endianess_swap_descriptor(struct bcm5701_send_buffer_descriptor *descriptor)
+{
+	descriptor->host_address = bswap64(descriptor->host_address);
+	descriptor->flags = bswap16(descriptor->flags);
+	descriptor->length = bswap16(descriptor->length);
+	descriptor->vlan_tag = bswap16(descriptor->vlan_tag);
+	descriptor->reserved = bswap16(descriptor->reserved);
+}
+
+void
+endianess_swap_descriptors(struct bcm5701_send_buffer_descriptor *descriptor,
+	uint64_t count)
+{
+	for (uint64_t i = 0; i < count; ++i) {
+		endianess_swap_descriptor(&(descriptor[i]));
+	}
+}
+
+int
+read_page(uint64_t address, uint32_t devfn, uint8_t* buffer)
+{
+	uint64_t page_address = address & ~uint64_mask(12);
+	return perform_dma_read(buffer, 4096, devfn, 0, page_address);
+}
+
+void
+print_page(uint8_t* page_data)
+{
+	const uint64_t BYTES_PER_LINE = 16;
+	uint64_t offset = 0;
+	while (offset < 4096) {
+		if (offset % BYTES_PER_LINE == 0) {
+			printf("%04lx  ", offset);
+		}
+		printf("%02x", page_data[offset]);
+		++offset;
+		if (offset % BYTES_PER_LINE == 0) {
+			putchar('\n');
+		} else {
+			putchar(' ');
+		}
 	}
 }
 
@@ -164,6 +244,7 @@ main(int argc, char *argv[])
 	int read_result;
 	uint64_t read_addr = 0x400000;
 	struct bcm5701_send_buffer_descriptor descriptors[16];
+	uint8_t page_data[4096];
 	/*
 	 * We have found that in practise the tx ring is not located lower
 	 * than this.
@@ -200,9 +281,21 @@ main(int argc, char *argv[])
 		case AS_LOOKING_FOR_DESCRIPTOR_RING:
 			read_result = perform_dma_read((uint8_t *)descriptors,
 				256, packet_response_state.devfn, 0, read_addr);
-			printf("Read result: %d.\n", read_result);
 			if (read_result != -1) {
-				print_descriptors(descriptors, 16);
+				printf("Read 0x%lx OK.", read_addr);
+				if (any_descriptor_nonzero(descriptors, 16)) {
+					endianess_swap_descriptors(descriptors, 16);
+					if (is_probably_descriptor(&(descriptors[0]))) {
+						putchar('\n');
+						print_descriptors(descriptors, 16);
+						read_result = read_page(descriptors[0].host_address,
+							packet_response_state.devfn, page_data);
+						assert(read_result != -1);
+						print_page(page_data);
+					}
+				} else {
+					printf("All fields 0.\n");
+				}
 			}
 			read_addr += 4096;
 			break;
