@@ -1,7 +1,10 @@
 #include <assert.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include "baremetal/baremetalsupport.h"
 #include "pcie.h"
 #include "pciebyteenable.h"
 
@@ -35,7 +38,8 @@ create_memory_request(volatile TLPDoubleWord *tlp, uint32_t buffer_length,
     header0->length = 0;
   if (memory_length > 4096)
   {
-    puts('Read size greater than 1024 DWords, truncating');
+	/* XXX CR: When I found this, it was a char? This is very alarming. */ 
+    puts("Read size greater than 1024 DWords, truncating");
     memory_length = 0;
   }
   header0->at = 0;
@@ -117,7 +121,7 @@ parse_memory_response(volatile TLPDoubleWord *tlp, uint32_t tlp_length,
   if ((header0->fmt !=TLPFMT_3DW_NODATA) && (header0->fmt != TLPFMT_3DW_DATA))
   {
     puts("Invalid TLP format for parse_memory_response");
-    write_uint_32(header0->fmt);
+    write_uint_32(header0->fmt, '0');
     return -101;
   }
 
@@ -139,7 +143,6 @@ parse_memory_response(volatile TLPDoubleWord *tlp, uint32_t tlp_length,
 
   if (header0->fmt == TLPFMT_3DW_DATA)
   {
-    uint32_t i = 0;
     uint32_t response_length = header0->length*4;
     uint32_t worst_buffer_length = 0;
 

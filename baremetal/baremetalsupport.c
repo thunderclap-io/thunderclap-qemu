@@ -211,6 +211,8 @@ void *memcpy(void *d, void *s, size_t n)
 
 #else
 
+#include <stdio.h>
+
 void
 writeUARTChar(char c)
 {

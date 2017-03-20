@@ -41,7 +41,6 @@
 #include "pcie-debug.h"
 #include "pciefpga.h"
 #include "beri-io.h"
-#include "log.h"
 #include "pcie-backend.h"
 
 #include "sys/alt_timestamp.h"
@@ -285,7 +284,7 @@ send_tlp_unaligned(volatile TLPQuadWord *tlp, int tlp_len)
   // Release queued data
   IOWR(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 1);
 
-  record_time();
+  /*record_time();*/
   //log_log(LS_PACKET_SENT, LIF_NONE, 0, true);
 
   return 0;
