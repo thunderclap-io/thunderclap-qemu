@@ -70,7 +70,7 @@ perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
 	uint8_t lastbe = 0xF, firstbe = 0xF;
 
 	assert(buf != NULL);
-	assert(length < 512);
+	assert(length <= 512);
 
 	TLPQuadWord read_req_tlp_buffer[2];
 	struct RawTLP read_req_tlp;
@@ -120,20 +120,22 @@ perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
 						break;
 					} else if (read_resp_dword1->status ==
 						TLPCS_UNSUPPORTED_REQUEST) {
-						printf("Unsupported request. Returning.\n");
 						return -1;
 					}
+				} else {
+					printf("Chewing through %s TLP.\n",
+						tlp_type_str(get_tlp_type(&read_resp_tlp)));
 				}
 			}
-			printf("Chewing through %s TLP.\n",
-				tlp_type_str(get_tlp_type(&read_resp_tlp)));
 		}
+
+		assert(&read_resp_tlp != NULL);
+		assert(read_resp_tlp.header != NULL);
+		assert(read_resp_tlp.data != NULL);
 
 		struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)read_resp_tlp.header;
 
 		assert(tlp_fmt_has_data(dword0->fmt));
-		assert(read_resp_tlp.header != NULL);
-		assert(read_resp_tlp.data != NULL);
 
 		for (j = 0; j < (dword0->length * sizeof(TLPDoubleWord)) &&
 				(i + j) < length; ++j) {

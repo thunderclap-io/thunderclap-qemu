@@ -94,3 +94,41 @@ create_memory_request_header(struct RawTLP *tlp, enum tlp_direction direction,
 		*address_dword2 = (TLPDoubleWord)address;
 	}
 }
+
+void
+create_config_request_header(struct RawTLP *tlp, enum tlp_direction direction,
+	uint16_t requester_id, uint8_t tag, uint8_t firstbe, uint16_t devfn,
+	uint16_t address)
+{
+	assert((address & 0x3) == 0);
+	assert(address < 4096);
+
+	int i;
+	for (i = 0; i < 4; ++i) {
+		tlp->header[i] = 0;
+	}
+	tlp->header_length = 12;
+	if (direction == TLPD_READ) {
+		tlp->data_length = 0;
+	} else {
+		tlp->data_length = 4;
+	}
+
+	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)tlp->header;
+	struct TLP64RequestDWord1 *dword1 =
+		(struct TLP64RequestDWord1 *)(tlp->header + 1);
+	struct TLP64ConfigRequestDWord2 *dword2 =
+		(struct TLP64ConfigRequestDWord2 *)(tlp->header + 2);
+
+	if (direction == TLPD_WRITE) {
+		dword0->fmt |= TLPFMT_WITHDATA;
+	}
+	dword0->type = CFG_0;
+	dword0->length = 1;
+	dword1->requester_id = requester_id;
+	dword1->tag = tag;
+	dword1->firstbe = firstbe;
+	dword2->device_id = devfn;
+	dword2->ext_reg_num = address >> 8;
+	dword2->reg_num = address & uint32_mask(8);
+}

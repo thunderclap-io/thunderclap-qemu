@@ -1,9 +1,12 @@
 #ifndef PCIE_H
 #define PCIE_H
 
+#include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
+#include <mask.h>
 
 typedef uint64_t TLPQuadWord;
 typedef uint32_t TLPDoubleWord;
@@ -242,6 +245,11 @@ create_memory_request_header(struct RawTLP *tlp, enum tlp_direction direction,
 	enum tlp_at at, uint16_t length, uint16_t requester_id, uint8_t tag,
 	uint8_t lastbe, uint8_t firstbe, uint64_t address);
 
+void
+create_config_request_header(struct RawTLP *tlp, enum tlp_direction direction,
+	uint16_t requester_id, uint8_t tag, uint8_t firstbe, uint16_t device_id,
+	uint16_t address);
+
 int
 perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
 	uint8_t tag, uint64_t address);
@@ -254,6 +262,7 @@ static inline enum tlp_type
 get_tlp_type(const struct RawTLP *tlp)
 {
 	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)(tlp->header);
+	assert(dword0 != NULL);
 	return dword0->type;
 }
 
@@ -271,6 +280,14 @@ get_tlp_direction(const struct RawTLP *tlp)
 {
 	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)tlp->header;
 	return ((dword0->fmt & 2) >> 1);
+}
+
+static inline uint16_t
+bdf_to_uint(uint8_t bus_num, uint8_t dev_num, uint8_t fn_num)
+{
+	assert((dev_num & ~uint32_mask(5)) == 0);
+	assert((fn_num & ~uint32_mask(3)) == 0);
+	return ((uint16_t)bus_num) << 8 | (dev_num << 3) | fn_num;
 }
 
 #endif
