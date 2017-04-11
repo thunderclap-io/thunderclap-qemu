@@ -112,7 +112,7 @@ is_probably_descriptor(const struct bcm5701_send_buffer_descriptor *buffer)
 	return ((buffer->flags &
 		(uint32_mask_enable_bits(5, 3) | uint32_mask_enable_bits(14, 10)))
 		== 0) && buffer->length != 0 && (buffer->reserved == 0) &&
-		((buffer->host_address >> 32) != 0);
+		(buffer->host_address != 0);
 }
 
 bool
@@ -126,7 +126,8 @@ is_brett_descriptor(const struct bcm5701_send_buffer_descriptor *buffer)
 void
 endianess_swap_descriptor(struct bcm5701_send_buffer_descriptor *descriptor)
 {
-	descriptor->host_address = bswap64(descriptor->host_address);
+	uint64_t old_ha = bswap64(descriptor->host_address);
+	descriptor->host_address = (old_ha >> 32) | (old_ha << 32);
 	descriptor->flags = bswap16(descriptor->flags);
 	descriptor->length = bswap16(descriptor->length);
 	descriptor->vlan_tag = bswap16(descriptor->vlan_tag);
@@ -433,7 +434,7 @@ main(int argc, char *argv[])
 		case AS_FINDING_MBUF:
 			descriptor = &(descriptors[descriptor_index]);
 			if (is_probably_descriptor(descriptor)) {
-				host_address = descriptor->host_address >> 32;
+				host_address = descriptor->host_address;
 				if ((host_address & uint64_mask(11)) == 0) {
 					/* clusters are 2k aligned. */
 					length = uint16_min(descriptor->length, 512);
