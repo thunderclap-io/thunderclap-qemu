@@ -43,11 +43,7 @@ uint64_mask(uint64_t width) {
 int
 main(int argc, char* argv[])
 {
-	printf("%lx\n", uint64_mask(32));
-	TEST(0, 0);
-	TEST(1, 0);
-	TEST(1, 1);
-	TEST(2, 1);
+	printf("%lx\n", uint64_mask(12));
 	return 0;
 }
 #endif

@@ -86,8 +86,6 @@ LDLIBS := -lz -lexecinfo -lelf -lpixman-1 -lpcre
 LDLIBS := $(LDLIBS) -lutil -lglib-2.0 -liconv -lintl -lm -lthr
 
 CFLAGS := $(CFLAGS) -O3
-# To keep macOS mbuf definitions happy
-CFLAGS := $(CFLAGS) -D__x86_64__ -DXNU_KERNEL_PRIVATE
 
 ifeq ($(DUMMY),1)
 CFLAGS := $(CFLAGS) -DDUMMY

