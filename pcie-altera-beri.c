@@ -57,7 +57,33 @@ calculate_bes_for_length(uint16_t byte_len)
 	return bes;
 }
 
-/* length is in bytes.  Returns 0 on completion, -1 if UR. */
+static inline uint64_t
+uint64_min(uint64_t left, uint64_t right)
+{
+	return (left < right) ? left : right;
+}
+
+/* Simple wrapper over perform_dma_wrapper to allow reads longer than 512 to
+ * be performed: reads happen in chunks.
+ */
+int
+perform_dma_long_read(uint8_t* buf, uint64_t length, uint16_t requester_id,
+	uint8_t tag, uint64_t address)
+{
+	int result;
+	for (uint64_t i = 0; i < length; i += 512) {
+		result = perform_dma_read((buf + i), uint64_min(512, length - i),
+			requester_id, tag, (address + i));
+		if (result != 0) {
+			return result;
+		}
+	}
+	return result;
+}
+
+/* length is in bytes.  Returns 0 on completion, -1 if UR. Will fail an
+ * assertion if a read longer than 512 bytes is attempted, as these fail in
+ * practise. */
 int
 perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
 	uint8_t tag, uint64_t address)

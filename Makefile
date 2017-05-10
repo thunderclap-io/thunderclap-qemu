@@ -35,6 +35,8 @@
 SEP :=, 
 TARGETS = beribsd$(SEP)postgres$(SEP)beribare$(SEP)niosbare
 TARGET ?= beribsd
+VICTIMS = macos$(SEP)freebsd
+VICTIM ?= macos
 DUMMY ?= 0
 LOG ?= 0
 PRINT_IDS ?= 0
@@ -78,13 +80,20 @@ BACKEND_beribare = pcie-altera-beri.c
 BACKEND_postgres = pcie-postgres.c
 BACKEND_niosbare = pcie-nios.c
 
-
+ifeq ($(VICTIM),macos)
+	CFLAGS := $(CFLAGS) -DVICTIM_MACOS
+else ifeq ($(VICTIM),freebsd)
+	CFLAGS := $(CFLAGS) -DVICTIM_FREEBSD
+else
+$(error $(VICTIM) is not a valid target: choices are $(VICTIMS))
+endif
 
 LDFLAGS := -static #-target mips64-unknown-freebsd #-G0
 LIBS := glib-2.0 pixman-1
 LDLIBS := -lz -lexecinfo -lelf -lpixman-1 -lpcre
 LDLIBS := $(LDLIBS) -lutil -lglib-2.0 -liconv -lintl -lm -lthr
 
+#CFLAGS := $(CFLAGS) -O1
 CFLAGS := $(CFLAGS) -O3
 
 ifeq ($(DUMMY),1)
@@ -160,11 +169,16 @@ SOURCES := $(shell find . \
 	! -name "pcie-*.c" $(DONT_FIND_TEMPLATES) -name "*.c" \
 	| sed '/niosbare/d' \
 	| sed '/beribare/d' \
+	| sed '/snoop-mac/d' \
 	| sed 's|./||') pcie-core.c $(BACKEND_$(TARGET))
 endif
 
 O_FILES := $(addprefix $(TARGET_DIR)/,$(SOURCES:.c=.o))
 HEADERS := $(shell find . -name "*.h")
+
+$(TARGET_DIR)/test: $(O_FILES)
+	@echo "Linking..."
+	@$(CC) $(LDFLAGS) -o $@ $^ $(LOADLIBS) $(LDLIBS)
 
 SNOOP_O_FILES := snoop-mac.o pcie-core.o beri-io.o $(BACKEND_$(TARGET):.c=.o)
 SNOOP_PREREQS := $(addprefix $(TARGET_DIR)/,$(SNOOP_O_FILES))
@@ -175,10 +189,6 @@ $(TARGET_DIR)/snoop-mac: $(SNOOP_PREREQS)
 .PHONY: snoop-mac
 snoop-mac: $(TARGET_DIR)/snoop-mac
 	@echo "Built snoop-mac as $(TARGET_DIR)/snoop-mac"
-
-$(TARGET_DIR)/test: $(O_FILES)
-	@echo "Linking..."
-	@$(CC) $(LDFLAGS) -o $@ $^ $(LOADLIBS) $(LDLIBS)
 
 $(TARGET_DIR)/%-no-source.dump: $(TARGET_DIR)/%
 	$(OBJDUMP) -Cdz $< > $@

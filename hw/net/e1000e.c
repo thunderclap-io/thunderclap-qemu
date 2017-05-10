@@ -32,6 +32,8 @@
 * You should have received a copy of the GNU Lesser General Public
 * License along with this library; if not, see <http://www.gnu.org/licenses/>.
 */
+#include <sys/queue.h>
+
 #include "pcie-debug.h"
 #include "mask.h"
 
@@ -521,7 +523,7 @@ static void e1000e_pci_realize(PCIDevice *pci_dev, Error **errp)
     pcie_dsn_init(pci_dev, E1000E_DSN_OFFSET,
                   _e1000e_gen_dsn(macaddr));
 
-	pcie_add_ats_capability(pci_dev, E1000E_ATS_OFFSET);
+	/*pcie_add_ats_capability(pci_dev, E1000E_ATS_OFFSET);*/
 
     _e1000e_init_net_peer(s, pci_dev, macaddr);
 
@@ -704,7 +706,18 @@ static void e1000e_class_init(ObjectClass *class, void *data)
     c->realize = e1000e_pci_realize;
     c->exit = e1000e_pci_uninit;
     c->vendor_id = PCI_VENDOR_ID_INTEL;
-    c->device_id = E1000_DEV_ID_82574L;
+    /*c->device_id = E1000_DEV_ID_82574L;*/
+	/* This is not what the device is, but it's what the mac needs to
+	 * autodetect it.
+	 */
+	/* This didn't work.
+	c->device_id = E1000_DEV_ID_ICH8_IGP_C;
+	*/
+	/* This is the other value that is accepted by the Mac driver. I'm unsure
+	 * where it comes from: googling reveals it to be an 82574L ID, but it's
+	 * not one from the E1000 regs header file.
+	 */
+	c->device_id = 0x10F6;
     c->revision = 0;
     c->class_id = PCI_CLASS_NETWORK_ETHERNET;
     c->is_express = 1;
