@@ -200,7 +200,6 @@ e1000e_ats_enabled(PCIDevice *pci_dev)
 	return pci_get_word(pci_dev->config + E1000E_ATS_OFFSET + 6) & (1 << 15);
 }
 
-
 enum packet_response
 generate_packet(struct PacketGeneratorState *state, struct RawTLP *out)
 {

