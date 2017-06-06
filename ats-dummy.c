@@ -103,6 +103,9 @@ enum packet_response {
 struct packet_response_state {
 	uint32_t devfn;
 	uint32_t config_space[1024];
+	uint32_t eeprom_reg;
+	uint32_t mdic_reg;
+	uint32_t semaphore_reg;
 	enum attack_state attack_state;
 };
 
@@ -115,15 +118,23 @@ initialise_e1000e_config_space(uint32_t config_space[1024])
 #define C(A, V) config_space[(A) / 4] = (V)
 	/* vendor and device id */
 	C(0x000, 0x10d38086);
+	config_space[0] = 0x10d38086;
 	/* status | command */
 	C(0x004, (PCI_STATUS_CAP_LIST << 16));
+	/* class code | revision id */
+	C(0x008, 0x02000000);
+	/* BAR 2: IO */
+	C(0x018, 1);
 	/* Capabilities pointer */
 	C(0x034, 0xC8);
+	/* MSI-X Capability Structure */
+	C(0x0A0, (0x90 << 16) | (0x11));
 	/* Power management register block */
 	C(0x0C8, ((0x1 << 5 | 0x2) << 16) | (0xE0 << 8) | 0x01);
 	/* PCI Express Capability structure dword[0] */
 	/* These are basically just version identifiers */
-	C(0x0E0, (0x2 << 16) | 0x10);
+	          /* cap reg | next ptr    | cap id */
+	C(0x0E0, (0x2 << 16) | (0xA0 << 8) | 0x10);
 	/* Device Capapbilities Register */
 	C(0x0E4, 0x1); /* 256 bytes max payload size. */
 	/* Device control register. */
@@ -133,12 +144,12 @@ initialise_e1000e_config_space(uint32_t config_space[1024])
 	/* Max payload 256 bytes again. */
 	/* Max read request size 256 bytes. */
 	/* May need to set transactions pending in device status register. */
-	C(0x0E8, (0x1 << 12) | (0x1 << 5));
+	/*C(0x0E8, (0x1 << 12) | (0x1 << 5));*/
 	/* Link capability */
 	/* Commented to match QEMU */
 	C(0x0EC, /* (0x6 << 15) | (0x1 << 12) | */  (0x1 << 10) | (0x1 << 4) | 0x1);
 	/* Link control and status */
-	C(0xF0, ((0x1 << 12) | (0x1 << 4) | 0x1) << 16);
+	C(0xF0, (/* (0x1 << 12) | */ (0x1 << 4) | 0x1) << 16);
 	/* ATS capability: dword [0] */
 	C(0x100, PCI_EXT_CAP(PCI_CAP_ID_ATS, PCI_ATS_VERSION, 0x0));
 	/* ATS capability: dword[1] */
@@ -163,7 +174,7 @@ respond_to_packet(struct packet_response_state *state,
 	struct RawTLP *in, struct RawTLP *out)
 {
 	uint16_t requester_id;
-	uint32_t mask, write_data;
+	uint32_t mask, write_data, phy_reg, eeprom_addr;
 	uint64_t req_addr;
 	enum packet_response response = PR_NO_RESPONSE;
 	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)in->header;
@@ -191,23 +202,35 @@ respond_to_packet(struct packet_response_state *state,
 		if (dir == TLPD_READ) {
 			out->data_length = 4;
 			out->data[0] = bswap32(state->config_space[req_addr / 4]);
+			/*printf("Reading addr: 0x%03lx. Non-endian: 0x%08x. Final: 0x%08x.\n",*/
+				/*req_addr, state->config_space[req_addr / 4],*/
+				/*out->data[0]);*/
 		} else /* (dir == TLPD_WRITE) */ {
 			mask = mask_for_byte_enable(request_dword1->firstbe);
-			write_data = (bswap32(in->data[0]) & mask) |
-				(state->config_space[req_addr / 4] & ~mask);
 			switch (req_addr) {
+			case 0x000:
 			case 0x004:
 			case 0x00C:
+			case 0x020: /* BAR 4 */
+			case 0x024: /* BAR 5 */
+				mask = 0;
 				break;
-			case 0x104:
-				printf("Endian swapped write: 0x%x.\n", in->data[0]);
-				if (state->attack_state == AS_UNINITIALISED) {
-					state->attack_state = AS_READING;
-				}
+			case 0x10: /* BAR 0: Memory */
+				mask &= uint32_mask_enable_bits(31, 17);
 				break;
-			default:
-				state->config_space[req_addr / 4] = write_data;
+			case 0x14: /* BAR 1: Flash */
+				mask &= uint32_mask_enable_bits(31, 16);
+				break;
+			case 0x18: /* BAR 2: IO */
+				mask &= uint32_mask_enable_bits(31, 5);
+				break;
+			case 0x1C: /* BAR 3: MSI-X */
+				mask &= uint32_mask_enable_bits(31, 14);
+				break;
 			}
+			write_data = (bswap32(in->data[0]) & mask) |
+				(state->config_space[req_addr / 4] & ~mask);
+			state->config_space[req_addr / 4] = write_data;
 			out->data_length = 0;
 		}
 
@@ -226,15 +249,63 @@ respond_to_packet(struct packet_response_state *state,
 		}
 		break;
 	case M:
-		req_addr = in->header[2] & 0xFFF;
+		req_addr = in->header[2] & uint64_mask(17);
+		/*printf("Mem %s: 0x%lx.\n", dir == TLPD_READ ? "Read" : "Write",*/
+			/*req_addr);*/
 		if (dir == TLPD_READ) {
 			response = PR_RESPONSE;
 			out->data_length = 4;
-			out->data[0] = 0;
+			switch (req_addr) {
+			case 0x14:
+				out->data[0] = bswap32(state->eeprom_reg | (1 << 1));
+				break;
+			case 0x20: /* Always set ready bit. */
+				out->data[0] = bswap32(state->mdic_reg | (1 << 28));
+				break;
+			case 0xF00:
+				out->data[0] = bswap32(state->semaphore_reg);
+				break;
+			case 0x5400: /* MAC Recv addr low */
+				out->data[0] = bswap32(0x00000200);
+				break;
+			default:
+				out->data[0] = 0;
+				break;
+			}
 			out->header_length = 12;
 			create_completion_header(out, dir, state->devfn,
 				TLPCS_SUCCESSFUL_COMPLETION, 4, requester_id,
 				request_dword1->tag, 0);
+		} else /* (dir == TLPD_WRITE) */ {
+			switch (req_addr) {
+			case 0x14:
+				eeprom_addr = (bswap32(in->data[0]) &
+					uint32_mask_enable_bits(15, 2)) >> 2;
+				/* Checksum reg */
+				switch (eeprom_addr) {
+				case 0x1: /* First 16 bits of MAC addr */
+					state->eeprom_reg = 0x2 << 16;
+					break;
+				case 0x3F:
+					state->eeprom_reg = (0xBABA - 0x2) << 16;
+					break;
+				default:
+					state->eeprom_reg = 0;
+				}
+				break;
+			case 0x20: /* Set this because FreeBSD checks address. */
+				state->mdic_reg = bswap32(in->data[0]) & ~0xFFFF;
+				phy_reg = (state->mdic_reg >> 16) & 0x1F;
+				if (phy_reg == 2) {
+					state->mdic_reg |= 0x0141;
+				} else if (phy_reg == 3) {
+					state->mdic_reg |= 0x0CB1;
+				}
+				break;
+			case 0xF00:
+				state->semaphore_reg = bswap32(in->data[0]);
+				break;
+			}
 		}
 		break;
 	default:
@@ -260,7 +331,8 @@ main(int argc, char *argv[])
 	enum packet_response response;
 
 	struct packet_response_state packet_response_state = {
-		.attack_state = AS_UNINITIALISED
+		.attack_state = AS_UNINITIALISED,
+		.semaphore_reg = 0
 	};
 	initialise_e1000e_config_space(packet_response_state.config_space);
 
