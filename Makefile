@@ -93,8 +93,10 @@ LIBS := glib-2.0 pixman-1
 LDLIBS := -lz -lexecinfo -lelf -lpixman-1 -lpcre
 LDLIBS := $(LDLIBS) -lutil -lglib-2.0 -liconv -lintl -lm -lthr
 
-#CFLAGS := $(CFLAGS) -O1
-CFLAGS := $(CFLAGS) -O3
+
+CFLAGS := $(CFLAGS) -Wall
+CFLAGS := $(CFLAGS) -O1
+#CFLAGS := $(CFLAGS) -O3
 
 ifeq ($(DUMMY),1)
 CFLAGS := $(CFLAGS) -DDUMMY
@@ -191,7 +193,7 @@ $(TARGET_DIR)/snoop-mac: $(SNOOP_PREREQS)
 snoop-mac: $(TARGET_DIR)/snoop-mac
 	@echo "Built snoop-mac as $(TARGET_DIR)/snoop-mac"
 
-ATS_O_FILES := ats-dummy.o pcie-core.o beri-io.o $(BACKEND_$(TARGET):.c=.o)
+ATS_O_FILES := ats-dummy.o pcie-core.o beri-io.o hexdump.o $(BACKEND_$(TARGET):.c=.o)
 ATS_PREREQS := $(addprefix $(TARGET_DIR)/,$(ATS_O_FILES))
 $(TARGET_DIR)/ats-dummy: $(ATS_PREREQS)
 	@echo "Linking..."

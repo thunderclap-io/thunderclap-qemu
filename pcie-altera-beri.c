@@ -85,18 +85,15 @@ perform_dma_long_read(uint8_t* buf, uint64_t length, uint16_t requester_id,
  * assertion if a read longer than 512 bytes is attempted, as these fail in
  * practise. */
 int
-perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
-	uint8_t tag, uint64_t address)
+_perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
+	uint8_t tag, enum tlp_at at, uint64_t address)
 {
 	/* This should be extracted from Max_Read_Request_Size in the Device
 	 * Control Register. */
 
 	assert(length > 0);
-
-	uint8_t lastbe = 0xF, firstbe = 0xF;
-
-	assert(buf != NULL);
 	assert(length <= 512);
+	assert(buf != NULL);
 
 	TLPQuadWord read_req_tlp_buffer[2];
 	struct RawTLP read_req_tlp;
@@ -114,7 +111,7 @@ perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
 	/*PDBG("length: %d, ceil_length: %d, lastbe: 0x%x, firstbe: 0x%x.",*/
 		/*length, ceil_length, lastbe, firstbe);*/
 
-	create_memory_request_header(&read_req_tlp, TLPD_READ, TLP_AT_UNTRANSLATED,
+	create_memory_request_header(&read_req_tlp, TLPD_READ, at,
 		ceil_length / 4, requester_id, tag, bes.last, bes.first,
 		address);
 	int send_result = send_tlp(&read_req_tlp);
@@ -178,6 +175,25 @@ perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
 
 	return 0;
 }
+
+int
+perform_translated_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
+	uint8_t tag, uint64_t address)
+{
+	return _perform_dma_read(buf, length, requester_id, tag, TLP_AT_TRANSLATED,
+		address);
+}
+
+
+int
+perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
+	uint8_t tag, uint64_t address)
+{
+	return _perform_dma_read(buf, length, requester_id, tag,
+		TLP_AT_UNTRANSLATED, address);
+}
+
+
 /*
  * We should handle tags with more sophistication than we do -- each part of
  * the core should use a specific tag, but this would require modifying calls
@@ -358,7 +374,6 @@ wait_for_tlp(volatile TLPQuadWord *buffer, int buffer_len, struct RawTLP *out)
 	 * Write, Config Write Types 0 and 1, Completion with Data, Completion
 	 * with Data Locked. */
 
-	bool aligned;
 	if (tlp_fmt_has_data(dword0->fmt)) {
 		if (tlp_get_alignment_from_header(out->header) == TDA_ALIGNED) {
 			out->data = out->header + 4;
@@ -452,7 +467,6 @@ send_tlp(struct RawTLP *tlp)
 		/*TLPDoubleWord merge_data = (TLPDoubleWord)(data[0] & 0xFFFFFFFFLL);*/
 		/*merge_data = bswap32(merge_data);*/
 
-		TLPDoubleWord header_dword = header[1] >> 32;
 		sendqword = (TLPQuadWord)(bswap32(header[1] >> 32)) << 32;
 		if (tlp->data_length > 0) {
 			sendqword |= tlp->data[0];
