@@ -210,7 +210,6 @@ int
 perform_dma_write(const uint8_t* buf, int16_t length, uint16_t requester_id,
 	uint8_t tag, uint64_t address)
 {
-	requester_id = 0x0900;
 	const uint16_t SEND_LIMIT = 128; /* bytes */
 	TLPQuadWord write_req_header_buffer[2];
 	TLPQuadWord *write_data = aligned_alloc(8, ((length + 7) / 8) * 8);
