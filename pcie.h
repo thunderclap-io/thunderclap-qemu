@@ -1,6 +1,17 @@
 #ifndef PCIE_H
 #define PCIE_H
 
+/*
+ * The backend is expected to implement 'wait_for_tlp', but this should not be
+ * used by most users.
+ *
+ * Instead 'next_tlp' and 'next_completion_tlp' should be used. These are
+ * constructed so that perform_dma_read can run while requests are being made
+ * by the host to the platform. If a non-completion tlp is sent while a
+ * completion is being waited for, the non-completion tlp will be added to a
+ * queue and returned by the next call of the next_tlp function.
+ */
+
 #include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -21,19 +32,23 @@ struct RawTLP {
 	TLPDoubleWord *data;
 };
 
+void
+next_tlp(struct RawTLP *out);
+
+void
+free_raw_tlp_buffer(struct RawTLP *tlp);
+
 static inline void
 set_raw_tlp_invalid(struct RawTLP *out)
 {
 	out->header_length = -1;
-	out->header = NULL;
 	out->data_length = -1;
-	out->data = NULL;
 }
 
 static inline bool
 is_raw_tlp_valid(struct RawTLP *tlp)
 {
-	return tlp->header_length != -1 && tlp->header != NULL;
+	return tlp->header_length != -1;
 }
 
 #ifdef POSTGRES
@@ -93,6 +108,18 @@ tlp_type_str(enum tlp_type type)
 enum tlp_direction {
 	TLPD_READ = 0, TLPD_WRITE = 1
 };
+
+static inline const char *
+tlp_direction_str(enum tlp_direction direction) {
+	switch (direction) {
+	case TLPD_READ:
+		return "READ";
+	case TLPD_WRITE:
+		return "WRITE";
+	default:
+		return "[oh no. this shouldn't happen.]";
+	}
+}
 
 enum tlp_fmt {
 	TLPFMT_3DW_NODATA	= 0,
@@ -250,21 +277,30 @@ create_config_request_header(struct RawTLP *tlp, enum tlp_direction direction,
 	uint16_t requester_id, uint8_t tag, uint8_t firstbe, uint16_t device_id,
 	uint16_t address);
 
-int
+enum dma_read_response {
+	DRR_SUCCESS = 0,
+	DRR_UNSUPPORTED_REQUEST,
+	DRR_CHEWED
+};
+
+enum dma_read_response
 perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
 	uint8_t tag, uint64_t address);
 
-int
+enum dma_read_response
 perform_translated_dma_read(uint8_t* buf, uint16_t length,
 	uint16_t requester_id, uint8_t tag, uint64_t address);
 
-int
+enum dma_read_response
 perform_dma_long_read(uint8_t* buf, uint64_t length, uint16_t requester_id,
 	uint8_t tag, uint64_t address);
 
 int
 perform_dma_write(const uint8_t* buf, int16_t length, uint16_t requester_id,
 	uint8_t tag, uint64_t address);
+
+void
+print_tlp(struct RawTLP *tlp);
 
 static inline enum tlp_type
 get_tlp_type(const struct RawTLP *tlp)
@@ -297,5 +333,7 @@ bdf_to_uint(uint8_t bus_num, uint8_t dev_num, uint8_t fn_num)
 	assert((fn_num & ~uint32_mask(3)) == 0);
 	return ((uint16_t)bus_num) << 8 | (dev_num << 3) | fn_num;
 }
+
+#define WARN_ON_CHEW(a)	if (a == DRR_CHEWED) { PDBG("chewed!"); }
 
 #endif

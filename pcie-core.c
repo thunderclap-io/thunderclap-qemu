@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdio.h>
 
 /* length is used as the PCIe field, so is in DWords i.e. units of 32 bits. */
 void
@@ -132,3 +133,15 @@ create_config_request_header(struct RawTLP *tlp, enum tlp_direction direction,
 	dword2->ext_reg_num = address >> 8;
 	dword2->reg_num = address & uint32_mask(8);
 }
+
+void
+print_tlp(struct RawTLP *tlp)
+{
+	enum tlp_direction tlp_direction = get_tlp_direction(tlp);
+	enum tlp_type tlp_type = get_tlp_type(tlp);
+	fputs(tlp_type_str(tlp_type), stdout);
+	putchar(' ');
+	fputs(tlp_direction_str(tlp_direction), stdout);
+	puts(" type TLP.");
+}
+
