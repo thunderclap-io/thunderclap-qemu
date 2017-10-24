@@ -20,12 +20,12 @@ volatile uint8_t *led_phys_mem;
 bool tlp_buffer_in_use[TLP_BUFFER_COUNT];
 TLPQuadWord tlp_buffer[TLP_BUFFER_SIZE * TLP_BUFFER_COUNT / sizeof(TLPQuadWord)];
 
-SLIST_HEAD(UnhandledTLPListHead, UnhandledTLPListEntry) unhandled_tlp_list_head =
-	SLIST_HEAD_INITIALIZER(unhandled_tlp_list_head);
+STAILQ_HEAD(UnhandledTLPListHead, unhandled_tlp_list_entry)
+	unhandled_tlp_list_head = STAILQ_HEAD_INITIALIZER(unhandled_tlp_list_head);
 
-struct UnhandledTLPListEntry {
+struct unhandled_tlp_list_entry {
 	struct RawTLP tlp;
-	SLIST_ENTRY(UnhandledTLPListEntry) unhandled_tlp_list;
+	STAILQ_ENTRY(unhandled_tlp_list_entry) unhandled_tlp_list;
 };
 
 static inline bool
@@ -224,6 +224,7 @@ _perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
 
 	/*PDBG("length: %d, ceil_length: %d, lastbe: 0x%x, firstbe: 0x%x.",*/
 		/*length, ceil_length, lastbe, firstbe);*/
+	struct TLP64DWord0 *dword0;
 
 	create_memory_request_header(&read_req_tlp, TLPD_READ, at,
 		ceil_length / 4, requester_id, tag, bes.last, bes.first,
@@ -238,38 +239,27 @@ _perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
 	int i = 0, j;
 
 	while (i < length) {
-		while (true) {
-			next_tlp(&read_resp_tlp);
-
-			if (is_raw_tlp_valid(&read_resp_tlp)) {
-				assert(read_resp_tlp.header_length != -1);
-				assert(read_resp_tlp.header != NULL);
-				read_resp_dword0 = (struct TLP64DWord0 *)(read_resp_tlp.header);
-
-				if (read_resp_dword0->type == CPL) {
-					read_resp_dword1 = (struct TLP64CompletionDWord1 *)(
-						read_resp_tlp.header + 1);
-					if (tlp_fmt_has_data(read_resp_dword0->fmt)) {
-						break;
-					} else if (read_resp_dword1->status ==
-						TLPCS_UNSUPPORTED_REQUEST) {
-						free_raw_tlp_buffer(&read_resp_tlp);
-						return DRR_UNSUPPORTED_REQUEST;
-					}
-				} else {
-					fputs("Chewing through: ", stdout);
-					print_tlp(&read_resp_tlp);
-					free_raw_tlp_buffer(&read_resp_tlp);
-					return_value = DRR_CHEWED;
-				}
-			}
-		}
+		next_completion_tlp(&read_resp_tlp);
 
 		assert(&read_resp_tlp != NULL);
 		assert(read_resp_tlp.header != NULL);
 		assert(read_resp_tlp.data != NULL);
+		assert(read_resp_tlp.header_length != -1);
+		assert(is_raw_tlp_valid(&read_resp_tlp));
 
-		struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)read_resp_tlp.header;
+		read_resp_dword0 = (struct TLP64DWord0 *)(read_resp_tlp.header);
+		assert(read_resp_dword0->type == CPL);
+
+		read_resp_dword1 = (struct TLP64CompletionDWord1 *)(
+			read_resp_tlp.header + 1);
+
+		if (read_resp_dword1->status == TLPCS_UNSUPPORTED_REQUEST) {
+			puts("ERROR: UR!!");
+			free_raw_tlp_buffer(&read_resp_tlp);
+			return DRR_UNSUPPORTED_REQUEST;
+		}
+
+		dword0 = (struct TLP64DWord0 *)read_resp_tlp.header;
 
 		assert(tlp_fmt_has_data(dword0->fmt));
 
@@ -280,10 +270,18 @@ _perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
 				/*i, j, i + j, buf[i + j]);*/
 		}
 
+
 		i += (dword0->length * sizeof(TLPDoubleWord));
+
+		/*if (dword0->length != 1) {*/
+			/*printf("Non standard completion packet; i is now %d.\n", i);*/
+		/*}*/
 		/*PDBG("i: %d. length: %d", i, length);*/
 		free_raw_tlp_buffer(&read_resp_tlp);
 	}
+	/*if (dword0->length != 1) {*/
+		/*puts("Done!");*/
+	/*}*/
 
 	/*PDBG("Done reading.");*/
 
@@ -392,7 +390,7 @@ pcie_hardware_init(int argc, char **argv, volatile uint8_t **physmem)
 	for (int i = 0; i < TLP_BUFFER_COUNT; ++i) {
 		tlp_buffer_in_use[i] = false;
 	}
-	SLIST_INIT(&unhandled_tlp_list_head);
+	STAILQ_INIT(&unhandled_tlp_list_head);
 	return 0;
 }
 
@@ -539,9 +537,9 @@ tlp_buffer_number(TLPQuadWord *addr)
 void
 alloc_raw_tlp_buffer(struct RawTLP *tlp)
 {
-	if (is_raw_tlp_valid(tlp)) {
-		fputs("Trying to allocate already allocated RawTLP!\n", stderr);
-	}
+	/*if (is_raw_tlp_valid(tlp)) {*/
+		/*fputs("Trying to allocate already allocated RawTLP!\n", stderr);*/
+	/*}*/
 	for (int i = 0; i < TLP_BUFFER_COUNT; ++i) {
 		if (!tlp_buffer_in_use[i]) {
 			tlp_buffer_in_use[i] = true;
@@ -571,25 +569,57 @@ free_raw_tlp_buffer(struct RawTLP *tlp)
  * All TLPs that come from these two functions have been malloc'ed, and so
  * must be freed by the consumer using the provided free_raw_tlp_buffer
  * function.
+ *
+ * TODO: This could work with pointers to RawTLP pointers, rather than just
+ * RawTLP pointers. At the moment, we have to copy the contents of the RawTLP
+ * about, although this is likely to not be a severe performance limitation.
  */
 void
 next_tlp(struct RawTLP *out)
 {
-	struct UnhandledTLPListEntry *candidate =
-		SLIST_FIRST(&unhandled_tlp_list_head);
+	struct unhandled_tlp_list_entry *candidate =
+		STAILQ_FIRST(&unhandled_tlp_list_head);
 	if (candidate == NULL) {
 		alloc_raw_tlp_buffer(out);
 		wait_for_tlp((TLPQuadWord *)out->header, TLP_BUFFER_SIZE, out);
 	} else {
-		SLIST_REMOVE_HEAD(&unhandled_tlp_list_head, unhandled_tlp_list);
+		/*fputs("dq ", stdout);*/
+		/*puts(tlp_type_str(get_tlp_type(out)));*/
+		STAILQ_REMOVE_HEAD(&unhandled_tlp_list_head, unhandled_tlp_list);
 		*out = candidate->tlp;
+		free(candidate);
 	}
 }
 
+/*
+ * Consumes incoming TLPs until a completion type TLP is received. This
+ * function is blocking. Unhandled TLPs are added to an internal queue, and
+ * will be yielded by subsequent calls to the next_tlp function. Because this
+ * is the only function that adds packets to the internal queue, and it will
+ * always return a completion type TLP and never add it to the internal queue,
+ * the internal queue will never contain a completion type TLP, so we don't
+ * have to check the internal queue for completion type TLPs
+ */
 void
 next_completion_tlp(struct RawTLP *out)
 {
-	assert(0);
+	while (true) {
+		alloc_raw_tlp_buffer(out);
+		wait_for_tlp((TLPQuadWord *)out->header, TLP_BUFFER_SIZE, out);
+		if (is_raw_tlp_valid(out)) {
+			if (get_tlp_type(out) == CPL) {
+				return;
+			} else {
+				/*fputs("q ", stdout);*/
+				/*puts(tlp_type_str(get_tlp_type(out)));*/
+				struct unhandled_tlp_list_entry *entry;
+				entry = malloc(sizeof(struct unhandled_tlp_list_entry));
+				entry->tlp = *out;
+				STAILQ_INSERT_TAIL(
+					&unhandled_tlp_list_head, entry, unhandled_tlp_list);
+			}
+		}
+	}
 }
 
 void

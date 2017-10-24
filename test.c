@@ -448,10 +448,15 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 
 		break;
 	case CPL:
+		fputs("CPL Packet in ", stdout);
+		fputs(__func__, stdout);
+		puts(". Likely mistake.");
+		print_raw_tlp(in);
 		if (tlp_fmt_has_data(dword0->fmt)) {
+			assert(in->data != NULL);
 			uint64_t *qword_data_p = (uint64_t *)in->data;
 			uint64_t qword_data = le64_to_cpu(*qword_data_p);
-			printf("%lx: %lx\n", state->next_read, qword_data);
+			printf("CPL Data: %lx: %lx\n", state->next_read, qword_data);
 			state->next_read += 4096;
 		}
 		break;

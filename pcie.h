@@ -32,8 +32,18 @@ struct RawTLP {
 	TLPDoubleWord *data;
 };
 
+static inline void
+print_raw_tlp(struct RawTLP *tlp)
+{
+	printf("header_length: %d. header: %p\n", tlp->header_length, tlp->header);
+	printf("data_length: %d. data: %p\n", tlp->data_length, tlp->data);
+}
+
 void
 next_tlp(struct RawTLP *out);
+
+void
+next_completion_tlp(struct RawTLP *out);
 
 void
 free_raw_tlp_buffer(struct RawTLP *tlp);
