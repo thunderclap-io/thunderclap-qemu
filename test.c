@@ -63,6 +63,7 @@
 #include "exec/memory.h"
 #include "exec/memory-internal.h"
 #include "hw/net/e1000_regs.h"
+#include "hw/net/e1000e_core.h"
 #endif
 
 #define TARGET_BERI		1
@@ -628,6 +629,7 @@ void coroutine_fn process_packet(void *opaque)
 
 		free_raw_tlp_buffer(&raw_tlp_in);
 		if (!is_valid) {
+			check_windows_for_secret(&(E1000E(pci_dev)->core));
 			qemu_coroutine_yield();
 		}
 	}
@@ -703,7 +705,7 @@ main(int argc, char *argv[])
 
 	vm_start();
 
-	printf("About to start main loop.\n");
+	printf("About to start main loop. This build built on EMH MK1.\n");
 
 	while (1) {
 		qemu_bh_schedule(start_bh);

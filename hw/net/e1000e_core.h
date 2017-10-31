@@ -33,6 +33,11 @@
 * License along with this library; if not, see <http://www.gnu.org/licenses/>.
 */
 
+#include "hw/net/e1000_regs.h"
+
+#include "net/net.h"
+#include "net/tap.h"
+
 #define E1000E_PHY_PAGE_SIZE    (0x20)
 #define E1000E_PHY_PAGES        (0x07)
 #define E1000E_MAC_SIZE         (0x8000)
@@ -40,12 +45,12 @@
 #define E1000E_MSIX_VEC_NUM     (5)
 #define E1000E_NUM_QUEUES       (2)
 
-typedef struct E1000Core_st E1000ECore;
-
 enum { PHY_R = BIT(0),
        PHY_W = BIT(1),
        PHY_RW = PHY_R | PHY_W,
        PHY_ANYPAGE = BIT(2) };
+
+typedef struct E1000Core_st E1000ECore;
 
 typedef struct E1000IntrDelayTimer_st {
     QEMUTimer *timer;
@@ -123,6 +128,34 @@ struct E1000Core_st {
     PCIDevice *owner;
     void (*owner_start_recv)(PCIDevice *d);
 };
+
+#define TYPE_E1000E "e1000e"
+#define E1000E(obj) OBJECT_CHECK(E1000EState, (obj), TYPE_E1000E)
+
+typedef struct {
+    PCIDevice parent_obj;
+    NICState *nic;
+    NICConf conf;
+
+    MemoryRegion mmio;
+    MemoryRegion flash;
+    MemoryRegion io;
+    MemoryRegion msix;
+
+    uint32_t ioaddr;
+
+    uint16_t subsys_ven;
+    uint16_t subsys;
+
+    uint16_t subsys_ven_used;
+    uint16_t subsys_used;
+
+    uint32_t intr_state;
+    bool use_vnet;
+
+    E1000ECore core;
+
+} E1000EState;
 
 #define defreg(x)   x = (E1000_##x>>2)
 enum {
