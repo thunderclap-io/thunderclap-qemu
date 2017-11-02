@@ -3777,8 +3777,8 @@ void
 check_for_secret(struct window *window, uint8_t page[4096])
 {
 #define PATTERN_LENGTH 8
-	putchar('c');
-	fflush(stdout);
+	/*putchar('c');*/
+	/*fflush(stdout);*/
 
 	int64_t j;
 	uint64_t run_length = 1;
@@ -3801,7 +3801,7 @@ check_for_secret(struct window *window, uint8_t page[4096])
 		fputs("Found pattern in page: ", stdout);
 		print_window(window);
 		putchar('\n');
-		hexdump(page, 4096);
+		hexdump(page, window->length);
 	}
 #undef PATTERN_LENGTH
 }
@@ -3837,13 +3837,15 @@ static inline void
 adjust_window_list_length(int diff)
 {
 	window_list_length += diff;
-	if (window_list_length > window_list_max_length) {
-		window_list_max_length = window_list_length;
-		printf("Window list new max length: %d.\n", window_list_length);
-	} else if (window_list_length < window_list_min_length) {
-		window_list_min_length = window_list_length;
-		printf("Window list new min length: %d.\n", window_list_length);
-	}
+	printf("%d ", window_list_length);
+	fflush(stdout);
+	/*if (window_list_length > window_list_max_length) {*/
+		/*window_list_max_length = window_list_length;*/
+		/*printf("Window list new max length: %d.\n", window_list_length);*/
+	/*} else if (window_list_length < window_list_min_length) {*/
+		/*window_list_min_length = window_list_length;*/
+		/*printf("Window list new min length: %d.\n", window_list_length);*/
+	/*}*/
 }
 
 bool
