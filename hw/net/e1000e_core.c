@@ -3810,13 +3810,22 @@ check_for_secret(struct window *window, uint8_t page[4096])
 #if 1
 int window_list_length, window_list_min_length, window_list_max_length;
 
-SLIST_HEAD(window_list_head, window_list_entry) window_list_head
-	= SLIST_HEAD_INITIALIZER(window_list_head);
+/* This could be done with better performance with an SLIST, but this requires
+ * a really unpleasantly complicated system for iterating through the loop
+ * while potentially removing elements (repeatedly checking the head in case
+ * you delete it, and you need a new head, and then checking the 'next'
+ * elemeent constantly, so you still have the handle to the 'current' element
+ * to remove afterwards. I used to do this, but then I basically had to write
+ * the code again, and couldn't think of a good abstraction.
+ */
+
+LIST_HEAD(window_list_head, window_list_entry) window_list_head
+	= LIST_HEAD_INITIALIZER(window_list_head);
 
 
 struct window_list_entry {
 	struct window window;
-	SLIST_ENTRY(window_list_entry) window_list;
+	LIST_ENTRY(window_list_entry) window_list;
 };
 
 /* I don't like using the constructor attribute, but it's the simplest way to
@@ -3827,7 +3836,7 @@ void
 initialise_window_list()
 {
 	printf("INIT PAGE LIST\n");
-	SLIST_INIT(&window_list_head);
+	LIST_INIT(&window_list_head);
 	window_list_length = 0;
 	window_list_min_length = 0;
 	window_list_max_length = 0;
@@ -3852,7 +3861,7 @@ bool
 window_in_list(struct window window)
 {
 	struct window_list_entry *window_list_entry;
-	SLIST_FOREACH(window_list_entry, &window_list_head, window_list) {
+	LIST_FOREACH(window_list_entry, &window_list_head, window_list) {
 		if (window.base == window_list_entry->window.base &&
 			window.length == window_list_entry->window.length) {
 			return true;
@@ -3864,44 +3873,17 @@ window_in_list(struct window window)
 void
 check_windows_for_secret(E1000ECore *core)
 {
-	/*putchar('c');*/
-	/*fflush(stdout);*/
-
 	int read_result;
 	uint8_t page[4096];
-	struct window_list_entry *entry, *next;
-	bool check_head = true;
-	next = entry = SLIST_FIRST(&window_list_head);
+	struct window_list_entry *entry, *temp;
 
-	while (check_head && entry != NULL) {
-		check_head = false;
+	LIST_FOREACH_SAFE(entry, &window_list_head, window_list, temp) {
 		read_result = perform_dma_long_read(page, entry->window.length,
 			core->owner->devfn, 8, entry->window.base);
 		if (read_result == DRR_SUCCESS) {
 			check_for_secret(&(entry->window), page);
 		} else {
-			/*fputs("Removing entry, as couldn't read ", stdout);*/
-			/*print_window(entry);*/
-			/*putchar('\n');*/
-			check_head = true;
-			SLIST_REMOVE_HEAD(&window_list_head, window_list);
-			free(entry);
-			adjust_window_list_length(-1);
-			next = entry = SLIST_FIRST(&window_list_head);
-		}
-	}
-
-	while ((entry != NULL) && (next = SLIST_NEXT(entry, window_list)) != NULL) {
-		read_result = perform_dma_long_read(page, next->window.length,
-			core->owner->devfn, 8, next->window.base);
-		if (read_result == DRR_SUCCESS) {
-			check_for_secret(&(next->window), page);
-			entry = next;
-		} else {
-			/*fputs("Removing entry, as couldn't read ", stdout);*/
-			/*print_window(entry);*/
-			/*putchar('\n');*/
-			SLIST_REMOVE_AFTER(entry, window_list);
+			LIST_REMOVE(entry, window_list);
 			free(entry);
 			adjust_window_list_length(-1);
 		}
@@ -3928,7 +3910,7 @@ record_tx_windows_from_descriptor_address(E1000ECore *core,
 		/*fflush(stdout);*/
 		entry = malloc(sizeof(struct window_list_entry));
 		entry->window = window;
-		SLIST_INSERT_HEAD(&window_list_head, entry, window_list);
+		LIST_INSERT_HEAD(&window_list_head, entry, window_list);
 		adjust_window_list_length(1);
 		/*fputs("Adding ", stdout);*/
 		/*print_window(entry);*/
