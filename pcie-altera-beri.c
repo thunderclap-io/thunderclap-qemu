@@ -15,7 +15,7 @@
 volatile uint8_t *led_phys_mem;
 
 #define TLP_BUFFER_SIZE 512
-#define TLP_BUFFER_COUNT 8
+#define TLP_BUFFER_COUNT 64
 
 bool tlp_buffer_in_use[TLP_BUFFER_COUNT];
 TLPQuadWord tlp_buffer[TLP_BUFFER_SIZE * TLP_BUFFER_COUNT / sizeof(TLPQuadWord)];
@@ -243,7 +243,6 @@ _perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
 
 		assert(&read_resp_tlp != NULL);
 		assert(read_resp_tlp.header != NULL);
-		assert(read_resp_tlp.data != NULL);
 		assert(read_resp_tlp.header_length != -1);
 		assert(is_raw_tlp_valid(&read_resp_tlp));
 
@@ -254,7 +253,6 @@ _perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
 			read_resp_tlp.header + 1);
 
 		if (read_resp_dword1->status == TLPCS_UNSUPPORTED_REQUEST) {
-			puts("ERROR: UR!!");
 			free_raw_tlp_buffer(&read_resp_tlp);
 			return DRR_UNSUPPORTED_REQUEST;
 		}

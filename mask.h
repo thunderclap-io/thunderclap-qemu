@@ -34,6 +34,11 @@ uint64_mask(uint64_t width) {
 	return (MASK(uint64_t, width));
 }
 
+static inline uint64_t
+page_base_address(uint64_t address) {
+	return address & ~uint64_mask(12);
+}
+
 #if 0
 #include <stdio.h>
 

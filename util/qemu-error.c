@@ -20,11 +20,12 @@
  */
 void error_vprintf(const char *fmt, va_list ap)
 {
-    if (cur_mon && !monitor_cur_is_qmp()) {
-        monitor_vprintf(cur_mon, fmt, ap);
-    } else {
+	/* XXX cr437 changed this to always vfprintf */
+    /*if (cur_mon && !monitor_cur_is_qmp()) {*/
+        /*monitor_vprintf(cur_mon, fmt, ap);*/
+    /*} else {*/
         vfprintf(stderr, fmt, ap);
-    }
+    /*}*/
 }
 
 /*
