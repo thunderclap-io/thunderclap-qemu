@@ -253,6 +253,7 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 
 	switch (dword0->type) {
 	case M:
+		/*puts("Dealing with M req.");*/
 		assert(dword0->length == 1);
 		/* This isn't in the spec, but seems to be all we've found in our
 		 * trace. */
@@ -304,6 +305,7 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 #endif
 
 		if (dir == TLPD_READ) {
+			/*puts("M Read.");*/
 			requester_id = request_dword1->requester_id;
 #ifdef DUMMY
 			read_error = false;
@@ -312,6 +314,7 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 			read_error = io_mem_read(target_region, rel_addr, &data_buffer, 4);
 			out->data[0] = data_buffer;
 			response = PR_RESPONSE;
+			/*puts("Set response to PR_RESPONSE");*/
 #endif
 
 #ifdef POSTGRES
@@ -623,13 +626,14 @@ void coroutine_fn process_packet(void *opaque)
 		}
 
 		if (response != PR_NO_RESPONSE) {
+			/*puts("Sending response TLP.");*/
 			send_result = send_tlp(&raw_tlp_out);
 			assert(send_result != -1);
 		}
 
 		free_raw_tlp_buffer(&raw_tlp_in);
 		if (!is_valid) {
-			check_windows_for_secret(&(E1000E(pci_dev)->core));
+			/*check_windows_for_secret(&(E1000E(pci_dev)->core));*/
 			qemu_coroutine_yield();
 		}
 	}
@@ -705,7 +709,7 @@ main(int argc, char *argv[])
 
 	vm_start();
 
-	printf("About to start main loop. This build built on EMH MK1.\n");
+	printf("About to start main loop. This build built on EMH MK1 target Mac.\n");
 
 	while (1) {
 		qemu_bh_schedule(start_bh);

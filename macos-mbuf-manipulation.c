@@ -18,8 +18,8 @@ endianness_swap_mac_mbuf_header(struct mbuf *mbuf)
 void
 print_macos_mbuf_header(const struct mbuf *mbuf)
 {
-	printf("m_next: 0x%016lx. mh_nextpkt 0x%016lx.\n",
+	printf("m_next: 0x%lx. mh_nextpkt 0x%lx.\n",
 		mbuf->m_next, mbuf->m_nextpkt);
-	printf("m_data: 0x%016lx. m_len: %d.\n", mbuf->m_data, mbuf->m_len);
-	printf("m_type: %x. m_flags: %x.\n", mbuf->m_type, mbuf->m_flags);
+	printf("m_data: 0x%lx. m_len: %d.\n", mbuf->m_data, mbuf->m_len);
+	printf("m_type: %x. m_flags: %x.\n", (uint32_t)mbuf->m_type, (uint32_t)mbuf->m_flags);
 }

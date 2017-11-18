@@ -15,8 +15,18 @@
 volatile uint8_t *led_phys_mem;
 
 #define TLP_BUFFER_SIZE 512
-#define TLP_BUFFER_COUNT 64
+#define TLP_BUFFER_COUNT 16
 
+/*static inline void**/
+/*get_ra()*/
+/*{*/
+	/*void* ra;*/
+	/*asm ("move %0, $ra"*/
+		/*: "=r" (ra));*/
+	/*return ra;*/
+/*}*/
+
+/*void *call_sites[TLP_BUFFER_COUNT];*/
 bool tlp_buffer_in_use[TLP_BUFFER_COUNT];
 TLPQuadWord tlp_buffer[TLP_BUFFER_SIZE * TLP_BUFFER_COUNT / sizeof(TLPQuadWord)];
 
@@ -540,8 +550,10 @@ alloc_raw_tlp_buffer(struct RawTLP *tlp)
 	/*}*/
 	for (int i = 0; i < TLP_BUFFER_COUNT; ++i) {
 		if (!tlp_buffer_in_use[i]) {
+			/*if (i != 0) { printf("a%d\n", i); }*/
+			/*call_sites[i] = get_ra();*/
 			tlp_buffer_in_use[i] = true;
-			tlp->header = tlp_buffer_address(i);
+			tlp->header = (TLPDoubleWord *)tlp_buffer_address(i);
 			PDBG("Allocated buffer %d.\n", i);
 			return;
 		}
@@ -553,7 +565,10 @@ alloc_raw_tlp_buffer(struct RawTLP *tlp)
 void
 free_raw_tlp_buffer(struct RawTLP *tlp)
 {
-	int buffer_number = tlp_buffer_number(tlp->header);
+	int buffer_number = tlp_buffer_number((TLPQuadWord *)tlp->header);
+	/*if (buffer_number != 0) {*/
+		/*printf("(0 alloced by %p) f%d\n", call_sites[0], buffer_number);*/
+	/*}*/
 	if (buffer_number >= 0 && buffer_number <= TLP_BUFFER_COUNT) {
 		tlp_buffer_in_use[buffer_number] = false;
 		set_raw_tlp_invalid(tlp);
@@ -585,7 +600,9 @@ next_tlp(struct RawTLP *out)
 		/*puts(tlp_type_str(get_tlp_type(out)));*/
 		STAILQ_REMOVE_HEAD(&unhandled_tlp_list_head, unhandled_tlp_list);
 		*out = candidate->tlp;
+		printf("dq %d.\n", tlp_buffer_number((TLPQuadWord *)out->header));
 		free(candidate);
+		assert(is_raw_tlp_valid(out));
 	}
 }
 
@@ -608,7 +625,7 @@ next_completion_tlp(struct RawTLP *out)
 			if (get_tlp_type(out) == CPL) {
 				return;
 			} else {
-				/*fputs("q ", stdout);*/
+				printf("q %d.\n", tlp_buffer_number((TLPQuadWord *)out->header));
 				/*puts(tlp_type_str(get_tlp_type(out)));*/
 				struct unhandled_tlp_list_entry *entry;
 				entry = malloc(sizeof(struct unhandled_tlp_list_entry));
@@ -616,6 +633,8 @@ next_completion_tlp(struct RawTLP *out)
 				STAILQ_INSERT_TAIL(
 					&unhandled_tlp_list_head, entry, unhandled_tlp_list);
 			}
+		} else {
+			free_raw_tlp_buffer(out);
 		}
 	}
 }

