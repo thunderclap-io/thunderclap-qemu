@@ -11,3 +11,5 @@ vgcore.*
 *.elf
 *.mem
 *~
+obj/
+DEADJOE
