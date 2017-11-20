@@ -2,11 +2,11 @@
 <sch:Settings xmlns:sch="http://www.altera.com/embeddedsw/bsp/schema">
         <BspType>hal</BspType>
         <BspVersion>default</BspVersion>
-        <BspGeneratedTimeStamp>24-Jun-2016 17:22:47</BspGeneratedTimeStamp>
-        <BspGeneratedUnixTimeStamp>1466785367855</BspGeneratedUnixTimeStamp>
-        <BspGeneratedLocation>/local/scratch/atm26/PCIe_DE5_AST/pcie-bsv/software/pcie-probe/niosbare/bsp</BspGeneratedLocation>
+        <BspGeneratedTimeStamp>22-Sep-2017 17:25:28</BspGeneratedTimeStamp>
+        <BspGeneratedUnixTimeStamp>1506097528040</BspGeneratedUnixTimeStamp>
+        <BspGeneratedLocation>/local/scratch/atm26/nios-pcie-iommu-exploit/pcie-probe-software/niosbare/bsp</BspGeneratedLocation>
         <BspSettingsFile>./settings.bsp</BspSettingsFile>
-        <SopcDesignFile>pcie_de_gen1_x4_ast64.sopcinfo</SopcDesignFile>
+        <SopcDesignFile>../pcie_de_gen1_x4_ast64.sopcinfo</SopcDesignFile>
         <JdiFile>default</JdiFile>
         <Cpu>nios2_gen2_0</Cpu>
         <SchemaVersion>1.9</SchemaVersion>
@@ -323,18 +323,6 @@
                 <Group>common</Group>
         </Setting>
         <Setting>
-                <SettingName>hal.make.cflags_mgpopt</SettingName>
-                <Identifier>CFLAGS_MGPOPT</Identifier>
-                <Type>UnquotedString</Type>
-                <Value>-mgpopt=local</Value>
-                <DefaultValue>-mgpopt=local</DefaultValue>
-                <DestinationFile>makefile_variable</DestinationFile>
-                <Description>C/C++ compiler to generate (do not generate) GP-relative accesses. 'none' tells the compilter not to generate GP-relative accesses. 'local' will generate GP-relative accesses for small data objects that are not external, weak, or uninitialized common symbols. Also use GP-relative addressing for objects that have been explicitly placed in a small data section via a section attribute. provides the default set of debug symbols typically required to debug a typical application. 'global' is same as 'local' but also generate GP-relative accesses for small data objects that are external, weak, or common.</Description>
-                <Restrictions>none</Restrictions>
-                <Enabled>false</Enabled>
-                <Group>common</Group>
-        </Setting>
-        <Setting>
                 <SettingName>hal.make.ar</SettingName>
                 <Identifier>AR</Identifier>
                 <Type>UnquotedString</Type>
@@ -549,6 +537,18 @@
                 <Restrictions>none</Restrictions>
                 <Enabled>false</Enabled>
                 <Group>none</Group>
+        </Setting>
+        <Setting>
+                <SettingName>hal.make.cflags_mgpopt</SettingName>
+                <Identifier>CFLAGS_MGPOPT</Identifier>
+                <Type>UnquotedString</Type>
+                <Value>-mgpopt=global</Value>
+                <DefaultValue>-mgpopt=global</DefaultValue>
+                <DestinationFile>public_mk_define</DestinationFile>
+                <Description>C/C++ compiler to generate (do not generate) GP-relative accesses. 'none' tells the compilter not to generate GP-relative accesses. 'local' will generate GP-relative accesses for small data objects that are not external, weak, or uninitialized common symbols. Also use GP-relative addressing for objects that have been explicitly placed in a small data section via a section attribute. provides the default set of debug symbols typically required to debug a typical application. 'global' is same as 'local' but also generate GP-relative accesses for small data objects that are external, weak, or common.</Description>
+                <Restrictions>none</Restrictions>
+                <Enabled>false</Enabled>
+                <Group>common</Group>
         </Setting>
         <Setting>
                 <SettingName>hal.make.ignore_system_derived.sopc_system_id</SettingName>

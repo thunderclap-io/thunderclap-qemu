@@ -29,7 +29,7 @@ ALT_LDDEPS :=
 MAKEABLE_LIBRARY_ROOT_DIRS :=
 
 # Generic flags passed to the compiler for different types of input files.
-ALT_CFLAGS := -DBAREMETAL -DDUMMY -DNIOS
+ALT_CFLAGS := -DBAREMETAL -DDUMMY -DNIOS 
 ALT_CXXFLAGS :=
 ALT_CPPFLAGS :=
 ALT_ASFLAGS :=
@@ -144,7 +144,8 @@ ELF := nios-bare.elf
 # Paths to C, C++, and assembly source files.
 C_SRCS += pcie-altera-nios.c baremetal/baremetalsupport.c \
 		  log.c pcietlp.c \
-		  niosbare/main.c iownmmu/util.c iownmmu/rw.c iownmmu/iownmmu.c iownmmu/BCM5701/attack.c
+		  niosbare/main.c iownmmu/util.c iownmmu/rw.c iownmmu/iownmmu.c \
+                  iownmmu/BCM5701/attack.c iownmmu/windows/canary.c
 CXX_SRCS :=
 ASM_SRCS :=
 
@@ -182,7 +183,7 @@ CRT0 :=
 SYS_LIB :=
 
 # Define path to the root of the BSP.
-BSP_ROOT_DIR := ../nios_bare_bsp/
+BSP_ROOT_DIR := ./niosbare/bsp/
 
 # List of application specific include directories, library directories and library names
 APP_INCLUDE_DIRS :=

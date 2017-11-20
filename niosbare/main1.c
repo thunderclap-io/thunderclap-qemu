@@ -32,7 +32,7 @@
 
 //#define COMPLETER_ID 0x0000
 //#define COMPLETER_ID 0x0100
-#define COMPLETER_ID 0xC500
+#define COMPLETER_ID 0xC300
 
 #if 0
 int displayTLP(TLPDoubleWord *tlp, int tlpLen)

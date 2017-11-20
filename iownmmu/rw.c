@@ -44,7 +44,8 @@
 //XXX: find completer id programmatically
 #ifndef COMPLETER_ID
 //#define COMPLETER_ID 0x8200
-#define COMPLETER_ID 0xC500
+//#define COMPLETER_ID 0xC300
+#define COMPLETER_ID 0x0100
 #endif
 
 

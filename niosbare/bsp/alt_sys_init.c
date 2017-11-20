@@ -2,9 +2,9 @@
  * alt_sys_init.c - HAL initialization source
  *
  * Machine generated for CPU 'nios2_gen2_0' in SOPC Builder design 'pcie_de_gen1_x4_ast64'
- * SOPC Builder design path: pcie_de_gen1_x4_ast64.sopcinfo
+ * SOPC Builder design path: ../pcie_de_gen1_x4_ast64.sopcinfo
  *
- * Generated: Fri Jun 24 17:22:48 BST 2016
+ * Generated: Fri Sep 22 17:25:31 BST 2017
  */
 
 /*

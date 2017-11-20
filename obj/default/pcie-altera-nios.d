@@ -1,19 +1,18 @@
-obj/default/pcie-altera-nios.o: pcie-altera-nios.c \
- ../nios_bare_bsp/system.h ../nios_bare_bsp/linker.h niosbare/pcie.h \
- mask.h baremetal/baremetalsupport.h niosbare/parameters.h pcie-debug.h \
+obj/default/pcie-altera-nios.o: pcie-altera-nios.c niosbare/bsp/system.h \
+ niosbare/bsp/linker.h niosbare/pcie.h mask.h \
+ baremetal/baremetalsupport.h niosbare/parameters.h pcie-debug.h \
  pciefpga.h beri-io.h log.h pcie-backend.h \
- ../nios_bare_bsp//HAL/inc/sys/alt_timestamp.h \
- ../nios_bare_bsp//HAL/inc/alt_types.h \
- ../nios_bare_bsp//drivers/inc/altera_avalon_timer.h \
- ../nios_bare_bsp//HAL/inc/sys/alt_dev.h \
- ../nios_bare_bsp//HAL/inc/sys/alt_llist.h \
- ../nios_bare_bsp//HAL/inc/priv/alt_dev_llist.h \
- ../nios_bare_bsp//HAL/inc/sys/alt_warning.h \
- ../nios_bare_bsp//HAL/inc/io.h
+ niosbare/bsp//HAL/inc/sys/alt_timestamp.h \
+ niosbare/bsp//HAL/inc/alt_types.h \
+ niosbare/bsp//drivers/inc/altera_avalon_timer.h \
+ niosbare/bsp//HAL/inc/sys/alt_dev.h \
+ niosbare/bsp//HAL/inc/sys/alt_llist.h \
+ niosbare/bsp//HAL/inc/priv/alt_dev_llist.h \
+ niosbare/bsp//HAL/inc/sys/alt_warning.h niosbare/bsp//HAL/inc/io.h
 
-../nios_bare_bsp/system.h:
+niosbare/bsp/system.h:
 
-../nios_bare_bsp/linker.h:
+niosbare/bsp/linker.h:
 
 niosbare/pcie.h:
 
@@ -33,18 +32,18 @@ log.h:
 
 pcie-backend.h:
 
-../nios_bare_bsp//HAL/inc/sys/alt_timestamp.h:
+niosbare/bsp//HAL/inc/sys/alt_timestamp.h:
 
-../nios_bare_bsp//HAL/inc/alt_types.h:
+niosbare/bsp//HAL/inc/alt_types.h:
 
-../nios_bare_bsp//drivers/inc/altera_avalon_timer.h:
+niosbare/bsp//drivers/inc/altera_avalon_timer.h:
 
-../nios_bare_bsp//HAL/inc/sys/alt_dev.h:
+niosbare/bsp//HAL/inc/sys/alt_dev.h:
 
-../nios_bare_bsp//HAL/inc/sys/alt_llist.h:
+niosbare/bsp//HAL/inc/sys/alt_llist.h:
 
-../nios_bare_bsp//HAL/inc/priv/alt_dev_llist.h:
+niosbare/bsp//HAL/inc/priv/alt_dev_llist.h:
 
-../nios_bare_bsp//HAL/inc/sys/alt_warning.h:
+niosbare/bsp//HAL/inc/sys/alt_warning.h:
 
-../nios_bare_bsp//HAL/inc/io.h:
+niosbare/bsp//HAL/inc/io.h:
