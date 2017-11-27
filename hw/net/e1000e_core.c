@@ -1033,6 +1033,7 @@ start_xmit(E1000ECore *core, const E1000E_TxRing *txr)
 		/*attempt_to_subvert_windows(core, buffer_addr);*/
 
         _e1000e_ring_advance(core, txi, 1);
+//         hammer_mbuf(core, buffer_addr);
     }
 
     if (!ide || !_e1000e_intrmgr_delay_tx_causes(core, &cause)) {
@@ -3745,10 +3746,12 @@ print_buffer_address_information(hwaddr ba, void *opaque)
 		pci_dma_read(core->owner, ba & ~0xFF, (uint8_t *)(&mbuf_buffer),
 			sizeof(struct mbuf));
 		mbuf_le_to_cpu(&mbuf_buffer);
+#ifdef EVIL
 #ifdef VICTIM_MACOS
 		print_macos_mbuf_header(&mbuf_buffer);
 #else
 		print_freebsd_mbuf_information(&mbuf_buffer);
+#endif
 #endif
 	}
 	hexdump((uint8_t *)(&mbuf_buffer), 256);

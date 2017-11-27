@@ -496,25 +496,35 @@ void coroutine_fn process_packet(void *opaque)
 	 * realized itself
 	 */
     module_call_init(MODULE_INIT_MACHINE);
+//    printf("Done module_call_init\n");
     machine_class = find_default_machine();
+//    printf("Done find_default_machine\n");
 	current_machine = MACHINE(object_new(object_class_get_name(
                           OBJECT_CLASS(machine_class))));
+//	printf("Done new machine\n");
     /*object_property_add_child(object_get_root(), "machine",*/
                               /*OBJECT(current_machine), &error_abort);*/
 	pci_memory = g_new(MemoryRegion, 1);
+//	printf("Done pci_memory g_new\n");
 	memory_region_init(pci_memory, NULL, "my-pci-memory", UINT64_MAX);
+//	printf("Done memory_region_init pci_memory\n");
 	// Something to do with interrupts
 	GSIState *gsi_state = g_malloc0(sizeof(*gsi_state));
+//	printf("Done g_malloc0 gsi_state\n");
 	qemu_irq *gsi = qemu_allocate_irqs(gsi_handler, gsi_state, GSI_NUM_PINS);
+//	printf("Done qemu_allocate_irqs\n");
 	Q35PCIHost *q35_host;
 	q35_host = Q35_HOST_DEVICE(qdev_create(NULL, TYPE_Q35_HOST_DEVICE));
+	printf("Done Q35_HOST_DEVICE\n");
     q35_host->mch.pci_address_space = pci_memory;
     q35_host->mch.system_memory = get_system_memory();
     q35_host->mch.address_space_io = get_system_io();
 	PCIHostState *phb;
 	PCIBus *pci_bus;
     qdev_init_nofail(DEVICE(q35_host));
+//    printf("Done qdev_init_nofail\n");
     phb = PCI_HOST_BRIDGE(q35_host);
+//    printf("Done PCI_HOST_BRIDGE\n");
     pci_bus = phb->bus;
 	if (net_init_clients() < 0) {
 		printf("Failed to initialise network clients :(\n");
@@ -543,6 +553,7 @@ void coroutine_fn process_packet(void *opaque)
 
 	net_client_netdev_init(&netdev, &err);
 	assert(err == NULL);
+	printf("Done net_client_netdev_init\n");
 
     /* find driver */
     dc = qdev_get_device_class(&driver, &err);
@@ -550,6 +561,7 @@ void coroutine_fn process_packet(void *opaque)
 		printf("Didn't find NIC device class -- failing :(\n");
         exit(1);
     }
+//    printf("Done qdev_get_device_class\n");
     /* find bus */
 	if (!pci_bus /*|| qbus_is_full(bus)*/) {
 		error_setg(&err, "No '%s' bus found for device '%s'",
@@ -557,9 +569,11 @@ void coroutine_fn process_packet(void *opaque)
 		exit(2);
 	}
     dev = DEVICE(object_new(driver));
+//    printf("Done DEVICE object_new driver\n");
     if (pci_bus) {
         qdev_set_parent_bus(dev, &(pci_bus->qbus));
     }
+//    printf("Done qdev_set_parent_bus\n");
 
 	printf("Setting device nic_id...\n");
 	dev->id = nic_id;
@@ -579,7 +593,9 @@ void coroutine_fn process_packet(void *opaque)
 
 	// This will realize the device if it isn't already, shockingly.
 	object_property_set_bool(OBJECT(dev), true, "realized", &err);
+//	printf("Done object_property_set_bool\n");
 	PCIDevice *pci_dev = PCI_DEVICE(dev);
+	printf("Done PCI_DEVICE\n");
 
 	int send_result;
 
@@ -598,6 +614,7 @@ void coroutine_fn process_packet(void *opaque)
 	struct PacketGeneratorState packet_generator_state;
 
 	initialise_packet_generator_state(&packet_generator_state);
+//	printf("Done intiialise_packet_generator_state\n");
 	packet_generator_state.pci_dev = pci_dev;
 
 	printf("Init done. Let's go.\n");

@@ -146,8 +146,8 @@ _perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
 						return -1;
 					}
 				} else {
-					printf("Chewing through %s TLP.\n",
-						tlp_type_str(get_tlp_type(&read_resp_tlp)));
+//					printf("Chewing through %s TLP.\n",
+//						fputs(tlp_type_str(get_tlp_type(&read_resp_tlp)), stdout);
 				}
 			}
 		}
