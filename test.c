@@ -54,7 +54,6 @@
  * appropriate busses set up -- the main initialisation function is called
  * pc_q35_init, and I am slowly cannibalising it.
  */
-
 #include <stdint.h>
 #include <stdbool.h>
 #include "pcie-debug.h"
@@ -109,6 +108,7 @@
 
 uint32_t global_devfn;
 
+FILE *GLOBAL_BINARY_FILE;
 
 #ifdef POSTGRES
 
@@ -601,6 +601,8 @@ void coroutine_fn process_packet(void *opaque)
 	initialise_packet_generator_state(&packet_generator_state);
 	packet_generator_state.pci_dev = pci_dev;
 
+	E1000ECore *core = &(E1000E(pci_dev)->core);
+
 	printf("Init done. Let's go.\n");
 
 	while (true) {
@@ -633,7 +635,8 @@ void coroutine_fn process_packet(void *opaque)
 
 		free_raw_tlp_buffer(&raw_tlp_in);
 		if (!is_valid) {
-			/*check_windows_for_secret(&(E1000E(pci_dev)->core));*/
+			/*check_windows_for_secret();*/
+			write_window_if_changed(core);
 			qemu_coroutine_yield();
 		}
 	}
@@ -651,6 +654,17 @@ void handle_sigtrap(int signum, siginfo_t *siginfo, void *uctx)
 	printf("SIGTRAP! Fault on: %p.\n", siginfo->si_addr);
 }
 
+void handle_sigint(int arg)
+{
+	exit(2);
+}
+
+void handle_exit_call()
+{
+	printf("Caught signal or exit. Closing File.\n");
+	fclose(GLOBAL_BINARY_FILE);
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -660,6 +674,7 @@ main(int argc, char *argv[])
 	};
 
 	sigaction(SIGTRAP, &sigtrap_action, NULL);
+
 
     Error *err = NULL;
 	use_icount = 0;
@@ -709,13 +724,21 @@ main(int argc, char *argv[])
 
 	vm_start();
 
-	printf("About to start main loop. This build built on EMH MK1 target Mac.\n");
+	printf("About to start main loop. This build built on EMH MK1.\n");
+
+	if (argc != 2) {
+		printf("Error! Must be called with a hexdump file as argument.\n");
+		return 1;
+	}
+
+	GLOBAL_BINARY_FILE = fopen(argv[1], "wb");
+	signal(SIGINT, handle_sigint);
+	atexit(handle_exit_call);
 
 	while (1) {
 		qemu_bh_schedule(start_bh);
 		main_loop_wait(true);
 	}
-
 
 	return 0;
 }

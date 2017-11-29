@@ -15,18 +15,18 @@
 volatile uint8_t *led_phys_mem;
 
 #define TLP_BUFFER_SIZE 512
-#define TLP_BUFFER_COUNT 16
+#define TLP_BUFFER_COUNT 32
 
-/*static inline void**/
-/*get_ra()*/
-/*{*/
-	/*void* ra;*/
-	/*asm ("move %0, $ra"*/
-		/*: "=r" (ra));*/
-	/*return ra;*/
-/*}*/
+static inline void*
+get_ra()
+{
+	void* ra;
+	asm ("move %0, $ra"
+		: "=r" (ra));
+	return ra;
+}
 
-/*void *call_sites[TLP_BUFFER_COUNT];*/
+void *call_sites[TLP_BUFFER_COUNT];
 bool tlp_buffer_in_use[TLP_BUFFER_COUNT];
 TLPQuadWord tlp_buffer[TLP_BUFFER_SIZE * TLP_BUFFER_COUNT / sizeof(TLPQuadWord)];
 
@@ -551,7 +551,7 @@ alloc_raw_tlp_buffer(struct RawTLP *tlp)
 	for (int i = 0; i < TLP_BUFFER_COUNT; ++i) {
 		if (!tlp_buffer_in_use[i]) {
 			/*if (i != 0) { printf("a%d\n", i); }*/
-			/*call_sites[i] = get_ra();*/
+			call_sites[i] = get_ra();
 			tlp_buffer_in_use[i] = true;
 			tlp->header = (TLPDoubleWord *)tlp_buffer_address(i);
 			PDBG("Allocated buffer %d.\n", i);
@@ -559,6 +559,9 @@ alloc_raw_tlp_buffer(struct RawTLP *tlp)
 		}
 	}
 	fputs("Couldn't allocate TLP Buffer!\n", stderr);
+	for (int i = 0; i < TLP_BUFFER_COUNT; ++i) {
+		printf("Call site %d: %p\n.", i, call_sites[i]);
+	}
 	exit(0);
 }
 
@@ -593,6 +596,7 @@ next_tlp(struct RawTLP *out)
 	struct unhandled_tlp_list_entry *candidate =
 		STAILQ_FIRST(&unhandled_tlp_list_head);
 	if (candidate == NULL) {
+		assert(!tlp_buffer_in_use[0]);
 		alloc_raw_tlp_buffer(out);
 		wait_for_tlp((TLPQuadWord *)out->header, TLP_BUFFER_SIZE, out);
 	} else {
@@ -600,7 +604,7 @@ next_tlp(struct RawTLP *out)
 		/*puts(tlp_type_str(get_tlp_type(out)));*/
 		STAILQ_REMOVE_HEAD(&unhandled_tlp_list_head, unhandled_tlp_list);
 		*out = candidate->tlp;
-		printf("dq %d.\n", tlp_buffer_number((TLPQuadWord *)out->header));
+		/*printf("dq %d.\n", tlp_buffer_number((TLPQuadWord *)out->header));*/
 		free(candidate);
 		assert(is_raw_tlp_valid(out));
 	}
@@ -625,7 +629,7 @@ next_completion_tlp(struct RawTLP *out)
 			if (get_tlp_type(out) == CPL) {
 				return;
 			} else {
-				printf("q %d.\n", tlp_buffer_number((TLPQuadWord *)out->header));
+				/*printf("q %d.\n", tlp_buffer_number((TLPQuadWord *)out->header));*/
 				/*puts(tlp_type_str(get_tlp_type(out)));*/
 				struct unhandled_tlp_list_entry *entry;
 				entry = malloc(sizeof(struct unhandled_tlp_list_entry));

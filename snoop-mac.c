@@ -305,9 +305,9 @@ respond_to_packet(struct packet_response_state *state,
 		}
 		break;
 	default:
-		/*printf("Ignoring %s (0x%x) TLP.\n", tlp_type_str(dword0->type),*/
-			/*dword0->type);*/
-		puts("Ignoring a TLP :(");
+		printf("Ignoring %s (0x%x) TLP.\n", tlp_type_str(dword0->type),
+			dword0->type);
+		/*puts("Ignoring a TLP :(");*/
 		break;
 	}
 	return response;
@@ -516,9 +516,9 @@ main(int argc, char *argv[])
 			break;
 		case AS_READING_MBUF_PAGE:
 			read_result = 0;
-			for (i = 0; i < 4096; i += 512) {
+			for (i = 0; i < 4096; i += 256) {
 				read_result += perform_dma_read((uint8_t *)(mbuf_page) + i,
-					512, packet_response_state.devfn, 0,
+					256, packet_response_state.devfn, 0,
 					mbuf_page_address + i);
 			}
 			if (read_result == -1) {
