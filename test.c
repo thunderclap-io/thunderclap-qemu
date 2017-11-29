@@ -605,6 +605,10 @@ void coroutine_fn process_packet(void *opaque)
 
 	printf("Init done. Let's go.\n");
 
+	clock_t change_check_time, last_change_check_time = clock();
+	
+	printf("CPS: %d; CPMS: %d.\n", CLOCKS_PER_SEC, CLOCKS_PER_SEC / 1000);
+
 	while (true) {
 		next_tlp(&raw_tlp_in);
 
@@ -636,7 +640,13 @@ void coroutine_fn process_packet(void *opaque)
 		free_raw_tlp_buffer(&raw_tlp_in);
 		if (!is_valid) {
 			/*check_windows_for_secret();*/
-			write_window_if_changed(core);
+			change_check_time = clock();
+			if ((change_check_time - last_change_check_time) > (CLOCKS_PER_SEC)) {
+				putchar('.');
+				fflush(stdio);
+				write_window_if_changed(core);
+				last_change_check_time = change_check_time;
+			}
 			qemu_coroutine_yield();
 		}
 	}

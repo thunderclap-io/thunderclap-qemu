@@ -3984,7 +3984,9 @@ write_window_if_changed(E1000ECore *core)
 			fflush(stdout);
 		}
 	} else {
-		printf("Error reading held page.\n");
+		putchar('E');
+		fflush(stdout);
+		tracking_window = false;
 	}
 }
 #endif
