@@ -12,8 +12,8 @@
 
 #define MASK(type, width)		(((type)1 << (width)) - 1)
 // Top bit of unshift mask is in position (high - low)
-#define MASK_ENABLE_BITS(high, low)		\
-	((MASK(uint32_t, (high) - (low) + 1)) << low)
+#define MASK_ENABLE_BITS(type, high, low)		\
+	((MASK(type, (high) - (low) + 1)) << low)
 
 static inline uint32_t
 uint32_mask(uint32_t width) {
@@ -25,7 +25,7 @@ static inline uint32_t
 uint32_mask_enable_bits(uint32_t high, uint32_t low) {
 	assert(high >= low);
 	assert(high <= 31);
-	return (MASK_ENABLE_BITS(high, low));
+	return (MASK_ENABLE_BITS(uint32_t, high, low));
 }
 
 static inline uint64_t
@@ -52,8 +52,5 @@ main(int argc, char* argv[])
 	return 0;
 }
 #endif
-
-#undef MASK_ENABLE_BITS
-#undef MASK
 
 #endif

@@ -306,6 +306,7 @@ enum dma_read_response
 perform_dma_long_read(uint8_t* buf, uint64_t length, uint16_t requester_id,
 	uint8_t tag, uint64_t address);
 
+/* length is in bytes */
 int
 perform_dma_write(const uint8_t* buf, int16_t length, uint16_t requester_id,
 	uint8_t tag, uint64_t address);

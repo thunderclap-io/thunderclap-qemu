@@ -454,10 +454,10 @@ tlp_from_postgres(PGresult *result, TLPQuadWord *buffer, int buffer_len,
 static int32_t io_region =  -1;
 static int32_t ignore_regions[IGNORE_REGION_COUNT] = {-1, -1, -1, -1};
 static int32_t ignore_region_mask[IGNORE_REGION_COUNT] = {
-	UINT32_MASK_ENABLE_BITS(31, 17),
-	UINT32_MASK_ENABLE_BITS(31, 5),
-	UINT32_MASK_ENABLE_BITS(31, 17),
-	UINT32_MASK_ENABLE_BITS(31, 17)
+	MASK_ENABLE_BITS(uint32_t, 31, 17),
+	MASK_ENABLE_BITS(uint32_t, 31, 5),
+	MASK_ENABLE_BITS(uint32_t, 31, 17),
+	MASK_ENABLE_BITS(uint32_t, 31, 17)
 };
 
 static int32_t skip_sending = 0;
@@ -931,10 +931,10 @@ pci_dma_write(PCIDevice *dev, dma_addr_t addr, const void *buf, dma_addr_t len)
 	return 0;
 }
 
-int
+enum dma_read_response
 perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
 	uint8_t tag, uint64_t address)
 {
 	printf("WARNING! Postgres backend doesn't simulate host memory.\n");
-	return 0;
+	return DRR_UNSUPPORTED_REQUEST;
 }

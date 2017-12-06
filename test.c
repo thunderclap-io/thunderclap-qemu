@@ -605,10 +605,6 @@ void coroutine_fn process_packet(void *opaque)
 
 	printf("Init done. Let's go.\n");
 
-	clock_t change_check_time, last_change_check_time = clock();
-	
-	printf("CPS: %d; CPMS: %d.\n", CLOCKS_PER_SEC, CLOCKS_PER_SEC / 1000);
-
 	while (true) {
 		next_tlp(&raw_tlp_in);
 
@@ -640,6 +636,7 @@ void coroutine_fn process_packet(void *opaque)
 		free_raw_tlp_buffer(&raw_tlp_in);
 		if (!is_valid) {
 			/*check_windows_for_secret();*/
+#if 0
 			change_check_time = clock();
 			if ((change_check_time - last_change_check_time) > (CLOCKS_PER_SEC)) {
 				putchar('.');
@@ -647,6 +644,7 @@ void coroutine_fn process_packet(void *opaque)
 				write_window_if_changed(core);
 				last_change_check_time = change_check_time;
 			}
+#endif
 			qemu_coroutine_yield();
 		}
 	}
@@ -736,6 +734,7 @@ main(int argc, char *argv[])
 
 	printf("About to start main loop. This build built on EMH MK1.\n");
 
+#if 0
 	if (argc != 2) {
 		printf("Error! Must be called with a hexdump file as argument.\n");
 		return 1;
@@ -744,6 +743,7 @@ main(int argc, char *argv[])
 	GLOBAL_BINARY_FILE = fopen(argv[1], "wb");
 	signal(SIGINT, handle_sigint);
 	atexit(handle_exit_call);
+#endif
 
 	while (1) {
 		qemu_bh_schedule(start_bh);

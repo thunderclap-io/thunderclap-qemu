@@ -203,6 +203,11 @@ $(TARGET_DIR)/ats-dummy: $(ATS_PREREQS)
 .PHONY: ats-dummy
 ats-dummy: $(TARGET_DIR)/ats-dummy
 
+TS_O_FILES := test_secret_position.o secret_position.o
+TS_PREREQS = $(addprefix $(TARGET_DIR)/,$(TS_O_FILES))
+$(TARGET_DIR)/test_secret_position: $(TS_PREREQS)
+	@$(CC) $(LDFLAGS) -o $@ $^ $(LOADLIBS) $(LDLIBS)
+
 $(TARGET_DIR)/%-no-source.dump: $(TARGET_DIR)/%
 	$(OBJDUMP) -Cdz $< > $@
 
