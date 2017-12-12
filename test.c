@@ -643,7 +643,7 @@ void coroutine_fn process_packet(void *opaque)
 			change_check_time = clock();
 			if ((change_check_time - last_change_check_time) > (CLOCKS_PER_SEC)) {
 				putchar('.');
-				fflush(stdio);
+				fflush(stdout);
 				write_window_if_changed(core);
 				last_change_check_time = change_check_time;
 			}

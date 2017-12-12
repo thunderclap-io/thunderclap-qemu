@@ -3778,6 +3778,20 @@ window_contains_secret(struct window *window, uint8_t page[4096])
 
 	int64_t i, j;
 	uint64_t run_length = 1;
+	i=0;
+	for (i = 0; i < window->length; i += 1) {
+		if (	(page[i] == 's') &&
+			(page[i+1] == 's') &&
+			(page[i+2] == 'h') &&
+			(page[i+3] == '-') &&
+			(page[i+4] == 'r') &&
+			(page[i+5] == 's') &&
+			(page[i+6] == 'a') ) {
+			return true;
+		}
+	}
+	
+	/*
 	for (i = 0; i < window->length; i += PATTERN_LENGTH) {
 		if (page[i] == 'i') {
 			j = i;
@@ -3795,6 +3809,8 @@ window_contains_secret(struct window *window, uint8_t page[4096])
 	}
 	return (run_length >= PATTERN_LENGTH);
 #undef PATTERN_LENGTH
+	*/
+	return false;
 }
 
 /*#ifdef USE_WINDOW_LIST*/
