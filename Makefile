@@ -95,7 +95,7 @@ LDLIBS := $(LDLIBS) -lutil -lglib-2.0 -liconv -lintl -lm -lthr
 
 
 CFLAGS := $(CFLAGS) -Wall
-CFLAGS := $(CFLAGS) -O1
+CFLAGS := $(CFLAGS) -O1 -ferror-limit=1
 #CFLAGS := $(CFLAGS) -O3
 
 ifeq ($(DUMMY),1)

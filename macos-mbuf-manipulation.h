@@ -1,7 +1,7 @@
 #ifndef MACOS_MBUF_MANIPULATION
 #define MACOS_MBUF_MANIPULATION
 
-#include "macos-stub-mbuf.h"
+#include "macos-stub-mbuf-high-sierra.h"
 
 void
 endianness_swap_mac_mbuf_header(struct mbuf *mbuf);

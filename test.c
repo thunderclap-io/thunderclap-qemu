@@ -80,7 +80,22 @@
 
 #include <stdbool.h>
 
-#include "block/coroutine.h"
+#include "block/coroutine.h"/*
+ * Constants related to network buffer management.
+ * MCLBYTES must be no larger than CLBYTES (the software page size), and,
+ * on machines that exchange pages of input or output buffers with mbuf
+ * clusters (MAPPED_MBUFS), MCLBYTES must also be an integral multiple
+ * of the hardware page size.
+ */
+#define	MSIZESHIFT	8			/* 256 */
+#define	MSIZE		(1 << MSIZESHIFT)	/* size of an mbuf */
+#define	MCLSHIFT	11			/* 2048 */
+#define	MCLBYTES	(1 << MCLSHIFT)		/* size of an mbuf cluster */
+#define	MBIGCLSHIFT	12			/* 4096 */
+#define	MBIGCLBYTES	(1 << MBIGCLSHIFT)	/* size of a big cluster */
+#define	M16KCLSHIFT	14			/* 16384 */
+#define	M16KCLBYTES	(1 << M16KCLSHIFT)	/* size of a jumbo cluster */
+
 #ifndef DUMMY
 #include "hw/i386/pc.h"
 #include "hw/pci/pci.h"
@@ -734,7 +749,6 @@ main(int argc, char *argv[])
 
 	printf("About to start main loop. This build built on EMH MK1.\n");
 
-#if 0
 	if (argc != 2) {
 		printf("Error! Must be called with a hexdump file as argument.\n");
 		return 1;
@@ -743,7 +757,6 @@ main(int argc, char *argv[])
 	GLOBAL_BINARY_FILE = fopen(argv[1], "wb");
 	signal(SIGINT, handle_sigint);
 	atexit(handle_exit_call);
-#endif
 
 	while (1) {
 		qemu_bh_schedule(start_bh);

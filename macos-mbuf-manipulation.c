@@ -1,25 +1,36 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#include "macos-stub-mbuf.h"
+#include "macos-mbuf-manipulation.h"
 #include "qemu/bswap.h"
 
 void
 endianness_swap_mac_mbuf_header(struct mbuf *mbuf)
 {
-	mbuf->m_next = bswap64(mbuf->m_next);
-	mbuf->m_nextpkt = bswap64(mbuf->m_nextpkt);
-	mbuf->m_data = bswap64(mbuf->m_data);
-	mbuf->m_len = bswap32(mbuf->m_len);
-	mbuf->m_type = bswap16(mbuf->m_type);
-	mbuf->m_flags = bswap16(mbuf->m_flags);
+#define MBUF_FIELD_BSWAP(bswap_fn, field_name)								\
+	field_name = bswap_fn(field_name)
+
+	mbuf->m_hdr.mh_next = bswap64(mbuf->m_hdr.mh_next);
+	mbuf->m_hdr.mh_nextpkt = bswap64(mbuf->m_hdr.mh_nextpkt);
+	mbuf->m_hdr.mh_data = bswap64(mbuf->m_hdr.mh_data);
+	mbuf->m_hdr.mh_len = bswap32(mbuf->m_hdr.mh_len);
+	mbuf->m_hdr.mh_type = bswap16(mbuf->m_hdr.mh_type);
+	mbuf->m_hdr.mh_flags = bswap16(mbuf->m_hdr.mh_flags);
+	MBUF_FIELD_BSWAP(bswap64, mbuf->MM_EXT.ext_buf);
+	MBUF_FIELD_BSWAP(bswap64, mbuf->MM_EXT.ext_free);
+	MBUF_FIELD_BSWAP(bswap32, mbuf->MM_EXT.ext_size);
+
+#undef MBUF_FIELD_BSWAP
 }
 
 void
 print_macos_mbuf_header(const struct mbuf *mbuf)
 {
-	printf("m_next: 0x%lx. mh_nextpkt 0x%lx.\n",
-		mbuf->m_next, mbuf->m_nextpkt);
-	printf("m_data: 0x%lx. m_len: %d.\n", mbuf->m_data, mbuf->m_len);
-	printf("m_type: %x. m_flags: %x.\n", (uint32_t)mbuf->m_type, (uint32_t)mbuf->m_flags);
+	printf("m_hdr.mh_next: 0x%lx. mh_nextpkt 0x%lx.\n",
+		mbuf->m_hdr.mh_next, mbuf->m_hdr.mh_nextpkt);
+	printf("m_hdr.mh_data: 0x%lx. m_hdr.mh_len: %d.\n", mbuf->m_hdr.mh_data, mbuf->m_hdr.mh_len);
+	printf("m_hdr.mh_type: %x. m_hdr.mh_flags: %x.\n", (uint32_t)mbuf->m_hdr.mh_type, (uint32_t)mbuf->m_hdr.mh_flags);
+	printf("ext_buf: 0x%lx. ext_free: 0x%lx.\n", mbuf->MM_EXT.ext_buf,
+		mbuf->MM_EXT.ext_free);
+	printf("ext_size: %d.\n", mbuf->MM_EXT.ext_size);
 }
