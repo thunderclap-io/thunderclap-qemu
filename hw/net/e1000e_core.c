@@ -692,8 +692,8 @@ _e1000e_setup_tx_offloads(E1000ECore *core, struct e1000_tx *tx)
 
     if (tx->sum_needed & E1000_TXD_POPTS_IXSM) {
 		/* XXX cr437 */
-		fprintf(stderr, "Skipping update ip header checksum from e1000...\n");
-        /*net_tx_pkt_update_ip_hdr_checksum(tx->tx_pkt);*/
+		/*fprintf(stderr, "Skipping update ip header checksum from e1000...\n");*/
+		net_tx_pkt_update_ip_hdr_checksum(tx->tx_pkt);
     }
 }
 

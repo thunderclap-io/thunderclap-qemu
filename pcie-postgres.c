@@ -242,7 +242,7 @@ get_postgres_cpl_status(const PGresult *result)
 	get_postgres_##FIELD_NAME(const PGresult *result)						\
 	{																		\
 		int field_num = PQfnumber(result, #FIELD_NAME);						\
-		return be32toh(*(uint32_t *)PQgetvalue(result, 0, field_num));		\
+		return bswap32(*(uint32_t *)PQgetvalue(result, 0, field_num));		\
 	}
 
 POSTGRES_INT_FIELD(pk);
@@ -264,7 +264,7 @@ POSTGRES_INT_FIELD(lwr_addr);
 	get_postgres_##FIELD_NAME(const PGresult *result)						\
 	{																		\
 		int field_num = PQfnumber(result, #FIELD_NAME);						\
-		return be64toh(*(uint64_t *)PQgetvalue(result, 0, field_num));		\
+		return bswap64(*(uint64_t *)PQgetvalue(result, 0, field_num));		\
 	}
 
 POSTGRES_BIGINT_FIELD(address);

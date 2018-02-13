@@ -207,7 +207,7 @@ perform_dma_long_read(uint8_t* buf, uint64_t length, uint16_t requester_id,
 	return result;
 }
 
-enum dma_read_response
+static inline enum dma_read_response
 _perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
 	uint8_t tag, enum tlp_at at, uint64_t address)
 {
@@ -217,6 +217,9 @@ _perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
 	enum dma_read_response return_value = DRR_SUCCESS;
 
 	assert(length > 0);
+	if (length > 512) {
+		printf("Bad dma read ra: %p.\n", get_ra());
+	}
 	assert(length <= 512);
 	assert(buf != NULL);
 
@@ -250,6 +253,11 @@ _perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
 
 	while (i < length) {
 		next_completion_tlp(&read_resp_tlp);
+
+		if (!is_raw_tlp_valid(&read_resp_tlp)) {
+			free_raw_tlp_buffer(&read_resp_tlp);
+			return DRR_NO_RESPONSE;
+		}
 
 		assert(&read_resp_tlp != NULL);
 		assert(read_resp_tlp.header != NULL);
@@ -538,6 +546,15 @@ tlp_buffer_number(TLPQuadWord *addr)
 }
 
 void
+print_tlp_list()
+{
+	struct unhandled_tlp_list_entry *tlp_entry;
+	STAILQ_FOREACH(tlp_entry, &unhandled_tlp_list_head, unhandled_tlp_list) {
+		print_raw_tlp(&tlp_entry->tlp);
+	}
+}
+
+void
 alloc_raw_tlp_buffer(struct RawTLP *tlp)
 {
 	/*if (is_raw_tlp_valid(tlp)) {*/
@@ -555,8 +572,10 @@ alloc_raw_tlp_buffer(struct RawTLP *tlp)
 	}
 	fputs("Couldn't allocate TLP Buffer!\n", stderr);
 	for (int i = 0; i < TLP_BUFFER_COUNT; ++i) {
-		printf("Call site %d: %p\n.", i, call_sites[i]);
+		printf("Call site %d: %p\n", i, call_sites[i]);
 	}
+	printf("TLP LIST:\n");
+	print_tlp_list();
 	exit(0);
 }
 
@@ -617,7 +636,7 @@ next_tlp(struct RawTLP *out)
 void
 next_completion_tlp(struct RawTLP *out)
 {
-	while (true) {
+	for (int i = 0; i < 10; ++i) {
 		alloc_raw_tlp_buffer(out);
 		wait_for_tlp((TLPQuadWord *)out->header, TLP_BUFFER_SIZE, out);
 		if (is_raw_tlp_valid(out)) {
@@ -636,6 +655,9 @@ next_completion_tlp(struct RawTLP *out)
 			free_raw_tlp_buffer(out);
 		}
 	}
+	/* A bit counter intuitive, but otherwise we might return the trail. */
+	alloc_raw_tlp_buffer(out);
+	set_raw_tlp_invalid(out);
 }
 
 void

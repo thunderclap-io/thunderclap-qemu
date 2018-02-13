@@ -291,6 +291,7 @@ create_config_request_header(struct RawTLP *tlp, enum tlp_direction direction,
 enum dma_read_response {
 	DRR_SUCCESS = 0,
 	DRR_UNSUPPORTED_REQUEST,
+	DRR_NO_RESPONSE,
 	DRR_CHEWED
 };
 

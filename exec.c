@@ -2668,7 +2668,7 @@ void *cpu_physical_memory_map(hwaddr addr,
 	assert(!is_write);
 	uint8_t *buffer = malloc(*plen);
 
-	perform_dma_read(buffer, *plen, global_devfn, 8, addr);
+	perform_dma_long_read(buffer, *plen, global_devfn, 8, addr);
 
 	return buffer;
 }

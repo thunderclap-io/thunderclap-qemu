@@ -467,17 +467,19 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 
 		break;
 	case CPL:
-		fputs("CPL Packet in ", stdout);
-		fputs(__func__, stdout);
-		puts(". Likely mistake.");
-		print_raw_tlp(in);
-		if (tlp_fmt_has_data(dword0->fmt)) {
-			assert(in->data != NULL);
-			uint64_t *qword_data_p = (uint64_t *)in->data;
-			uint64_t qword_data = le64_to_cpu(*qword_data_p);
-			printf("CPL Data: %lx: %lx\n", state->next_read, qword_data);
-			state->next_read += 4096;
-		}
+		fputc('!', stderr);
+		fflush(stderr);
+		/*fputs("CPL Packet in ", stdout);*/
+		/*fputs(__func__, stdout);*/
+		/*puts(". Likely mistake.");*/
+		/*print_raw_tlp(in);*/
+		/*if (tlp_fmt_has_data(dword0->fmt)) {*/
+			/*assert(in->data != NULL);*/
+			/*uint64_t *qword_data_p = (uint64_t *)in->data;*/
+			/*uint64_t qword_data = le64_to_cpu(*qword_data_p);*/
+			/*printf("CPL Data: %lx: %lx\n", state->next_read, qword_data);*/
+			/*state->next_read += 4096;*/
+		/*}*/
 		break;
 	default:
 		log_log(LS_RECV_UNKNOWN, LIF_NONE, 0, LOG_NEWLINE);
@@ -747,6 +749,7 @@ main(int argc, char *argv[])
 
 	vm_start();
 
+	/*
 	printf("About to start main loop. This build built on EMH MK1.\n");
 
 	if (argc != 2) {
@@ -757,6 +760,7 @@ main(int argc, char *argv[])
 	GLOBAL_BINARY_FILE = fopen(argv[1], "wb");
 	signal(SIGINT, handle_sigint);
 	atexit(handle_exit_call);
+	*/
 
 	while (1) {
 		qemu_bh_schedule(start_bh);

