@@ -8,9 +8,10 @@ Building
 ========
 
 As it stands, Thunderclap can only be run on a BERI-based platform.
+It is designed for cross compilation from x86.
 The build has only been tested so far on FreeBSD-based hosts.
 
-To do so, you will need a build of the CHERI_SDK, and a BERI sysroot.
+To build Thunderclap, you will need a build of the CHERI_SDK, and a BERI sysroot.
 Information about how to build these can be found in the relevant user's manuals.
 
 You need to fetch the dependencies from the [FreeBSD package site](http://pkg.freebsd.org/FreeBSD:11:mips64/latest/All/).
@@ -33,27 +34,25 @@ You now need to set up three environment variables.
 * `PCIE_QEMU_SYSROOT` should point to your BERI sysroot.
 
 The Makefile is a GNU Makefile, so you will need GNU Make on your FreeBSD build host.
-It supports notions of 'Targets' and 'Victims', which are multiple choice back ends.
-Targets roughly correspond to 'back ends'.
-Victims set preprocessor variables corresponding to victim machines, and are only intermittently used.
-The main target is 'beribsd', corresponding to a BERI processor running a FreeBSD operating system.
+The Makefile supports multiple *targets*, specified with the Makefile argument `TARGET`.
+The main target is '`beribsd`', corresponding to a BERI processor running a FreeBSD operating system.
 It is the default.
-The alternative is 'postgres', which builds the system using a postgres database as a source of packets.
+The alternative is '`postgres`', which builds the system using a postgres database as a source of packets.
 It is effectively bitrotted at this point, as it was mostly used in the bring-up of the NIC model.
 
 Building should be as simple as:
 
      gmake -j4
 
-This will produce a statically linked attack binary called `test` (for historical reasons) in build-beribsd.
+This will produce a statically linked attack binary called `test` (for historical reasons) in the directory  `build-beribsd`.
 
 Running Attacks
 ===============
 
 To run the attack, it must be copied onto the board.
-The most reliable way that we have come up with this is to copy it onto an SD card.
+The most reliable way that we have come up with this is to copy it via SD card.
 
-In order to achieve acceptable performance, the binary must be `cp`ed into `/dev/null` before running, so that it is cached in system memory.
+In order for the running binary to achieve acceptable performance, it must be `cp`ed into `/dev/null` before running, so that it is cached in system memory.
 
 Writing Attacks
 ===============
@@ -67,28 +66,28 @@ void register_pre_xmit_hook(OperateOnDescriptor loop_body, void (*done)())
 ```
 
 This takes two arguments: a callback to be called for each entry in the simulated NIC's transmit ring, and a function pointer to be called once the callback has been called for each entry in the ring.
-Currently, it is called from a function with `__attribute__((constructor))` in `attacks.c`.
+Currently, it is called from a function with `__attribute__((constructor))` in `attacks.c`, to ensure that it is called before `main` is run.
 Only one callback can be assigned for each hook.
 Calling a `register` function again will overwrite the existing hook.
 
-OperateOnDescriptor function pointers take two pointers, an `E1000ECore *`, and a `ConstDescriptorP`.
+`OperateOnDescriptor` function pointers take two pointers, an `E1000ECore *`, and a `ConstDescriptorP`.
 The `E1000ECore` is QEMU's internal model of the state of an E1000E. It is defined in `hw/net/e1000e_core.h`.
-You shouldn't need to use it too often, but it is required as an argument to many functions.
+You shouldn't need to interact with its fields too often, but the structure is required as an argument to many functions.
 
 `ConstDescriptorP` is a const pointer to a const `Descriptor`:
 
 ```c
-enum DescriptorType { DT_TRANSMIT, DT_RECEIVE };
-
 struct Descriptor {
 	enum DescriptorType type;
 	uint64_t buffer_addr;
 	uint16_t length;
 };
+
+enum DescriptorType { DT_TRANSMIT, DT_RECEIVE };
 ```
 
-The is conceptually a generalised representation of e1000e transmit and receive descriptors.
-Some descriptors include more metadata than is contained in the representation, but this has proved unnecessary for attacks so far, so I have not included it.
+This is a generalised representation of e1000e transmit and receive descriptors.
+Some descriptors have more metadata than is contained in the representation, but this has proved unnecessary for attacks so far, so I have not included it.
 
 Interacting with PCIe
 =====================
@@ -102,8 +101,8 @@ The functions for interacting with PCIe are in `pcie.h`.
 High-Level Functions
 --------------------
 
-I provide a number of functions for interacting with PCIe that impose an artificial, blocking, in-order semantics.
-This is a natural way of programming from C, but not reflective of how PCIe works in practice.
+I provide a number of functions for interacting with PCIe that impose artificial, blocking, in-order semantics.
+This is a natural way of programming in C, but not reflective of how PCIe works in practice.
 
 ### Read Functions
 
@@ -117,8 +116,8 @@ enum dma_read_response {
 };
 ```
 
-Success and Unsupported request refer to the corresponding codes in the PCIe spec. No response means that the function timed out before receiving a response from the host.
-This is currently set fairly arbitrarily at 10000 polls of the host.
+Success and Unsupported Request refer to the corresponding codes in the PCIe spec. No response means that the function timed out before receiving a response from the host.
+This is currently set fairly arbitrarily at 10,000 polls of the host.
 
 ```c
 enum dma_read_response
@@ -126,14 +125,16 @@ perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
 	uint8_t tag, uint64_t address);
 ```
 
-Attempts a DMA read from host memory.
+Attempts a DMA read of host memory.
+Can't read more than 512 bytes at a time.
 The first two arguments define a buffer and its length in bytes.
 `requester_id` is the requester id to be used for the transaction.
 When writing an attack from the NIC-based platform, this will most often be
-`core->owner->devfn`.
-Tag is a effectively a per-function virtual-channel identifier.
-The e1000e uses a different tag to refer to different device functionalities (e.g. read RX ring).
-Any value from 0 to 255 is probably fine: I typically use 8, which comes from the manual, and don't have issues.
+`core->owner->devfn`, where `core` is an `E1000ECore *`.
+Tag is a per-function virtual-channel identifier.
+The e1000e uses a different tag to refer requests of different purposes, so there is one for read RX ring, for example, and another for read TX ring, and so on.
+Any value from 0 to 255 is probably fine: I typically use 8, and don't have issues.
+The specific meanings of each tag can be found in the Intel 82754L datasheet.
 Address is the IO Virtual Address of the memory area to be read.
 
 ```c
@@ -164,11 +165,14 @@ perform_dma_write(const uint8_t* buf, int16_t length, uint16_t requester_id,
 ```
 
 This has the same arguments as `perform_translated_dma_read` above, except the buffer contains the data to be written to an area in host memory.
-This invariably returns 0.
+Not capable of writing more than 128 bytes at a time.
+Always returns 0.
 PCIe writes are 'non-posted', meaning that they do not ever get a response, so if you want to be sure that this has worked, perform a read of the same memory location.
 
 Low-level Functions
 -------------------
+
+If you wish to do something more complex than the DMA operations specified above, or be able to respond to requests made by the host, you need to use some of the lower-level functionality of the Thunderclap interface.
 
 The fundamental datatype used by the core of the library is RawTLP:
 
@@ -181,12 +185,13 @@ struct RawTLP {
 };
 ```
 
-This uses length fields in bytes, and contains pointers to the start of header and data sections of TLPs, which may be of variable width.
-The reason that a TLP is not represented as a string of bytes consisting of header followed by data is due to the interface of the Intel PCIE Hard Core.
+This uses length fields in bytes, and contains pointers to the start of header and data sections of TLPs, which may be of variable size.
+The reason that a TLP is not represented as a string of bytes consisting of header followed by data is due to the interface of the Intel FPGA PCIE Hard Core.
 
 ### Receiving TLPs
 
-The PCIe library attempts to provide blocking semantics while not dropping packets that may need to be replied to later by queuing them.
+The PCIe library attempts to provide blocking semantics.
+It does this by adding packets that are not a direct response to a DMA request to a queue, and returning them to the user only after the DMA call is complete.
 **Warning:** I do not fully trust this to work and not leak memory. Oh well.
 
 ```c
@@ -195,16 +200,16 @@ void next_completion_tlp(struct RawTLP *out)
 ```
 
 These two functions are responsible for returning TLPs from the PCIe Hard Core to user code.
-They allocate buffers from within a pool of memory.
+They allocate buffers for the TLPs from a statically defined pool of memory.
 They do not guarantee that they return a valid TLP, as they may time out before one arrives.
 **All** TLPs returned by these functions must have `free_raw_tlp_buffer` called on them before they go out of scope, even if they are not valid.
 
 `next_tlp` returns the next TLP of any type.
 If one is available in the queue, it will return that.
-Otherwise it will wait for 1000 cycles before returning.
+Otherwise it will poll the hard core 1000 times before returning.
 
 `next_completion_tlp` returns the next TLP that is a completion.
-It adds non-completion TLPs to the queue to be returned by the next_tlp function, in order to allow the high-level DMA read functions to present a blocking interface.
+It adds non-completion TLPs received over the course of the call to the queue to be returned by the next_tlp function, in order to allow the high-level DMA read functions to present a blocking interface.
 
 ```c
 bool
@@ -274,28 +279,29 @@ The RawTLP they take as input should have its header pointer initialised to an a
 
 If none of the above mechanisms serve your purpose, you can use the TLP positional structs.
 These also form the mechanism for parsing TLPs.
-They are a family of structs, all starting with `TLP64`.
-Next is a word referring to varieties of TLPs that the particular struct applies to, followed by `DWord`, and the 0-indexed position of that DWord within the header.
+The positional structs are named using a common pattern according to their purpose. 
+Each name starts with with `TLP64`.
+This is followed by a word referring to varieties of TLPs that the particular struct applies to, then `DWord`, and the 0-indexed position of that DWord within the header.
 The fields of each DWord directly correspond to the field of the TLP in the PCIe manual.
 For more information, see the defining file, `pcie.h`, or the PCIe manual.
-Thus the total list of structs is:
+The total list of structs is:
 
 * `struct TLP64DWord0`. The very first DWord in a header, common to all TLPs.
 * `struct TLP64RequestDWord1`. The second DWord, common to standard request TLPs.
-* `struct TLP64MessageRequestDWord1` For message requests.
-* `struct TLP64CompletionDWord1`
-* `struct TLP64CompletionDWord2`
-* `struct TLP64ConfigRequestDWord2`
+* `struct TLP64MessageRequestDWord1`. For message requests.
+* `struct TLP64CompletionDWord1`. The second DWord in a completion TLP.
+* `struct TLP64CompletionDWord2` The third DWord in a completion TLP.
+* `struct TLP64ConfigRequestDWord2`. The third DWord in a configuration-request TLP.
 
-For positions in headers where the DWord has only one meaning -- normally an address -- no struct is used.
+For positions in headers where the DWord has only one meaning &ndash; normally an address &ndash; no struct is used.
 To make use of these structs, I recommend simply casting the pointers as appropriate.
 
 ### Endianness
 
-BERI is big-endian, while the Intel platforms that host the attack device are little-endian, so attention has to be paid to the endianness of the data written.
+BERI is big-endian, while the Intel platforms that host the attack device are little-endian, so attention has to be paid to endianness.
 The `send_tlp` function handles the corrections that need to be made to the headers, but it is up to the user to do the same for the data.
 
-In practice, I have found that to this, the data must be parsed semantically into fields, and then each field must be endianness corrected.
+In practice, I have found that to this the data must be parsed semantically into fields, and then each field must be endianness corrected.
 An example of this can be found in the `endianness_swap_freebsd_mbuf_header` function in `attacks.c`.
 This is aided as QEMU includes some functions for endianness correction in the file `qemu/bswap.h`.
 It also includes a family of functions for converting functions specifically to and from the endianness of the 'CPU', which QEMU perceives to be the emulated CPU, but which is actually the CPU of the victim machine in our case.
@@ -305,7 +311,7 @@ Attack Platform Structure
 =========================
 
 The main function of the attack platform is in `test.c`, demonstrating that the platform grew organically.
-This implements the minimal viable subset of the QEMU main loop that allows the model of the NIC to run.
+It implements the minimal viable subset of the QEMU main loop that allows the model of the NIC to run.
 It may not be perfect, as it was constructed at least partially with trial and error.
 In order to allow the platform to respond to requests from the host, it makes use of QEMU's coroutine mechanism, which allows a function to yield control and be restarted from the same point.
 It operates by repeatedly scheduling a `process_packet` coroutine to run, followed by a single iteration of the main loop.
@@ -317,7 +323,7 @@ NIC Model
 =========
 
 The files that contain the implementation of the NIC model are in the `hw/net` directory, and are `e1000e.c`, `e1000e_core.h`, `e1000e_core.c` and `e1000_regs.h`.
-By far the most useful is `e1000e_core.c`, which contains the parts of the code that perform the work.
+By far the most useful is `e1000e_core.c`, which contains the parts of the code that actually perform the work, rather than presentation logic or definitions.
 Most of the functions inside the file are reasonably descriptively named.
 I have found that the `start_xmit` function that is called just before a transmit operation is simulated to be the most useful for carrying out many attacks, because it allows buffers to be modified just before they are cleaned by the host.
 If you wish to interact with the function to carry out an attack, I recommend that you either use the `pre_transmit_hook` system, or add a new hook if that is unsuitable.
@@ -339,6 +345,9 @@ It does not work against the latest MacOS versions or attempt to actually carry 
 Address Translation Services (ATS) are a suite of PCIe features that allow a peripheral to state that it has carried out the translation ordinarily performed by the IOMMU itself.
 For more information, see either my thesis, or the PCIe spec.
 Clearly, enabling ATS for an untrusted device constitutes a severe vulnerability.
+This file is the minimum possible implementation of an Intel 82754L NIC that Linux will attach a driver for.
+It is is modified to present the PCIe ATS capability.
+Linux then enables ATS for the emulated device.
 
 Various Utilities
 =================
