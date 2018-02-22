@@ -2,7 +2,7 @@
 #define MACOS_MM_HIGH_SIERRA_H
 
 #include <stdint.h>
-#include <sys/queue.h>
+#include "freebsd-queue.h"
 
 typedef uint8_t u_int8_t;
 typedef uint16_t u_int16_t;

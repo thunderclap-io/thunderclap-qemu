@@ -46,6 +46,49 @@ Building should be as simple as:
 
 This will produce a statically linked attack binary called `test` (for historical reasons) in the directory  `build-beribsd`.
 
+For Linux
+---------
+
+Install binutils-arm-linux-gnueabihf and gcc-5-arm-linux-gnueabihf.
+
+Now you need to download the libraries.
+This assumes that you are running a Ubuntu/Debian variant.
+I followed this procedure from a machine running Ubuntu 16.04.
+
+In order to allow you to download ARM packages, if you have not done so already you must run
+
+    sudo dpkg --add-architecture armhf
+
+Then add a new sources file at `/etc/apt/sources.list.d/arm-repo.list`, and add the line
+
+    deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports xenial main universe
+
+Then run
+
+    sudo apt update
+
+Create a directory called `linux-packages` to install the cross build libraries into.
+`cd` into it, and run:
+
+    apt download libgettextpo0:armhf libgettextpo-dev:armhf libglib2.0:armhf libpcre3:armhf libpcre3-dev:armhf libpixman-1-0:armhf liblibpixman-1-dev:armhf libelf1:armhf zlib1g:armhf zlib1g-dev:armhf
+
+**Note:** This is `apt-get` *`download`*, not `install`.
+
+Now extract the data from the downloaded deb files:
+
+    for f in $(ls *.deb); do
+        echo "Extracting" $f "..."
+        ar x $f
+        tar xf data.tar.xz
+    done
+
+Due to laziness and the need for specific arguments to ioctls, the build for an ARM board only works on Linux.
+
+I had to then explictly run:
+
+    cd /usr/arm-linux-gnueabihf/lib
+    sudo ln -s libgcc_s.so.1 libgcc.so
+
 Running Attacks
 ===============
 

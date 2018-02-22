@@ -33,8 +33,8 @@
 # SUCH DAMAGE.
 
 SEP :=, 
-TARGETS = beribsd$(SEP)postgres$(SEP)beribare$(SEP)niosbare
-TARGET ?= beribsd
+TARGETS = arm$(SEP)beribsd$(SEP)postgres$(SEP)beribare$(SEP)niosbare
+TARGET ?= arm
 VICTIMS = macos$(SEP)freebsd
 VICTIM ?= macos
 DUMMY ?= 0
@@ -42,7 +42,7 @@ LOG ?= 0
 PRINT_IDS ?= 0
 PROFILE ?= 0
 
-
+ifneq ($(TARGET),arm)
 ifndef PCIE_QEMU_CHERI_SDK
 $(error Variable PCIE_QEMU_CHERI_SDK is not set)
 endif
@@ -56,6 +56,7 @@ endif
 ifndef PCIE_QEMU_SYSROOT
 $(error PCIE_QEMU_SYSROOT is not set)
 # This must be a BERI sysroot, to avoid including the CHERI memcpy, for example.
+endif
 endif
 
 # Remove instances of SEP from the TARGET, then search for TARGET follwed by
@@ -79,6 +80,7 @@ BACKEND_beribsd = pcie-altera-beri.c
 BACKEND_beribare = pcie-altera-beri.c
 BACKEND_postgres = pcie-postgres.c
 BACKEND_niosbare = pcie-nios.c
+BACKEND_arm = pcie-arm.c
 
 ifeq ($(VICTIM),macos)
 	CFLAGS := $(CFLAGS) -DVICTIM_MACOS
@@ -88,14 +90,15 @@ else
 $(error $(VICTIM) is not a valid target: choices are $(VICTIMS))
 endif
 
-LDFLAGS := -static #-target mips64-unknown-freebsd #-G0
+LDFLAGS := # -static #-target mips64-unknown-freebsd #-G0
 LIBS := glib-2.0 pixman-1
-LDLIBS := -lz -lexecinfo -lelf -lpixman-1 -lpcre
-LDLIBS := $(LDLIBS) -lutil -lglib-2.0 -liconv -lintl -lm -lthr
+LDLIBS := -lz -lpixman-1 -lpcre
+LDLIBS := $(LDLIBS) -lutil -lglib-2.0 -lpthread -lgcc -lm -lc
+#LDLIBS := $(LDLIBS) -lexecinfo -lelf -liconv
 
 
 CFLAGS := $(CFLAGS) -Wall
-CFLAGS := $(CFLAGS) -O1 -ferror-limit=1
+CFLAGS := $(CFLAGS) -O1 -ferror-limit=10
 #CFLAGS := $(CFLAGS) -O3
 
 ifeq ($(DUMMY),1)
@@ -150,6 +153,23 @@ CFLAGS := $(CFLAGS) -DPOSTGRES -I$(shell pg_config --includedir)
 LDFLAGS := $(LDFLAGS) -L$(shell pg_config --libdir)
 LDLIBS := $(LDLIBS) -lpq -lssl -lcrypto
 endif #POSTGRES
+else ifeq ($(TARGET),arm)
+$(info Building for ARM)
+CROSS_USR = linux-packages/usr
+CC=clang
+CFLAGS := $(CFLAGS) -target arm-linux-gnueabihf -mcpu=cortex-a9 -mfpu=neon
+CFLAGS := $(CFLAGS) -mfloat-abi=hard
+CFLAGS := $(CFLAGS) -I.
+CFLAGS := $(CFLAGS) -I/usr/arm-linux-gnueabihf/include
+CFLAGS := $(CFLAGS) -I$(CROSS_USR)/include/glib-2.0
+CFLAGS := $(CFLAGS) -I$(CROSS_USR)/lib/arm-linux-gnueabihf/glib-2.0/include
+CFLAGS := $(CFLAGS) -I$(CROSS_USR)/include/pixman-1
+CFLAGS := $(CFLAGS) -I$(CROSS_USR)/include/gio-unix-2.0
+CFLAGS := $(CFLAGS) -D__linux__ -DCONFIG_LINUX
+LD := arm-linux-gnueabihf-ld
+LDFLAGS := $(LDFLAGS) -L/usr/arm-linux-gnueabihf/lib
+LDFLAGS := $(LDFLAGS) -Llinux-packages/lib/arm-linux-gnueabihf
+LDFLAGS := $(LDFLAGS) -L$(CROSS_USR)/lib/arm-linux-gnueabihf
 endif
 
 CFLAGS := $(CFLAGS) -g
@@ -157,7 +177,7 @@ CFLAGS := $(CFLAGS) -Itcg/tci -Islirp
 #CFLAGS := $(CFLAGS) -ferror-limit=1
 CFLAGS := $(CFLAGS) -I. -Ihw/net -Ilinux-headers -Itarget-i386 -Itcg
 CFLAGS := $(CFLAGS) -Ix86_64-softmmu -Ihw/core -Ii386-softmmu
-CFLAGS := $(CFLAGS) -D NEED_CPU_H -D TARGET_X86_64 -D CONFIG_BSD
+CFLAGS := $(CFLAGS) -D NEED_CPU_H -D TARGET_X86_64
 # NEED_CPU_H to stop poison...
 #CFLAGS := $(CFLAGS) -Wno-error=initializer-overrides
 CFLAGS := $(CFLAGS) -D_GNU_SOURCE # To pull in pipe2 -- seems dodgy
@@ -174,6 +194,7 @@ SOURCES := $(shell find . \
 	| sed '/snoop-mac/d' \
 	| sed '/ats-dummy/d' \
 	| sed '/print-macos-mbuf-pages/d' \
+	| sed '/linux-packages/d' \
 	| sed 's|./||') pcie-core.c $(BACKEND_$(TARGET))
 endif
 
@@ -182,14 +203,14 @@ HEADERS := $(shell find . -name "*.h")
 
 $(TARGET_DIR)/test: $(O_FILES)
 	@echo "Linking..."
-	@$(CC) $(LDFLAGS) -o $@ $^ $(LOADLIBS) $(LDLIBS)
+	@$(LD) $(LDFLAGS) -o $@ $^ $(LOADLIBS) $(LDLIBS)
 
 SNOOP_O_FILES := macos-mbuf-manipulation.o snoop-mac.o pcie-core.o beri-io.o
 SNOOP_O_FILES := crhexdump.o $(SNOOP_O_FILES) $(BACKEND_$(TARGET):.c=.o)
 SNOOP_PREREQS := $(addprefix $(TARGET_DIR)/,$(SNOOP_O_FILES))
 $(TARGET_DIR)/snoop-mac: $(SNOOP_PREREQS)
 	@echo "Linking..."
-	@$(CC) $(LDFLAGS) -o $@ $^ $(LOADLIBS) $(LDLIBS)
+	@$(LD) $(LDFLAGS) -o $@ $^ $(LOADLIBS) $(LDLIBS)
 
 .PHONY: snoop-mac
 snoop-mac: $(TARGET_DIR)/snoop-mac
@@ -199,7 +220,7 @@ ATS_O_FILES := ats-dummy.o pcie-core.o beri-io.o hexdump.o $(BACKEND_$(TARGET):.
 ATS_PREREQS := $(addprefix $(TARGET_DIR)/,$(ATS_O_FILES))
 $(TARGET_DIR)/ats-dummy: $(ATS_PREREQS)
 	@echo "Linking..."
-	@$(CC) $(LDFLAGS) -o $@ $^ $(LOADLIBS) $(LDLIBS)
+	@$(LD) $(LDFLAGS) -o $@ $^ $(LOADLIBS) $(LDLIBS)
 
 .PHONY: ats-dummy
 ats-dummy: $(TARGET_DIR)/ats-dummy
@@ -224,7 +245,7 @@ $(TARGET_DIR)/pcie-altera-beri.o: pcie.h
 $(TARGET_DIR)/%.o: %.c
 	@echo "Building $<..."
 	@mkdir -p $(dir $@)
-	@$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
 
 # Cancel implicit rule
 %.o : %.c

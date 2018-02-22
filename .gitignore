@@ -11,3 +11,4 @@ vgcore.*
 *.elf
 *.mem
 *~
+linux-packages

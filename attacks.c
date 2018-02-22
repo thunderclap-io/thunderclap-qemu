@@ -39,11 +39,11 @@
 
 #include <stdbool.h>
 #include <stdio.h>
-#include <sys/queue.h>
 #include <time.h>
 
 #include "attacks.h"
 #include "crhexdump.h"
+#include "freebsd-queue.h"
 #include "hw/pci/pci.h"
 #include "hw/net/e1000_regs.h"
 #include "hw/net/e1000e_core.h"
