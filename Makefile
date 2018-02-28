@@ -166,10 +166,11 @@ CFLAGS := $(CFLAGS) -I$(CROSS_USR)/lib/arm-linux-gnueabihf/glib-2.0/include
 CFLAGS := $(CFLAGS) -I$(CROSS_USR)/include/pixman-1
 CFLAGS := $(CFLAGS) -I$(CROSS_USR)/include/gio-unix-2.0
 CFLAGS := $(CFLAGS) -D__linux__ -DCONFIG_LINUX
-LD := arm-linux-gnueabihf-ld
+LD := clang -target arm-linux-gnueabihf
 LDFLAGS := $(LDFLAGS) -L/usr/arm-linux-gnueabihf/lib
 LDFLAGS := $(LDFLAGS) -Llinux-packages/lib/arm-linux-gnueabihf
 LDFLAGS := $(LDFLAGS) -L$(CROSS_USR)/lib/arm-linux-gnueabihf
+OBJDUMP := arm-linux-gnueabihf-objdump
 endif
 
 CFLAGS := $(CFLAGS) -g
