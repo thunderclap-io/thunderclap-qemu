@@ -4,6 +4,84 @@
 
 Thunderclap is a platform for probing PCIe, primarily aimed at security research.
 
+Platform Installation
+=====================
+
+Currently, we aim for the attack platform to run on an Intel (Altera) Arria 10 SoC FPGA.
+This is easiest if a Ubuntu-based OS is run on the ARM core on the FPGA.
+We aim to provide a canonical microSD card image that makes this entirely straightforward.
+If this is not available, you can build your own as follows.
+
+1) Download the Arria 10 SoC 'Golden System Reference Design'.
+I have tested this using the most recent version, 17.1 at the time of writing.
+This is available from [here](https://rocketboards.org/foswiki/Documentation/GSRD).
+	
+2) Warning! The GSRD is a tarbomb, so make a new directory and untar it:
+
+		mkdir arria10-gsrd
+		cd arria10-gsrd
+		mv ../linux-socfpga-gsrd-17.1-a10.tar.gz .
+		tar xf linux-socfpga-gsrd-17.1-a10.tar.gz
+
+3) Untar the sdcard image:
+
+		tar xf sdimage.img
+
+4) Write the image to an SD card.
+If you already know what you are doing, you can use `dd` for this.
+However, we recommend [Etcher](https://etcher.io/), which is depressingly modern, but quite good at verifying the written image, and detecting if your SD card writer is on the fritz.
+
+5) Download an appropriate Ubuntu image.
+You need a rootfs for this, which is the root directory of a working Linux installation for a given platform.
+I used `ubuntu-16.04.3-preinstalled-server-armhf+raspi2.img.xz` from [here](http://cdimage.ubuntu.com/releases/16.04/release/).
+Similar images exist for other releases.
+You might also want to use the cloud image from [here](http://cloud-images.ubuntu.com/).
+If you are brave and modern, I believe that you could use a rootfs based on [Ubuntu Core](https://www.ubuntu.com/core), but it was not obvious to me how a sensible rootfs could be constructed from one of these images.
+This was a very discursive instruction step.
+If you are at all unsure, just use the image I did; the first one mentioned.
+	
+6) Mount the Ubuntu image on a loop device on your host.
+A loop device is an emulated device that allows a disk image to be mounted as though it is a disk plugged into the system.
+
+		unxz ubuntu-16.04.3-preinstalled-server-armhf+raspi2.img.xz
+		sudo losetup -f # Prints the first available loop device.
+		sudo losetup -P /dev/loopX ubuntu-16.04.3-preinstalled-server-armhf+raspi2.img 
+		
+	Where loopX is the loop device printed by the call to `losetup -f`.
+	If you look run `ls /dev/loopX*`, you should now see devices `/dev/loopXp1`, and `dev/loopXp2`, which are the partitions on the disk image.
+
+7) Mount the rootfs of the real SD card carrying the GSRD.
+It is the 1.6GB partition of the device: for the image I used, partition 2.
+
+8) Mount the partition labelled `cloudimage-rootfs` of the Ubuntu image.
+
+9) Delete all the files within the rootfs of *the real SD card*.
+
+10) Copy all the files from with the rootfs of the Ubuntu image into the SD card rootfs partition.
+I found it easiest to carry out these last operations by `cd`ing into the rootfs of the real SD card, then doing:
+
+		sudo rm -rf *
+		sudo rsync -av /media/cloudimg-rootfs/* .
+
+I used rsync because it transfers file ownership and permissions correctly.
+It needs sudo permissions in order to create device nodes on the SD card.
+
+11) You now have to tweak some of the configuration files to reflect the differences between the raspberry PI that the rootfs was built for and the Arria 10 that it is being run on.
+*Warning!* While modifying these files, make sure you are modifying the version on the SD card, not the version in your own root filesystem.
+You probably won't brick your box, but you can cause damage that requires quite a lot of hassle to fix.
+
+	Use your favourite text editor, vim, run as root, to modify the file `etc/network/interfaces`.
+	Comment out the line (insert a `#` at the start of the line) `source /etc/network/interfaces.d/*.cfg.`
+	This is because the automatic network configuration doesn't work, and delay the boot process, which pauses to attempt to wait for it to complete.
+	Also modify the file `etc/fstab`.
+	Comment out the line (`#` at the start of line again), that begins `LABEL=system-boot`.
+	This is because the Arria 10 boots in a different way from a different partition to the Raspberry PI, and again, the boot process can wait for a long time attempting to mount a partition that doesn't exist.
+
+12) You are done! Unmount all of the partitions. To detach the Ubuntu image from the loop device, use the command:
+
+	losetup -d /dev/loopX
+
+
 Building
 ========
 
@@ -70,7 +148,9 @@ Then run
 Create a directory called `linux-packages` to install the cross build libraries into.
 `cd` into it, and run:
 
-    apt download libgettextpo0:armhf libgettextpo-dev:armhf libglib2.0:armhf libpcre3:armhf libpcre3-dev:armhf libpixman-1-0:armhf liblibpixman-1-dev:armhf libelf1:armhf zlib1g:armhf zlib1g-dev:armhf
+    apt download libgettextpo0:armhf libgettextpo-dev:armhf libglib2.0:armhf \
+		libpcre3:armhf libpcre3-dev:armhf libpixman-1-0:armhf \
+		liblibpixman-1-dev:armhf libelf1:armhf zlib1g:armhf zlib1g-dev:armhf
 
 **Note:** This is `apt-get` *`download`*, not `install`.
 

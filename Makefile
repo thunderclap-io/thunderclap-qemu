@@ -187,7 +187,7 @@ ifeq ($(DUMMY),1)
 SOURCES := test.c log.c beri-io.c baremetal/baremetalsupport.c
 SOURCES += $(BACKEND_$(TARGET))
 else
-DONT_FIND_TEMPLATES := $(shell grep "include \".*\.c\"" -Roh . | sort | uniq | sed 's/include /! -name /g')
+DONT_FIND_TEMPLATES := $(shell grep "include \".*\.c\"" -roh . | sort | uniq | sed 's/include /! -name /g')
 SOURCES := $(shell find . \
 	! -name "pcie-*.c" $(DONT_FIND_TEMPLATES) -name "*.c" \
 	| sed '/niosbare/d' \
@@ -247,6 +247,9 @@ $(TARGET_DIR)/%.o: %.c
 	@echo "Building $<..."
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
+
+readme.html: README.md readme-style.css
+	pandoc -sS --toc -o readme.html README.md -c https://fonts.googleapis.com/css?family=Lato -c readme-style.css
 
 # Cancel implicit rule
 %.o : %.c
