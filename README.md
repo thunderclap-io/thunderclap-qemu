@@ -63,8 +63,8 @@ I found it easiest to carry out these last operations by `cd`ing into the rootfs
 		sudo rm -rf *
 		sudo rsync -av /media/cloudimg-rootfs/* .
 
-I used rsync because it transfers file ownership and permissions correctly.
-It needs sudo permissions in order to create device nodes on the SD card.
+	I used rsync because it transfers file ownership and permissions correctly.
+	It needs sudo permissions in order to create device nodes on the SD card.
 
 11) You now have to tweak some of the configuration files to reflect the differences between the raspberry PI that the rootfs was built for and the Arria 10 that it is being run on.
 *Warning!* While modifying these files, make sure you are modifying the version on the SD card, not the version in your own root filesystem.
