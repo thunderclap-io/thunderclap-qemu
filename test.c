@@ -116,7 +116,6 @@
 
 #ifndef POSTGRES
 #include "pciefpga.h"
-#include "beri-io.h"
 #endif
 
 #include "mask.h"

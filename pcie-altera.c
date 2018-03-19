@@ -1,3 +1,42 @@
+/*-
+ * SPDX-License-Identifier: BSD-2-Clause
+ * 
+ * Copyright (c) 2015-2018 Colin Rothwell
+ * Copyright (c) 2015-2018 A. Theodore Markettos
+ * 
+ * This software was developed by SRI International and the University of
+ * Cambridge Computer Laboratory under DARPA/AFRL contract FA8750-10-C-0237
+ * ("CTSRD"), as part of the DARPA CRASH research programme.
+ * 
+ * This software was developed by the University of Cambridge Computer
+ * Laboratory (Department of Computer Science and Technology)
+ * as part of the IOSEC - Protection and Memory Safety for Input/Output
+ * Security project, funded by EPSRC grant EP/R012458/1.
+ * 
+ * We acknowledge the support of Arm Ltd.
+ * 
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ * 
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ */
+
 #include <stdint.h>
 #include <stdio.h>
 #include "freebsd-queue.h"
@@ -7,7 +46,7 @@
 #include "mask.h"
 #include "pcie-debug.h"
 #include "pciefpga.h"
-#include "beri-io.h"
+#include "peripheral-io.h"
 #include "pcie.h"
 #include "pcie-backend.h"
 #include "log.h"
@@ -17,16 +56,6 @@ volatile uint8_t *led_phys_mem;
 #define TLP_BUFFER_SIZE 512
 #define TLP_BUFFER_COUNT 32
 
-static inline void*
-get_ra()
-{
-	void* ra;
-	asm ("move %0, $ra"
-		: "=r" (ra));
-	return ra;
-}
-
-void *call_sites[TLP_BUFFER_COUNT];
 bool tlp_buffer_in_use[TLP_BUFFER_COUNT];
 TLPQuadWord tlp_buffer[TLP_BUFFER_SIZE * TLP_BUFFER_COUNT / sizeof(TLPQuadWord)];
 
@@ -218,7 +247,7 @@ _perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
 
 	assert(length > 0);
 	if (length > 512) {
-		printf("Bad dma read ra: %p.\n", get_ra());
+		printf("Bad dma read.\n");
 	}
 	assert(length <= 512);
 	assert(buf != NULL);
@@ -410,17 +439,6 @@ pcie_hardware_init(int argc, char **argv, volatile uint8_t **physmem)
 	return 0;
 }
 
-unsigned long
-read_hw_counter()
-{
-	unsigned long retval;
-	asm volatile("rdhwr %0, $2"
-		: "=r"(retval));
-	return retval;
-}
-
-
-
 void
 drain_pcie_core()
 {
@@ -563,7 +581,6 @@ alloc_raw_tlp_buffer(struct RawTLP *tlp)
 	for (int i = 0; i < TLP_BUFFER_COUNT; ++i) {
 		if (!tlp_buffer_in_use[i]) {
 			/*if (i != 0) { printf("a%d\n", i); }*/
-			call_sites[i] = get_ra();
 			tlp_buffer_in_use[i] = true;
 			tlp->header = (TLPDoubleWord *)tlp_buffer_address(i);
 			PDBG("Allocated buffer %d.\n", i);
@@ -571,9 +588,6 @@ alloc_raw_tlp_buffer(struct RawTLP *tlp)
 		}
 	}
 	fputs("Couldn't allocate TLP Buffer!\n", stderr);
-	for (int i = 0; i < TLP_BUFFER_COUNT; ++i) {
-		printf("Call site %d: %p\n", i, call_sites[i]);
-	}
 	printf("TLP LIST:\n");
 	print_tlp_list();
 	exit(0);

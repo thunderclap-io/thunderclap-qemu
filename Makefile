@@ -33,7 +33,7 @@
 # SUCH DAMAGE.
 
 SEP :=, 
-TARGETS = arm$(SEP)beribsd$(SEP)postgres$(SEP)beribare$(SEP)niosbare
+TARGETS = arm$(SEP)beribsd$(SEP)postgres
 TARGET ?= arm
 VICTIMS = macos$(SEP)freebsd
 VICTIM ?= macos
@@ -41,6 +41,11 @@ DUMMY ?= 0
 LOG ?= 0
 PRINT_IDS ?= 0
 PROFILE ?= 0
+
+WORDSIZE=64
+ifeq ($(TARGET),arm)
+WORDSIZE=32
+endif
 
 ifneq ($(TARGET),arm)
 ifndef PCIE_QEMU_CHERI_SDK
@@ -76,11 +81,9 @@ endif
 
 TARGET_DIR=build-$(TARGET)
 
-BACKEND_beribsd = pcie-altera-beri.c
-BACKEND_beribare = pcie-altera-beri.c
+BACKEND_beribsd = pcie-altera.c
+BACKEND_arm = pcie-altera.c
 BACKEND_postgres = pcie-postgres.c
-BACKEND_niosbare = pcie-nios.c
-BACKEND_arm = pcie-arm.c
 
 ifeq ($(VICTIM),macos)
 	CFLAGS := $(CFLAGS) -DVICTIM_MACOS
@@ -99,6 +102,7 @@ LDLIBS := $(LDLIBS) -lutil -lglib-2.0 -lpthread -lgcc -lm -lc
 
 CFLAGS := $(CFLAGS) -Wall
 CFLAGS := $(CFLAGS) -O1 -ferror-limit=10
+CFLAGS := $(CFLAGS) -DWORD_SIZE_$(WORDSIZE)
 #CFLAGS := $(CFLAGS) -O3
 
 ifeq ($(DUMMY),1)
@@ -196,7 +200,7 @@ SOURCES := $(shell find . \
 	| sed '/ats-dummy/d' \
 	| sed '/print-macos-mbuf-pages/d' \
 	| sed '/linux-packages/d' \
-	| sed 's|./||') pcie-core.c $(BACKEND_$(TARGET))
+	| sed 's|./||') $(BACKEND_$(TARGET))
 endif
 
 O_FILES := $(addprefix $(TARGET_DIR)/,$(SOURCES:.c=.o))
