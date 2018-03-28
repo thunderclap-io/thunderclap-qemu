@@ -413,25 +413,17 @@ initialise_leds()
 #define LED_BASE		0x7F006000LL
 #define LED_LEN			0x1
 
-#ifdef BERIBSD
-		led_phys_mem = open_io_region(LED_BASE, LED_LEN);
-#else
-		led_phys_mem = (volatile uint8_t *) LED_BASE;
+	led_phys_mem = open_io_region(LED_BASE, LED_LEN);
 
 #undef LED_LEN
 #undef LED_BASE
-#endif
 }
 
 int
 pcie_hardware_init(int argc, char **argv, volatile uint8_t **physmem)
 {
-#ifdef BERIBSD
 	*physmem = open_io_region(PCIEPACKET_REGION_BASE, PCIEPACKET_REGION_LENGTH);
-#else
-	*physmem = (volatile uint8_t *) PCIEPACKET_REGION_BASE;
-#endif
-	initialise_leds();
+	/*initialise_leds();*/
 	for (int i = 0; i < TLP_BUFFER_COUNT; ++i) {
 		tlp_buffer_in_use[i] = false;
 	}

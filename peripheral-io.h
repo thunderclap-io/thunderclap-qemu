@@ -19,7 +19,7 @@ static inline volatile uint32_t IORD(uint64_t base, uint64_t offset)
 	return pointer[offset];
 }
 
-static inline volatile uint64_t IORD64(uint64_t base, uint64_t offset)
+/*static inline*/ volatile uint64_t IORD64(uint64_t base, uint64_t offset)
 {
 #ifdef WORD_SIZE_64
 	volatile uint64_t *pointer = (uint64_t *) (physmem+base-PCIEPACKET_REGION_BASE);
@@ -28,7 +28,8 @@ static inline volatile uint64_t IORD64(uint64_t base, uint64_t offset)
 	uint64_t ret;
 	volatile uint32_t *low_bits = (uint32_t *)(physmem+base-PCIEPACKET_REGION_BASE);
 	volatile uint32_t *high_bits = low_bits + 1;
-	ret = *high_bits << 32;
+	ret = (*high_bits);
+	ret <<= 32;
 	ret |= *low_bits;
 	return ret;
 #else

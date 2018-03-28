@@ -193,7 +193,8 @@ SOURCES += $(BACKEND_$(TARGET))
 else
 DONT_FIND_TEMPLATES := $(shell grep "include \".*\.c\"" -roh . | sort | uniq | sed 's/include /! -name /g')
 SOURCES := $(shell find . \
-	! -name "pcie-*.c" $(DONT_FIND_TEMPLATES) -name "*.c" \
+	! -name "pcie-*.c" \
+	! -name "tap-*" $(DONT_FIND_TEMPLATES) -name "*.c" \
 	| sed '/niosbare/d' \
 	| sed '/beribare/d' \
 	| sed '/snoop-mac/d' \
@@ -201,6 +202,14 @@ SOURCES := $(shell find . \
 	| sed '/print-macos-mbuf-pages/d' \
 	| sed '/linux-packages/d' \
 	| sed 's|./||') $(BACKEND_$(TARGET))
+endif
+
+ifeq ($(TARGET),arm)
+SOURCES := $(SOURCES) net/tap-linux.c
+else ifeq ($(TARGET),beribsd)
+SOURCES := $(SOURCES) net/tap-bsd.c
+else
+$(error "Don't understand backend for target ", $(TARGET))
 endif
 
 O_FILES := $(addprefix $(TARGET_DIR)/,$(SOURCES:.c=.o))
