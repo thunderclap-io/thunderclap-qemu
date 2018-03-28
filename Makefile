@@ -41,28 +41,7 @@ DUMMY ?= 0
 LOG ?= 0
 PRINT_IDS ?= 0
 PROFILE ?= 0
-
 WORDSIZE=64
-ifeq ($(TARGET),arm)
-WORDSIZE=32
-endif
-
-ifneq ($(TARGET),arm)
-ifndef PCIE_QEMU_CHERI_SDK
-$(error Variable PCIE_QEMU_CHERI_SDK is not set)
-endif
-
-ifndef PCIE_QEMU_LIBRARY_ROOT
-$(error PCIE_QEMU_LIBRARY_ROOT is not set)
-# PCIE_QEMU_LIBRARY_ROOT should be the directory into which the .txz libraries
-# have been extracted. It should contain a usr directory.
-endif
-
-ifndef PCIE_QEMU_SYSROOT
-$(error PCIE_QEMU_SYSROOT is not set)
-# This must be a BERI sysroot, to avoid including the CHERI memcpy, for example.
-endif
-endif
 
 # Remove instances of SEP from the TARGET, then search for TARGET follwed by
 # SEP in the list of TARGETS followed by SEP to guarentee that an exact match
@@ -93,12 +72,9 @@ else
 $(error $(VICTIM) is not a valid target: choices are $(VICTIMS))
 endif
 
-LDFLAGS := # -static #-target mips64-unknown-freebsd #-G0
 LIBS := glib-2.0 pixman-1
 LDLIBS := -lz -lpixman-1 -lpcre
 LDLIBS := $(LDLIBS) -lutil -lglib-2.0 -lpthread -lgcc -lm -lc
-#LDLIBS := $(LDLIBS) -lexecinfo -lelf -liconv
-
 
 CFLAGS := $(CFLAGS) -Wall
 CFLAGS := $(CFLAGS) -O1 -ferror-limit=10
@@ -127,12 +103,31 @@ CFLAGS := $(CFLAGS) -pg
 LDFLAGS := $(LDFLAGS) -pg
 endif
 
-# if TARGET=beribsd or beribare
-ifeq ($(TARGET),$(filter $(TARGET),beribsd beribare))
+ifeq ($(TARGET),beribsd)
 $(info Building for BERI)
+
+ifndef PCIE_QEMU_CHERI_SDK
+$(error Variable PCIE_QEMU_CHERI_SDK is not set)
+endif
+
+ifndef PCIE_QEMU_LIBRARY_ROOT
+$(error PCIE_QEMU_LIBRARY_ROOT is not set)
+# PCIE_QEMU_LIBRARY_ROOT should be the directory into which the .txz libraries
+# have been extracted. It should contain a usr directory.
+endif
+
+ifndef PCIE_QEMU_SYSROOT
+$(error PCIE_QEMU_SYSROOT is not set)
+# This must be a BERI sysroot, to avoid including the CHERI memcpy, for example.
+endif
+
+CFLAGS := $(CFLAGS) -DCONFIG_BSD=1
+LDFLAGS := -static -target mips64-unknown-freebsd -G0
+
 SDK = $(PCIE_QEMU_CHERI_SDK)/sdk
 CC = $(SDK)/bin/clang
 OBJDUMP = $(SDK)/bin/objdump
+LD = $(CC)
 #CC=/home/cr437/cheri-sdk/sdk/bin/gcc
 EXTRA_USR=$(PCIE_QEMU_LIBRARY_ROOT)/usr
 CFLAGS := $(CFLAGS) $(addprefix "-I$(EXTRA_USR)/local/include/",$(LIBS))
@@ -145,6 +140,7 @@ CFLAGS := $(CFLAGS) -DTARGET=TARGET_BERI -G0 -mxgot -ftls-model=local-exec
 CFLAGS := $(CFLAGS) -DBERIBSD -DBERI -DHOST_WORDS_BIGENDIAN
 LDFLAGS := $(LDFLAGS) --sysroot=$(PCIE_QEMU_SYSROOT)
 LDFLAGS := $(LDFLAGS) -L$(EXTRA_USR)/local/lib
+LDLIBS := $(LDLIBS) -lexecinfo -lelf -liconv -lintl
 else ifeq ($(TARGET),postgres)
 $(info Building postgres)
 CC = clang
@@ -159,6 +155,7 @@ LDLIBS := $(LDLIBS) -lpq -lssl -lcrypto
 endif #POSTGRES
 else ifeq ($(TARGET),arm)
 $(info Building for ARM)
+WORDSIZE=32
 CROSS_USR = linux-packages/usr
 CC=clang
 CFLAGS := $(CFLAGS) -target arm-linux-gnueabihf -mcpu=cortex-a9 -mfpu=neon
@@ -259,7 +256,7 @@ $(TARGET_DIR)/pcie-altera-beri.o: pcie.h
 $(TARGET_DIR)/%.o: %.c
 	@echo "Building $<..."
 	@mkdir -p $(dir $@)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
+	@$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
 
 readme.html: README.md readme-style.css
 	pandoc -sS --toc -o readme.html README.md -c https://fonts.googleapis.com/css?family=Lato -c readme-style.css
