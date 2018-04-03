@@ -309,7 +309,7 @@ struct pkthdr {
 /*
  * Description of external storage mapped into mbuf, valid only if M_EXT set.
  */
-typedef void (*m_ext_free_func_t)(MM_caddr_t, u_int, MM_caddr_t);
+typedef uint64_t m_ext_free_func_t;
 struct m_ext {
 	MM_caddr_t	ext_buf;		/* start of buffer */
 	m_ext_free_func_t ext_free;	/* free routine if not the usual */

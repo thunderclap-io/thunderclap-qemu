@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 #include "exec/hwaddr.h"
-#include "macos-stub-mbuf-high-sierra.h"
+#include "macos-mbuf-manipulation.h"
 
 #define MBUFS_PER_PAGE (4096 / sizeof(struct mbuf))
 

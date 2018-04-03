@@ -13,7 +13,7 @@
  * Contributions after 2012-01-13 are licensed under the terms of the
  * GNU GPL, version 2 or (at your option) any later version.
  */
-#ifdef BERIBSD
+#ifdef THUNDERCLAP
 #include "pcie.h"
 #endif
 
@@ -21,6 +21,7 @@
 #include "hw/pci/msi.h"
 #include "hw/pci/msix.h"
 #include "hw/pci/pci.h"
+#include "pcie.h"
 #include "qemu/range.h"
 
 #define MSIX_CAP_LENGTH 12
@@ -453,7 +454,7 @@ void msix_notify(PCIDevice *dev, unsigned vector)
 
     msg = msix_get_message(dev, vector);
 
-#ifdef BERIBSD
+#ifdef THUNDERCLAP
 	uint32_t data = bswap32(msg.data);
 	perform_dma_write(&data, 4, dev->devfn, 0x1E, msg.address);
 #else

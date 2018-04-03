@@ -683,11 +683,11 @@ static inline int pci_dma_rw(PCIDevice *dev, dma_addr_t addr,
     return 0;
 }
 
-/* If BERIBSD is defined, we are using the hardcodre to do real PCIe
+/* If THUNDERCLAP is defined, we are using the hardcore to do real PCIe
  * transactions. This is expensive, so we implement it in the appropriate
  * file.
  */
-#ifdef BERIBSD
+#ifdef THUNDERCLAP
 int pci_dma_read(PCIDevice *dev, dma_addr_t addr, void *buf, dma_addr_t len);
 #else
 //static inline int pci_dma_read(PCIDevice *dev, dma_addr_t addr,
@@ -697,7 +697,7 @@ int pci_dma_read(PCIDevice *dev, dma_addr_t addr, void *buf, dma_addr_t len);
 //}
 #endif
 
-#ifdef BERIBSD
+#ifdef THUNDERCLAP
 int pci_dma_write(PCIDevice *dev, dma_addr_t addr, const void *buf,
 	dma_addr_t len);
 #else

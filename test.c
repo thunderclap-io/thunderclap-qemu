@@ -65,9 +65,6 @@
 #include "hw/net/e1000e_core.h"
 #endif
 
-#define TARGET_BERI		1
-#define TARGET_NATIVE	2
-
 #ifndef BAREMETAL
 #include <execinfo.h>
 #include <stdio.h>

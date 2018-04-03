@@ -35,8 +35,8 @@
 SEP :=, 
 TARGETS = arm$(SEP)beribsd$(SEP)postgres
 TARGET ?= arm
-VICTIMS = macos$(SEP)freebsd
-VICTIM ?= macos
+VICTIMS = macos-el-capitan$(SEP)macos-high-sierra$(SEP)freebsd
+VICTIM ?= macos-el-capitan
 DUMMY ?= 0
 LOG ?= 0
 PRINT_IDS ?= 0
@@ -64,8 +64,10 @@ BACKEND_beribsd = pcie-altera.c
 BACKEND_arm = pcie-altera.c
 BACKEND_postgres = pcie-postgres.c
 
-ifeq ($(VICTIM),macos)
-	CFLAGS := $(CFLAGS) -DVICTIM_MACOS
+ifeq ($(VICTIM),macos-el-capitan)
+	CFLAGS := $(CFLAGS) -DVICTIM_MACOS -DVICTIM_MACOS_EL_CAPITAN
+else ifeq ($(VICTIM),macos-high-sierra)
+	CFLAGS := $(CFLAGS) -DVICTIM_MACOS -DVICTIM_MACOS_HIGH_SIERRA
 else ifeq ($(VICTIM),freebsd)
 	CFLAGS := $(CFLAGS) -DVICTIM_FREEBSD
 else
@@ -78,7 +80,7 @@ LDLIBS := $(LDLIBS) -lutil -lglib-2.0 -lpthread -lgcc -lm -lc
 
 CFLAGS := $(CFLAGS) -Wall
 CFLAGS := $(CFLAGS) -O1 -ferror-limit=10
-CFLAGS := $(CFLAGS) -DWORD_SIZE_$(WORDSIZE)
+CFLAGS := $(CFLAGS) -DTHUNDERCLAP -DWORD_SIZE_$(WORDSIZE)
 #CFLAGS := $(CFLAGS) -O3
 
 ifeq ($(DUMMY),1)
@@ -137,7 +139,7 @@ CFLAGS := $(CFLAGS) -integrated-as
 CFLAGS := $(CFLAGS) --sysroot=$(PCIE_QEMU_SYSROOT)
 CFLAGS := $(CFLAGS) -I$(EXTRA_USR)/local/lib/glib-2.0/include
 CFLAGS := $(CFLAGS) -DTARGET=TARGET_BERI -G0 -mxgot -ftls-model=local-exec
-CFLAGS := $(CFLAGS) -DBERIBSD -DBERI -DHOST_WORDS_BIGENDIAN
+CFLAGS := $(CFLAGS) -DBERIBSD -DPLATFORM_BERI -DHOST_WORDS_BIGENDIAN
 LDFLAGS := $(LDFLAGS) --sysroot=$(PCIE_QEMU_SYSROOT)
 LDFLAGS := $(LDFLAGS) -L$(EXTRA_USR)/local/lib
 LDLIBS := $(LDLIBS) -lexecinfo -lelf -liconv -lintl
@@ -166,7 +168,7 @@ CFLAGS := $(CFLAGS) -I$(CROSS_USR)/include/glib-2.0
 CFLAGS := $(CFLAGS) -I$(CROSS_USR)/lib/arm-linux-gnueabihf/glib-2.0/include
 CFLAGS := $(CFLAGS) -I$(CROSS_USR)/include/pixman-1
 CFLAGS := $(CFLAGS) -I$(CROSS_USR)/include/gio-unix-2.0
-CFLAGS := $(CFLAGS) -D__linux__ -DCONFIG_LINUX
+CFLAGS := $(CFLAGS) -D__linux__ -DCONFIG_LINUX -DPLATFORM_ARM
 LD := clang -target arm-linux-gnueabihf
 LDFLAGS := $(LDFLAGS) -L/usr/arm-linux-gnueabihf/lib
 LDFLAGS := $(LDFLAGS) -Llinux-packages/lib/arm-linux-gnueabihf

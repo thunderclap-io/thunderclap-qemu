@@ -28,6 +28,6 @@ for_each_descriptor_address(E1000ECore *core, enum DescriptorType which_ring,
  * handler.
  */
 void
-regster_pre_xmit_hook(OperateOnDescriptor loop_boody, void (*done)());
+register_pre_xmit_hook(OperateOnDescriptor loop_body, void (*done)());
 
 #endif
