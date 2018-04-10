@@ -12,3 +12,6 @@ vgcore.*
 *.mem
 *~
 linux-packages
+*.old
+callgrind.out.*
+tags
