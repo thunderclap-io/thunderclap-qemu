@@ -463,7 +463,7 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 
 		break;
 	case CPL:
-		fputc('!', stderr);
+		fputc('C', stderr);
 		fflush(stderr);
 		/*fputs("CPL Packet in ", stdout);*/
 		/*fputs(__func__, stdout);*/

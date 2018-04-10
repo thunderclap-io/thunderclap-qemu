@@ -7,20 +7,25 @@
 void
 endianness_swap_mac_mbuf_header(struct mbuf *mbuf)
 {
-#define MBUF_FIELD_BSWAP(bswap_fn, field_name)								\
-	field_name = bswap_fn(field_name)
+#define FIX_FIELD(size, field)												\
+	mbuf->field = (typeof(mbuf->field))le ## size ## _to_cpu(				\
+		(int ## size ## _t)mbuf->field)
 
-	mbuf->m_hdr.mh_next = bswap64(mbuf->m_hdr.mh_next);
-	mbuf->m_hdr.mh_nextpkt = bswap64(mbuf->m_hdr.mh_nextpkt);
-	mbuf->m_hdr.mh_data = bswap64(mbuf->m_hdr.mh_data);
-	mbuf->m_hdr.mh_len = bswap32(mbuf->m_hdr.mh_len);
-	mbuf->m_hdr.mh_type = bswap16(mbuf->m_hdr.mh_type);
-	mbuf->m_hdr.mh_flags = bswap16(mbuf->m_hdr.mh_flags);
-	MBUF_FIELD_BSWAP(bswap64, mbuf->MM_EXT.ext_buf);
-	MBUF_FIELD_BSWAP(bswap64, mbuf->MM_EXT.ext_free);
-	MBUF_FIELD_BSWAP(bswap32, mbuf->MM_EXT.ext_size);
+	FIX_FIELD(64, MM_NEXT);
+	FIX_FIELD(64, MM_NEXTPKT);
+	FIX_FIELD(64, MM_DATA);
+	FIX_FIELD(32, MM_LEN);
+	FIX_FIELD(16, MM_TYPE);
+	FIX_FIELD(16, MM_FLAGS);
 
-#undef MBUF_FIELD_BSWAP
+	FIX_FIELD(64, MM_EXT.ext_buf);
+	FIX_FIELD(64, MM_EXT.ext_free);
+	FIX_FIELD(32, MM_EXT.ext_size);
+	FIX_FIELD(64, MM_EXT.ext_arg);
+	FIX_FIELD(64, MM_EXT.ext_refflags);
+
+
+#undef FIX_FIELD
 }
 
 void
