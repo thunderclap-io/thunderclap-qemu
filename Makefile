@@ -112,12 +112,6 @@ ifndef PCIE_QEMU_CHERI_SDK
 $(error Variable PCIE_QEMU_CHERI_SDK is not set)
 endif
 
-ifndef PCIE_QEMU_LIBRARY_ROOT
-$(error PCIE_QEMU_LIBRARY_ROOT is not set)
-# PCIE_QEMU_LIBRARY_ROOT should be the directory into which the .txz libraries
-# have been extracted. It should contain a usr directory.
-endif
-
 ifndef PCIE_QEMU_SYSROOT
 $(error PCIE_QEMU_SYSROOT is not set)
 # This must be a BERI sysroot, to avoid including the CHERI memcpy, for example.
@@ -130,18 +124,17 @@ SDK = $(PCIE_QEMU_CHERI_SDK)/sdk
 CC = $(SDK)/bin/clang
 OBJDUMP = $(SDK)/bin/objdump
 LD = $(CC)
-#CC=/home/cr437/cheri-sdk/sdk/bin/gcc
-EXTRA_USR=$(PCIE_QEMU_LIBRARY_ROOT)/usr
-CFLAGS := $(CFLAGS) $(addprefix "-I$(EXTRA_USR)/local/include/",$(LIBS))
-CFLAGS := $(CFLAGS) -I$(EXTRA_USR)/include
+CROSS_USR=freebsd-packages/usr
+CFLAGS := $(CFLAGS) $(addprefix "-I$(CROSS_USR)/local/include/",$(LIBS))
+CFLAGS := $(CFLAGS) -I$(CROSS_USR)/include
 #CFLAGS := $(CFLAGS) --target=mips64-unknown-freebsd
 CFLAGS := $(CFLAGS) -integrated-as
 CFLAGS := $(CFLAGS) --sysroot=$(PCIE_QEMU_SYSROOT)
-CFLAGS := $(CFLAGS) -I$(EXTRA_USR)/local/lib/glib-2.0/include
+CFLAGS := $(CFLAGS) -I$(CROSS_USR)/local/lib/glib-2.0/include
 CFLAGS := $(CFLAGS) -DTARGET=TARGET_BERI -G0 -mxgot -ftls-model=local-exec
 CFLAGS := $(CFLAGS) -DBERIBSD -DPLATFORM_BERI -DHOST_WORDS_BIGENDIAN
 LDFLAGS := $(LDFLAGS) --sysroot=$(PCIE_QEMU_SYSROOT)
-LDFLAGS := $(LDFLAGS) -L$(EXTRA_USR)/local/lib
+LDFLAGS := $(LDFLAGS) -L$(CROSS_USR)/local/lib
 LDLIBS := $(LDLIBS) -lexecinfo -lelf -liconv -lintl
 else ifeq ($(TARGET),postgres)
 $(info Building postgres)
