@@ -210,7 +210,7 @@ $(TARGET_DIR)/test: $(O_FILES)
 	@echo "Linking..."
 	@$(LD) $(LDFLAGS) -o $@ $^ $(LOADLIBS) $(LDLIBS)
 
-SNOOP_O_FILES := macos-mbuf-manipulation.o snoop-mac.o pcie-core.o beri-io.o
+SNOOP_O_FILES := macos-mbuf-manipulation.o snoop-mac.o pcie.o beri-io.o
 SNOOP_O_FILES := crhexdump.o $(SNOOP_O_FILES) $(BACKEND_$(TARGET):.c=.o)
 SNOOP_PREREQS := $(addprefix $(TARGET_DIR)/,$(SNOOP_O_FILES))
 $(TARGET_DIR)/snoop-mac: $(SNOOP_PREREQS)

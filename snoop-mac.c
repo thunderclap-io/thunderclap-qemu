@@ -38,7 +38,6 @@
 
 #include "mask.h"
 #include "macos-mbuf-manipulation.h"
-#include "macos-stub-mbuf-high-sierra.h"
 #include "crhexdump.h"
 #include "pcie.h"
 #include "pcie-backend.h"
@@ -324,7 +323,8 @@ main(int argc, char *argv[])
 	packet_response_state.outer_loop = AS_LOOKING_FOR_LEAKED_SYMBOL;
 	packet_response_state.attack_state = AS_UNINITIALISED;
 	uint64_t read_addr;/* next_read_addr = 0x000000; */
-	uint64_t next_read_addr = 0x3b0000000;
+	/*uint64_t next_read_addr = 0x3b0000000;*/
+	uint64_t next_read_addr = 0x000000;
 
 	/*uint64_t read_addr, next_read_addr = 0x800000;*/
 	/*
