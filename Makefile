@@ -112,27 +112,26 @@ ifndef PCIE_QEMU_CHERI_SDK
 $(error Variable PCIE_QEMU_CHERI_SDK is not set)
 endif
 
-ifndef PCIE_QEMU_SYSROOT
-$(error PCIE_QEMU_SYSROOT is not set)
 # This must be a BERI sysroot, to avoid including the CHERI memcpy, for example.
-endif
+PCIE_QEMU_SYSROOT ?= $(PCIE_QEMU_SYSROOT)/sdk/sysroot
 
 CFLAGS := $(CFLAGS) -DCONFIG_BSD=1
 LDFLAGS := -static -target mips64-unknown-freebsd -G0
 
 SDK = $(PCIE_QEMU_CHERI_SDK)/sdk
-CC = $(SDK)/bin/clang
+CC = $(SDK)/bin/mips64-unknown-freebsd-clang
 OBJDUMP = $(SDK)/bin/objdump
 LD = $(CC)
 CROSS_USR=freebsd-packages/usr
-CFLAGS := $(CFLAGS) $(addprefix "-I$(CROSS_USR)/local/include/",$(LIBS))
+CFLAGS := $(CFLAGS) --sysroot=$(PCIE_QEMU_SYSROOT) -isystem$(PCIE_QEMU_SYSROOT)/usr/include
+CFLAGS := $(CFLAGS) $(addprefix -I$(CROSS_USR)/local/include/,$(LIBS))
 CFLAGS := $(CFLAGS) -I$(CROSS_USR)/include
-#CFLAGS := $(CFLAGS) --target=mips64-unknown-freebsd
-CFLAGS := $(CFLAGS) -integrated-as
-CFLAGS := $(CFLAGS) --sysroot=$(PCIE_QEMU_SYSROOT)
+CFLAGS := $(CFLAGS) --target=mips64-unknown-freebsd
+CFLAGS := $(CFLAGS) -integrated-as -mdouble-float
 CFLAGS := $(CFLAGS) -I$(CROSS_USR)/local/lib/glib-2.0/include
 CFLAGS := $(CFLAGS) -DTARGET=TARGET_BERI -G0 -mxgot -ftls-model=local-exec
 CFLAGS := $(CFLAGS) -DBERIBSD -DPLATFORM_BERI -DHOST_WORDS_BIGENDIAN
+CFLAGS := $(CFLAGS) -B$(SDK)
 LDFLAGS := $(LDFLAGS) --sysroot=$(PCIE_QEMU_SYSROOT)
 LDFLAGS := $(LDFLAGS) -L$(CROSS_USR)/local/lib
 LDLIBS := $(LDLIBS) -lexecinfo -lelf -liconv -lintl
