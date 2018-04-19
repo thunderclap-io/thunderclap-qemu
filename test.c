@@ -505,7 +505,7 @@ void coroutine_fn process_packet(void *opaque)
 	struct NetClientOptions net_client_options;
 	struct NetdevUserOptions nuo;
 
-	/* Stuff needs to exist within the context of a mchine, apparently. The
+	/* Stuff needs to exist within the context of a machine, apparently. The
 	 * device attempts to realize the machine within the course of getting
 	 * realized itself
 	 */

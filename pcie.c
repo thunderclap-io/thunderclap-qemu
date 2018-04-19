@@ -52,6 +52,7 @@ create_completion_header(struct RawTLP *tlp,
 	enum tlp_completion_status completion_status, uint16_t bytecount,
 	uint16_t requester_id, uint8_t tag, uint8_t loweraddress)
 {
+	printf("Creating a completion header.");
 	// Clear buffer. If passed in a buffer that's too short, this might be an
 	// exploit?
 	tlp->header[0] = 0;

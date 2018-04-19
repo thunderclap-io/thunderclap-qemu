@@ -59,6 +59,14 @@ volatile uint8_t *led_phys_mem;
 bool tlp_buffer_in_use[TLP_BUFFER_COUNT];
 TLPQuadWord tlp_buffer[TLP_BUFFER_SIZE * TLP_BUFFER_COUNT / sizeof(TLPQuadWord)];
 
+__attribute__((constructor))
+void init_tlp_buffer()
+{
+	for (int i = 0; i < TLP_BUFFER_COUNT; ++i) {
+		tlp_buffer[i] = 0xDEADBEEFEA7EBEDE;
+	}
+}
+
 STAILQ_HEAD(UnhandledTLPListHead, unhandled_tlp_list_entry)
 	unhandled_tlp_list_head = STAILQ_HEAD_INITIALIZER(unhandled_tlp_list_head);
 

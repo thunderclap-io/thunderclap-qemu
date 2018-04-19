@@ -199,6 +199,8 @@ ifeq ($(TARGET),arm)
 SOURCES := $(SOURCES) net/tap-linux.c
 else ifeq ($(TARGET),beribsd)
 SOURCES := $(SOURCES) net/tap-bsd.c
+else ifeq ($(TARGET),postgres)
+SOURCES := $(SOURCES) net/tap-bsd.c
 else
 $(error "Don't understand backend for target ", $(TARGET))
 endif

