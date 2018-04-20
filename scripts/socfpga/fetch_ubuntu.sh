@@ -13,7 +13,7 @@ los() {
     num=${part##${dev}p}
     dst="mnt/$num"
     echo "Found image partition $num, mounting $part at $dst"
-    sudo mkdir -p "$dst"
+    mkdir -p "$dst"
     sudo mount "$part" "$dst"
   done
   loopdev="$dev"

@@ -14,7 +14,7 @@ tar xJf $COMPILER_FILE.tar.xz
 export CROSS_COMPILE=$CWD/$COMPILER_FILE/bin/arm-linux-gnueabihf-
 
 echo "Fetching Linux source..."
-#git clone https://github.com/altera-opensource/linux-socfpga
+git clone https://github.com/altera-opensource/linux-socfpga
 cd linux-socfpga
 git checkout $KERNEL_BRANCH
 export ARCH=arm
