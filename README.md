@@ -15,7 +15,10 @@ If this is not available, you can build your own as follows.
 1) Download the Arria 10 SoC 'Golden System Reference Design'.
 I have tested this using the most recent version, 17.1 at the time of writing.
 This is available from [here](https://rocketboards.org/foswiki/Documentation/GSRD).
+This can be directly downloaded with:
 	
+		wget https://releases.rocketboards.org/release/2017.10/gsrd/bin/linux-socfpga-gsrd-17.1-a10.tar.gz
+
 2) Warning! The GSRD is a tarbomb, so make a new directory and untar it:
 
 		mkdir arria10-gsrd
@@ -25,7 +28,7 @@ This is available from [here](https://rocketboards.org/foswiki/Documentation/GSR
 
 3) Untar the sdcard image:
 
-		tar xf sdimage.img
+		tar xf sdimage.img.gz
 
 4) Write the image to an SD card.
 If you already know what you are doing, you can use `dd` for this.
