@@ -40,7 +40,6 @@
 #include <execinfo.h>
 #include <signal.h>
 #include <stdlib.h>
-#include <sys/endian.h>
 
 
 #include "qom/object.h"
@@ -937,4 +936,14 @@ perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
 {
 	printf("WARNING! Postgres backend doesn't simulate host memory.\n");
 	return DRR_UNSUPPORTED_REQUEST;
+}
+
+int
+perform_dma_write(const uint8_t* buf, int16_t length, uint16_t requester_id,
+	uint8_t tag, uint64_t address)
+{
+
+	fprintf(stderr, "WARNING! %s(%s) Posgres backend doesn't simulate "
+		"host memory.\n", __FILE__, __func__);
+	return -1;
 }

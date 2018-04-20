@@ -52,7 +52,6 @@ endif
 
 ifeq ($(TARGET),postgres)
 	POSTGRES ?=1
-	PCIE_DEBUG ?=1
 else
 	POSTGRES ?=0
 	PCIE_DEBUG ?=0
@@ -76,7 +75,7 @@ endif
 
 LIBS := glib-2.0 pixman-1
 LDLIBS := -lz -lpixman-1 -lpcre
-LDLIBS := $(LDLIBS) -lutil -lglib-2.0 -lpthread -lgcc -lm -lc
+LDLIBS := $(LDLIBS) -lutil -lglib-2.0 -lpthread -lm -lc
 
 CFLAGS := $(CFLAGS) -Wall
 CFLAGS := $(CFLAGS) -O1 -ferror-limit=10
@@ -138,9 +137,10 @@ LDLIBS := $(LDLIBS) -lexecinfo -lelf -liconv -lintl
 else ifeq ($(TARGET),postgres)
 $(info Building postgres)
 CC = clang
+LD = clang
 OBJDUMP = objdump
 CFLAGS := $(CFLAGS) $(shell pkg-config --cflags $(LIBS))
-CFLAGS := $(CFLAGS) -DTARGET=TARGET_NATIVE
+CFLAGS := $(CFLAGS) -DTARGET=TARGET_NATIVE -D__linux__ -DCONFIG_LINUX
 LDLIBS := $(LDLIBS) $(shell pkg-config --libs $(LIBS))
 ifeq ($(POSTGRES),1)
 CFLAGS := $(CFLAGS) -DPOSTGRES -I$(shell pg_config --includedir)
@@ -200,7 +200,7 @@ SOURCES := $(SOURCES) net/tap-linux.c
 else ifeq ($(TARGET),beribsd)
 SOURCES := $(SOURCES) net/tap-bsd.c
 else ifeq ($(TARGET),postgres)
-SOURCES := $(SOURCES) net/tap-bsd.c
+SOURCES := $(SOURCES) net/tap-linux.c
 else
 $(error "Don't understand backend for target ", $(TARGET))
 endif
@@ -235,7 +235,7 @@ ats-dummy: $(TARGET_DIR)/ats-dummy
 TS_O_FILES := test_secret_position.o secret_position.o
 TS_PREREQS = $(addprefix $(TARGET_DIR)/,$(TS_O_FILES))
 $(TARGET_DIR)/test_secret_position: $(TS_PREREQS)
-	$(CC) $(LDFLAGS) -o $@ $^ $(LOADLIBS) $(LDLIBS)
+	$(CC) $(LDFLAGS) -o $@ $^ $ch(LOADLIBS) $(LDLIBS)
 
 PM_O_FILES := print-macos-mbuf-pages.o macos-mbuf-manipulation.o
 PM_PREREQS = $(addprefix $(TARGET_DIR)/,$(PM_O_FILES))

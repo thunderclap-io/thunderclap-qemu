@@ -37,13 +37,58 @@
  * SUCH DAMAGE.
  */
 
+#include "freebsd-queue.h"
+#include "hw/pci/pci.h"
 #include "pcie.h"
+#include "pcie-backend.h"
 #include "pcie-debug.h"
 
 #include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
+
+static inline uint64_t
+uint64_min(uint64_t left, uint64_t right)
+{
+	return (left < right) ? left : right;
+}
+
+/* Request is not a whole number of dwords, so we need to read one more dword,
+ * then use the lastbe to select the parts we want. I had to work this out on
+ * paper. It works.
+ */
+struct byte_enables {
+	uint8_t first;
+	uint8_t last;
+};
+
+static inline uint16_t
+calculate_dword_length(uint16_t byte_len)
+{
+	return ((byte_len + 3) / 4) * 4;
+}
+
+static inline uint8_t
+last_be_for_length(uint16_t byte_len)
+{
+	return ((1 << (4 - (calculate_dword_length(byte_len) - byte_len))) - 1);
+}
+
+static inline struct byte_enables
+calculate_bes_for_length(uint16_t byte_len)
+{
+	struct byte_enables bes;
+	bes.last = last_be_for_length(byte_len);
+	if (calculate_dword_length(byte_len) / sizeof(TLPDoubleWord) == 1) {
+		bes.first = bes.last;
+		bes.last = 0;
+	} else {
+		bes.first = 0xF;
+	}
+	return bes;
+}
 
 /* length is used as the PCIe field, so is in DWords i.e. units of 32 bits. */
 void
@@ -52,7 +97,7 @@ create_completion_header(struct RawTLP *tlp,
 	enum tlp_completion_status completion_status, uint16_t bytecount,
 	uint16_t requester_id, uint8_t tag, uint8_t loweraddress)
 {
-	printf("Creating a completion header.");
+	/*printf("Creating a completion header.");*/
 	// Clear buffer. If passed in a buffer that's too short, this might be an
 	// exploit?
 	tlp->header[0] = 0;
@@ -183,5 +228,180 @@ print_tlp(struct RawTLP *tlp)
 	putchar(' ');
 	fputs(tlp_direction_str(tlp_direction), stdout);
 	puts(" type TLP.");
+}
+
+#define TLP_BUFFER_SIZE 512
+#define TLP_BUFFER_COUNT 32
+
+bool tlp_buffer_in_use[TLP_BUFFER_COUNT];
+TLPQuadWord tlp_buffer[TLP_BUFFER_SIZE * TLP_BUFFER_COUNT / sizeof(TLPQuadWord)];
+
+STAILQ_HEAD(UnhandledTLPListHead, unhandled_tlp_list_entry)
+	unhandled_tlp_list_head = STAILQ_HEAD_INITIALIZER(unhandled_tlp_list_head);
+
+__attribute__((constructor))
+void init_tlp_buffer()
+{
+	STAILQ_INIT(&unhandled_tlp_list_head);
+
+	for (int i = 0; i < TLP_BUFFER_COUNT; ++i) {
+		tlp_buffer_in_use[i] = false;
+		tlp_buffer[i] = 0xDEADBEEFEA7EBEDE;
+	}
+}
+
+struct unhandled_tlp_list_entry {
+	struct RawTLP tlp;
+	STAILQ_ENTRY(unhandled_tlp_list_entry) unhandled_tlp_list;
+};
+
+static inline bool
+is_cpl_d(struct RawTLP *tlp)
+{
+	assert(tlp->header_length != -1);
+	assert(tlp->header != NULL);
+	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)tlp->header;
+	return dword0->type == CPL && tlp_fmt_has_data(dword0->fmt);
+}
+
+static inline TLPQuadWord *
+tlp_buffer_address(int i)
+{
+	return (tlp_buffer + (i * TLP_BUFFER_SIZE / sizeof(TLPQuadWord)));
+}
+
+static inline int
+tlp_buffer_number(TLPQuadWord *addr)
+{
+	ptrdiff_t size_in_quadwords = (addr - tlp_buffer);
+	return ((size_in_quadwords * sizeof(TLPQuadWord)) / TLP_BUFFER_SIZE);
+}
+
+void
+print_tlp_list()
+{
+	struct unhandled_tlp_list_entry *tlp_entry;
+	STAILQ_FOREACH(tlp_entry, &unhandled_tlp_list_head, unhandled_tlp_list) {
+		print_raw_tlp(&tlp_entry->tlp);
+	}
+}
+
+void
+alloc_raw_tlp_buffer(struct RawTLP *tlp)
+{
+	/*if (is_raw_tlp_valid(tlp)) {*/
+		/*fputs("Trying to allocate already allocated RawTLP!\n", stderr);*/
+	/*}*/
+	for (int i = 0; i < TLP_BUFFER_COUNT; ++i) {
+		if (!tlp_buffer_in_use[i]) {
+			/*if (i != 0) { printf("a%d\n", i); }*/
+			tlp_buffer_in_use[i] = true;
+			tlp->header = (TLPDoubleWord *)tlp_buffer_address(i);
+			PDBG("Allocated buffer %d.\n", i);
+			return;
+		}
+	}
+	fputs("Couldn't allocate TLP Buffer!\n", stderr);
+	printf("TLP LIST:\n");
+	print_tlp_list();
+	exit(0);
+}
+
+void
+free_raw_tlp_buffer(struct RawTLP *tlp)
+{
+	int buffer_number = tlp_buffer_number((TLPQuadWord *)tlp->header);
+	/*if (buffer_number != 0) {*/
+		/*printf("(0 alloced by %p) f%d\n", call_sites[0], buffer_number);*/
+	/*}*/
+	if (buffer_number >= 0 && buffer_number <= TLP_BUFFER_COUNT) {
+		tlp_buffer_in_use[buffer_number] = false;
+		set_raw_tlp_invalid(tlp);
+	} else {
+		fprintf(stderr, "Trying to free unallocated buffer %d at %p\n.",
+			buffer_number, tlp->header);
+	}
+}
+
+/*
+ * All TLPs that come from these two functions have been malloc'ed, and so
+ * must be freed by the consumer using the provided free_raw_tlp_buffer
+ * function.
+ *
+ * TODO: This could work with pointers to RawTLP pointers, rather than just
+ * RawTLP pointers. At the moment, we have to copy the contents of the RawTLP
+ * about, although this is likely to not be a severe performance limitation.
+ */
+void
+next_tlp(struct RawTLP *out)
+{
+	struct unhandled_tlp_list_entry *candidate =
+		STAILQ_FIRST(&unhandled_tlp_list_head);
+	if (candidate == NULL) {
+		assert(!tlp_buffer_in_use[0]);
+		alloc_raw_tlp_buffer(out);
+		wait_for_tlp((TLPQuadWord *)out->header, TLP_BUFFER_SIZE, out);
+	} else {
+		/*fputs("dq ", stdout);*/
+		/*puts(tlp_type_str(get_tlp_type(out)));*/
+		STAILQ_REMOVE_HEAD(&unhandled_tlp_list_head, unhandled_tlp_list);
+		*out = candidate->tlp;
+		/*printf("dq %d.\n", tlp_buffer_number((TLPQuadWord *)out->header));*/
+		free(candidate);
+		assert(is_raw_tlp_valid(out));
+	}
+}
+
+/*
+ * Consumes incoming TLPs until a completion type TLP is received. This
+ * function is blocking. Unhandled TLPs are added to an internal queue, and
+ * will be yielded by subsequent calls to the next_tlp function. Because this
+ * is the only function that adds packets to the internal queue, and it will
+ * always return a completion type TLP and never add it to the internal queue,
+ * the internal queue will never contain a completion type TLP, so we don't
+ * have to check the internal queue for completion type TLPs
+ */
+void
+next_completion_tlp(struct RawTLP *out)
+{
+	for (int i = 0; i < 10; ++i) {
+		alloc_raw_tlp_buffer(out);
+		wait_for_tlp((TLPQuadWord *)out->header, TLP_BUFFER_SIZE, out);
+		if (is_raw_tlp_valid(out)) {
+			if (get_tlp_type(out) == CPL) {
+				return;
+			} else {
+				/*printf("q %d.\n", tlp_buffer_number((TLPQuadWord *)out->header));*/
+				/*puts(tlp_type_str(get_tlp_type(out)));*/
+				struct unhandled_tlp_list_entry *entry;
+				entry = malloc(sizeof(struct unhandled_tlp_list_entry));
+				entry->tlp = *out;
+				STAILQ_INSERT_TAIL(
+					&unhandled_tlp_list_head, entry, unhandled_tlp_list);
+			}
+		} else {
+			free_raw_tlp_buffer(out);
+		}
+	}
+	/* A bit counter intuitive, but otherwise we might return the trail. */
+	alloc_raw_tlp_buffer(out);
+	set_raw_tlp_invalid(out);
+}
+/* Simple wrapper over perform_dma_read to allow reads longer than 512 to
+ * be performed: reads happen in chunks.
+ */
+enum dma_read_response
+perform_dma_long_read(uint8_t* buf, uint64_t length, uint16_t requester_id,
+	uint8_t tag, uint64_t address)
+{
+	int result;
+	for (uint64_t i = 0; i < length; i += 512) {
+		result = perform_dma_read((buf + i), uint64_min(512, length - i),
+			requester_id, tag, (address + i));
+		if (result != 0) {
+			return result;
+		}
+	}
+	return result;
 }
 
