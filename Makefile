@@ -78,9 +78,9 @@ LDLIBS := -lz -lpixman-1 -lpcre
 LDLIBS := $(LDLIBS) -lutil -lglib-2.0 -lpthread -lm -lc
 
 CFLAGS := $(CFLAGS) -Wall
-CFLAGS := $(CFLAGS) -O1 -ferror-limit=10
+CFLAGS := $(CFLAGS) -ferror-limit=10
 CFLAGS := $(CFLAGS) -DTHUNDERCLAP -DWORD_SIZE_$(WORDSIZE)
-#CFLAGS := $(CFLAGS) -O3
+CFLAGS := $(CFLAGS) -O3
 
 ifeq ($(DUMMY),1)
 CFLAGS := $(CFLAGS) -DDUMMY
@@ -115,17 +115,17 @@ endif
 PCIE_QEMU_SYSROOT ?= $(PCIE_QEMU_SYSROOT)/sdk/sysroot
 
 CFLAGS := $(CFLAGS) -DCONFIG_BSD=1
-LDFLAGS := -static -target mips64-unknown-freebsd -G0
+LDFLAGS := -static -target cheri-unknown-freebsd -G0
 
 SDK = $(PCIE_QEMU_CHERI_SDK)/sdk
-CC = $(SDK)/bin/mips64-unknown-freebsd-clang
+CC = $(SDK)/bin/clang
 OBJDUMP = $(SDK)/bin/objdump
 LD = $(CC)
 CROSS_USR=freebsd-packages/usr
 CFLAGS := $(CFLAGS) --sysroot=$(PCIE_QEMU_SYSROOT) -isystem$(PCIE_QEMU_SYSROOT)/usr/include
 CFLAGS := $(CFLAGS) $(addprefix -I$(CROSS_USR)/local/include/,$(LIBS))
 CFLAGS := $(CFLAGS) -I$(CROSS_USR)/include
-CFLAGS := $(CFLAGS) --target=mips64-unknown-freebsd
+CFLAGS := $(CFLAGS) --target=cheri-unknown-freebsd
 CFLAGS := $(CFLAGS) -integrated-as -mdouble-float
 CFLAGS := $(CFLAGS) -I$(CROSS_USR)/local/lib/glib-2.0/include
 CFLAGS := $(CFLAGS) -DTARGET=TARGET_BERI -G0 -mxgot -ftls-model=local-exec
