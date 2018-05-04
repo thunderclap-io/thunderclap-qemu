@@ -35,6 +35,7 @@ function devicetree() {
 }
 
 function bitfile() {
+	$SCRUPT_PATH/make_bitfile.sh $FPGA_DIR $FPGA_PROJECT
 	cp -a $FPGA_BITFILE_RBF socfpga.rbf
 }
 
