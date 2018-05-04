@@ -1,7 +1,7 @@
 #!/bin/sh -e
 
-PATH=$1
+TREE=$1
 PROJECT=$2
 
 # assume we've already compiled Quartus project
-quartus_cpf -c $1/output_files/$2.sof $1/output_files/$2.rbf
+quartus_cpf -c $TREE/output_files/$PROJECT.sof $TREE/output_files/$PROJECT.rbf
