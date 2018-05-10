@@ -14,6 +14,10 @@ DTB=socfpga_arria10_socdk_sdmmc.dtb
 SCRIPT_NAME=$(readlink -f "$0")
 SCRIPT_PATH=$(dirname "$SCRIPT_NAME")
 
+function pcie_binary() {
+	$SCRIPT_PATH/copy_probe_binary.sh mnt/2/
+}
+
 function ubuntu() {
 	$SCRIPT_PATH/fetch_ubuntu.sh
 	$SCRIPT_PATH/configure_networking.sh mnt/2/
@@ -39,6 +43,7 @@ function bitfile() {
 	cp -a $FPGA_BITFILE_RBF socfpga.rbf
 }
 
+
 function sdimage() {
 
 	echo "Building SD card image"
@@ -58,6 +63,7 @@ function tidy() {
 
 
 ubuntu
+pcie_binary
 kernel
 uboot
 devicetree
