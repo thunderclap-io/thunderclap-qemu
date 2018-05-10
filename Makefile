@@ -112,7 +112,7 @@ $(error Variable PCIE_QEMU_CHERI_SDK is not set)
 endif
 
 # This must be a BERI sysroot, to avoid including the CHERI memcpy, for example.
-PCIE_QEMU_SYSROOT ?= $(PCIE_QEMU_SYSROOT)/sdk/sysroot
+PCIE_QEMU_SYSROOT ?= $(PCIE_QEMU_CHERI_SDK)/sdk/sysroot
 
 CFLAGS := $(CFLAGS) -DCONFIG_BSD=1
 LDFLAGS := -static -target cheri-unknown-freebsd -G0
