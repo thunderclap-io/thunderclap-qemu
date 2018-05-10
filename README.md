@@ -153,7 +153,7 @@ Create a directory called `linux-packages` to install the cross build libraries 
 
     apt download libgettextpo0:armhf libgettextpo-dev:armhf libglib2.0:armhf \
 		libpcre3:armhf libpcre3-dev:armhf libpixman-1-0:armhf \
-		liblibpixman-1-dev:armhf libelf1:armhf zlib1g:armhf zlib1g-dev:armhf
+		libpixman-1-dev:armhf libelf1:armhf zlib1g:armhf zlib1g-dev:armhf
 
 **Note:** This is `apt-get` *`download`*, not `install`.
 
