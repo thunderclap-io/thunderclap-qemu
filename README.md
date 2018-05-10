@@ -149,8 +149,10 @@ Then run
     sudo apt update
 
 Create a directory called `linux-packages` to install the cross build libraries into.
-`cd` into it, and run:
+`cd` into it, and download the ARM packages:
 
+    mkdir linux-packages
+    cd linux-packages
     apt download libgettextpo0:armhf libgettextpo-dev:armhf libglib2.0:armhf \
 		libpcre3:armhf libpcre3-dev:armhf libpixman-1-0:armhf \
 		libpixman-1-dev:armhf libelf1:armhf zlib1g:armhf zlib1g-dev:armhf
