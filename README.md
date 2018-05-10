@@ -148,7 +148,7 @@ Then run
 
     sudo apt update
 
-Create a directory called `linux-packages` to install the cross build libraries into.
+Inside the source tree, create a directory called `linux-packages` to install the cross build libraries into.
 `cd` into it, and download the ARM packages:
 
     mkdir linux-packages
@@ -166,6 +166,11 @@ Now extract the data from the downloaded deb files:
         ar x $f
         tar xf data.tar.xz
     done
+
+and then you can build:
+
+    cd ..
+    make -j4
 
 Due to laziness and the need for specific arguments to ioctls, the build for an ARM board only works on Linux.
 
