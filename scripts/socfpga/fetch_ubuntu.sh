@@ -31,8 +31,15 @@ losd() {
 }
 
 
+echo "Cleaning up old images..."
+sudo umount mnt/1 mnt/2 || true
+rm -f $UBUNTU_FILE.img
+
+echo "Downloading Ubuntu image..."
 wget -c $UBUNTU_URL/$UBUNTU_FILE.img.xz
-unxz $UBUNTU_FILE.img.xz
+echo "Extracting Ubuntu image..."
+unxz -k $UBUNTU_FILE.img.xz
+echo "Mounting Ubuntu image as loopback..."
 los $UBUNTU_FILE.img
 echo $loopdev
 #losd $loopdev
