@@ -132,7 +132,26 @@ For Linux
 
 Install binutils-arm-linux-gnueabihf and gcc-5-arm-linux-gnueabihf.
 
-Now you need to download the libraries.
+You used to have to manually download the dependency libraries from the repo each time you wanted to build the project, but because I am kind, I have included them in a tarball.
+Simply run
+
+	tar xjf linux-packages.tar.bz2
+
+in the checkout to extract them, then you can build:
+
+    make -j4
+
+Due to laziness and the need for specific arguments to ioctls, the build for an ARM board only works on Linux.
+
+I had to then explictly run:
+
+    cd /usr/arm-linux-gnueabihf/lib
+    sudo ln -s libgcc_s.so.1 libgcc.so
+
+
+### Deprecated: Manually Downloading the Libraries
+
+If, for whatever reason, you need or want to download the dependencies yourself, here's how.
 This assumes that you are running a Ubuntu/Debian variant.
 I followed this procedure from a machine running Ubuntu 16.04.
 
@@ -167,17 +186,6 @@ Now extract the data from the downloaded deb files:
         tar xf data.tar.xz
     done
 
-and then you can build:
-
-    cd ..
-    make -j4
-
-Due to laziness and the need for specific arguments to ioctls, the build for an ARM board only works on Linux.
-
-I had to then explictly run:
-
-    cd /usr/arm-linux-gnueabihf/lib
-    sudo ln -s libgcc_s.so.1 libgcc.so
 
 Running Attacks
 ===============
