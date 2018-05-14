@@ -33,6 +33,7 @@
  * SUCH DAMAGE.
  */
 
+#include <inttypes.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -81,7 +82,7 @@ print_page_at_address(uint64_t address, uint32_t devfn)
 		return read_result;
 	}
 
-	printf("0x%lx\n", get_page_address(address));
+	printf("0x%"PRIx64"\n", get_page_address(address));
 	crhexdump(page_data, 4096);
 
 	return read_result;
@@ -263,7 +264,7 @@ main(int argc, char *argv[])
 				/*fprintf(out_file, "reset\n");*/
 			}
 			if ((next_read_addr & 0xFFFFFF) == 0) {
-				printf("0x%lx.\n", next_read_addr);
+				printf("0x%"PRIx64".\n", next_read_addr);
 				fflush(NULL);
 			}
 			read_result = perform_dma_read((uint8_t *)candidate_symbols,

@@ -1,3 +1,4 @@
+#include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
 
@@ -31,11 +32,11 @@ endianness_swap_mac_mbuf_header(struct mbuf *mbuf)
 void
 print_macos_mbuf_header(const struct mbuf *mbuf)
 {
-	printf("m_hdr.mh_next: 0x%lx. mh_nextpkt 0x%lx.\n",
+	printf("m_hdr.mh_next: 0x%"PRIx64". mh_nextpkt 0x%"PRIx64".\n",
 		mbuf->m_hdr.mh_next, mbuf->m_hdr.mh_nextpkt);
-	printf("m_hdr.mh_data: 0x%lx. m_hdr.mh_len: %d.\n", mbuf->m_hdr.mh_data, mbuf->m_hdr.mh_len);
+	printf("m_hdr.mh_data: 0x%"PRIx64". m_hdr.mh_len: %d.\n", mbuf->m_hdr.mh_data, mbuf->m_hdr.mh_len);
 	printf("m_hdr.mh_type: %d. m_hdr.mh_flags: 0x%x.\n", (uint32_t)mbuf->m_hdr.mh_type, (uint32_t)mbuf->m_hdr.mh_flags);
-	printf("ext_buf: 0x%lx. ext_free: 0x%lx.\n", mbuf->MM_EXT.ext_buf,
+	printf("ext_buf: 0x%"PRIx64". ext_free: 0x%"PRIx64".\n", mbuf->MM_EXT.ext_buf,
 		mbuf->MM_EXT.ext_free);
 	printf("ext_size: %u.\n", mbuf->MM_EXT.ext_size);
 }

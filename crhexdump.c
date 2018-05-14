@@ -34,6 +34,7 @@
  */
 
 #include <assert.h>
+#include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
 
@@ -47,7 +48,7 @@ crhexdump(uint8_t* data, uint64_t length)
 	uint64_t char_offset, offset = 0;
 	while (offset < length) {
 		if (offset % BYTES_PER_LINE == 0) {
-			printf("%04lx  ", offset);
+			printf("%04"PRIx64"  ", offset);
 		}
 		printf("%02x", data[offset]);
 		++offset;
