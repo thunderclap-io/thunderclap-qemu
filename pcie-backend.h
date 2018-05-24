@@ -18,7 +18,7 @@ unsigned long
 read_hw_counter();
 
 void
-wait_for_tlp(volatile TLPQuadWord *buffer, int buffer_len, struct RawTLP *tlp);
+wait_for_tlp(TLPQuadWord *buffer, int buffer_len, struct RawTLP *tlp);
 
 enum tlp_data_alignment { TDA_ALIGNED, TDA_UNALIGNED };
 

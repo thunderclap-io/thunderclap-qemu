@@ -107,19 +107,19 @@ create_completion_header(struct RawTLP *tlp,
 	struct TLP64DWord0 *header0 = (struct TLP64DWord0 *)(tlp->header);
 	if (direction == TLPD_READ
 		&& completion_status == TLPCS_SUCCESSFUL_COMPLETION) {
-		header0->fmt = TLPFMT_3DW_DATA;
-		header0->length = 1;
+		set_fmt(header0, TLPFMT_3DW_DATA);
+		set_length(header0, 1);
 	} else {
-		header0->fmt = TLPFMT_3DW_NODATA;
-		header0->length = 0;
+		set_fmt(header0, TLPFMT_3DW_NODATA);
+		set_length(header0, 0);
 	}
-	header0->type = CPL;
+	set_type(header0, CPL);
 
 	struct TLP64CompletionDWord1 *header1 =
 		(struct TLP64CompletionDWord1 *)(tlp->header) + 1;
 	header1->completer_id = completer_id;
-	header1->status = completion_status;
-	header1->bytecount = bytecount;
+	set_status(header1, completion_status);
+	set_bytecount(header1, bytecount);
 
 	struct TLP64CompletionDWord2 *header2 =
 		(struct TLP64CompletionDWord2 *)(tlp->header) + 2;
@@ -157,21 +157,22 @@ create_memory_request_header(struct RawTLP *tlp, enum tlp_direction direction,
 	TLPDoubleWord *address_dword2 = (tlp->header + 2);
 	TLPDoubleWord *address_dword3 = (tlp->header + 3);
 
-	dword0->fmt = 0;
+	enum tlp_fmt fmt = 0;
 	if (tlp->header_length == 16) {
-		dword0->fmt |= TLPFMT_4DW;
+		fmt = TLPFMT_4DW;
 	}
 	if (direction == TLPD_WRITE) {
-		dword0->fmt |= TLPFMT_WITHDATA;
+		fmt |= TLPFMT_WITHDATA;
 	}
-	dword0->at = at;
-	dword0->length = length;
-	dword0->type = M;
+	set_fmt(dword0, fmt);
+	set_at(dword0, at);
+	set_length(dword0, length);
+	set_type(dword0, M);
 
 	request_dword1->requester_id = requester_id;
 	request_dword1->tag = tag;
-	request_dword1->lastbe = lastbe;
-	request_dword1->firstbe = firstbe;
+	set_lastbe(request_dword1, lastbe);
+	set_firstbe(request_dword1, firstbe);
 
 	if (large_address) {
 		*address_dword2 = (TLPDoubleWord)(address >> 32);
@@ -206,14 +207,16 @@ create_config_request_header(struct RawTLP *tlp, enum tlp_direction direction,
 	struct TLP64ConfigRequestDWord2 *dword2 =
 		(struct TLP64ConfigRequestDWord2 *)(tlp->header + 2);
 
+	enum tlp_fmt fmt = 0;
 	if (direction == TLPD_WRITE) {
-		dword0->fmt |= TLPFMT_WITHDATA;
+		fmt |= TLPFMT_WITHDATA;
 	}
-	dword0->type = CFG_0;
-	dword0->length = 1;
+	set_fmt(dword0, fmt);
+	set_type(dword0, CFG_0);
+	set_length(dword0, 1);
 	dword1->requester_id = requester_id;
 	dword1->tag = tag;
-	dword1->firstbe = firstbe;
+	set_firstbe(dword1, firstbe);
 	dword2->device_id = devfn;
 	dword2->ext_reg_num = address >> 8;
 	dword2->reg_num = address & uint32_mask(8);
@@ -261,7 +264,7 @@ is_cpl_d(struct RawTLP *tlp)
 	assert(tlp->header_length != -1);
 	assert(tlp->header != NULL);
 	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)tlp->header;
-	return dword0->type == CPL && tlp_fmt_has_data(dword0->fmt);
+	return get_type(dword0) == CPL && tlp_fmt_has_data(get_fmt(dword0));
 }
 
 static inline TLPQuadWord *
@@ -294,10 +297,8 @@ alloc_raw_tlp_buffer(struct RawTLP *tlp)
 	/*}*/
 	for (int i = 0; i < TLP_BUFFER_COUNT; ++i) {
 		if (!tlp_buffer_in_use[i]) {
-			/*if (i != 0) { printf("a%d\n", i); }*/
 			tlp_buffer_in_use[i] = true;
 			tlp->header = (TLPDoubleWord *)tlp_buffer_address(i);
-			PDBG("Allocated buffer %d.\n", i);
 			return;
 		}
 	}
@@ -338,7 +339,6 @@ next_tlp(struct RawTLP *out)
 	struct unhandled_tlp_list_entry *candidate =
 		STAILQ_FIRST(&unhandled_tlp_list_head);
 	if (candidate == NULL) {
-		assert(!tlp_buffer_in_use[0]);
 		alloc_raw_tlp_buffer(out);
 		wait_for_tlp((TLPQuadWord *)out->header, TLP_BUFFER_SIZE, out);
 	} else {

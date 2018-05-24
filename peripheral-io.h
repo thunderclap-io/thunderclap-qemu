@@ -15,18 +15,21 @@ extern volatile uint8_t *led_phys_mem;
 
 static inline volatile uint32_t IORD(uint64_t base, uint64_t offset)
 {
-	volatile uint32_t *pointer = (uint32_t *) (physmem+base-PCIEPACKET_REGION_BASE);
-	return pointer[offset];
+	volatile uint32_t *pointer = (uint32_t *)(
+		physmem - PCIEPACKET_REGION_BASE + base + offset);
+	return *pointer;
 }
 
-/*static inline*/ volatile uint64_t IORD64(uint64_t base, uint64_t offset)
+static inline volatile uint64_t IORD64(uint64_t base, uint64_t offset)
 {
 #ifdef WORD_SIZE_64
-	volatile uint64_t *pointer = (uint64_t *) (physmem+base-PCIEPACKET_REGION_BASE);
-	return pointer[offset];
+	volatile uint64_t *pointer = (uint64_t *)(
+		physmem - PCIEPACKET_REGION_BASE + base + offset);
+	return *pointer;
 #elif defined WORD_SIZE_32
 	uint64_t ret;
-	volatile uint32_t *low_bits = (uint32_t *)(physmem+base-PCIEPACKET_REGION_BASE);
+	volatile uint32_t *low_bits = (uint32_t *)(
+		physmem - PCIEPACKET_REGION_BASE + base + offset);
 	volatile uint32_t *high_bits = low_bits + 1;
 	ret = (*high_bits);
 	ret <<= 32;
@@ -39,17 +42,20 @@ static inline volatile uint32_t IORD(uint64_t base, uint64_t offset)
 
 static inline void IOWR(uint64_t base, uint64_t offset, uint32_t data)
 {
-	volatile uint32_t *pointer = (uint32_t *) (physmem+base-PCIEPACKET_REGION_BASE);
-	pointer[offset] = data;
+	volatile uint32_t *pointer = (uint32_t *)(
+		physmem - PCIEPACKET_REGION_BASE + base + offset);
+	*pointer = data;
 }
 
 static inline void IOWR64(uint64_t base, uint64_t offset, uint64_t data)
 {
 #ifdef WORD_SIZE_64
-	volatile uint64_t *pointer = (uint64_t *) (physmem+base-PCIEPACKET_REGION_BASE);
-	pointer[offset] = data;
+	volatile uint64_t *pointer = (uint64_t *)(
+		physmem - PCIEPACKET_REGION_BASE + base + offset);
+	*pointer = data;
 #elif defined WORD_SIZE_32
-	volatile uint32_t *low_data = (uint32_t *)(physmem+base-PCIEPACKET_REGION_BASE);
+	volatile uint32_t *low_data = (uint32_t *)(
+		physmem - PCIEPACKET_REGION_BASE + base + offset);
 	volatile uint32_t *high_data = low_data + 1;
 	*high_data = (uint32_t)(data >> 32);
 	*low_data = (uint32_t)(data & 0xFFFFFFFF);

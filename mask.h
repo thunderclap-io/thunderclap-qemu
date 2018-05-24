@@ -12,8 +12,37 @@
 
 #define MASK(type, width)		(((type)1 << (width)) - 1)
 // Top bit of unshift mask is in position (high - low)
+// High is the top bit to modify, low is the bottom bit to modify.
 #define MASK_ENABLE_BITS(type, high, low)		\
 	((MASK(type, (high) - (low) + 1)) << low)
+
+#define SET_BITS_FUNCTION(type)											\
+static inline type type ## _set_bits(									\
+		type original, uint32_t high, uint32_t low, type value) {		\
+	type new_value = original & ~MASK_ENABLE_BITS(type, high, low);		\
+	new_value |= value << low;											\
+	return new_value;													\
+}
+/* These define
+uint8_t_set_bits(...)
+uint16_t_set_bits(...)
+Expressed like this in comment for ease of grepping :)
+*/
+SET_BITS_FUNCTION(uint8_t);
+SET_BITS_FUNCTION(uint16_t);
+
+/* These define
+uint8_t_get_bits(...)
+uint16_t_get_bits(...)
+*/
+#define GET_BITS_FUNCTION(type)											\
+static inline type type ## _get_bits(								\
+		type source, uint32_t high, uint32_t low) {						\
+	return source & MASK_ENABLE_BITS(type, high, low) >> low;			\
+}
+
+GET_BITS_FUNCTION(uint8_t);
+GET_BITS_FUNCTION(uint16_t);
 
 static inline uint32_t
 uint32_mask(uint32_t width) {
