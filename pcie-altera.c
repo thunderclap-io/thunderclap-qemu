@@ -129,13 +129,14 @@ void
 wait_for_tlp(TLPQuadWord *buffer, int buffer_len, struct RawTLP *out)
 {
 	/* Real approach: no POSTGRES */
-	uint32_t ready, status;
+	uint64_t ready, status;
 	TLPQuadWord pciedata;
 	int i = 0; // i is "length of TLP so far received in doublewords.
 	int retry_attempt = 0;
 
 	do {
-		ready = IORD(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_READY);
+		ready = IORD64(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_READY);
+//		printf("%d: %016llx", ready);
 		++retry_attempt;
 	} while (ready == 0 && retry_attempt < 1000);
 
@@ -147,19 +148,22 @@ wait_for_tlp(TLPQuadWord *buffer, int buffer_len, struct RawTLP *out)
 	puts("About to read status.");
 
 	do {
-		status = IORD(PCIEPACKETRECEIVER_0_BASE,
+		status = IORD64(PCIEPACKETRECEIVER_0_BASE,
 			PCIEPACKETRECEIVER_STATUS);
-
+		printf("s=%016llx", status);
+		fflush(stdout);
 		// start at the beginning of the buffer once we get start of packet
 		if (status_get_start_of_packet(status)) {
 			i = 0;
 		}
 		puts("About to read data.");
 		pciedata = IORD64(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_DATA);
+
 #ifdef PLATFORM_ARM
         // Empirical results suggest...
 		pciedata = bswap32_within_64(pciedata);
 #endif
+
 		printf("%d: %016llx", i, pciedata);
 		buffer[i++] = pciedata;
 		printf(" (%016llx)\n", buffer[i-1]);
@@ -263,7 +267,7 @@ send_tlp(struct RawTLP *tlp)
 	 */
 #define WR_STATUS(STATUS) \
 	do {																	\
-		IOWR(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_STATUS,	\
+		IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_STATUS,	\
 			STATUS);														\
 	} while (0)
 
@@ -285,18 +289,20 @@ send_tlp(struct RawTLP *tlp)
 	printf("Enabling queue.\n");
 
 	// Stops the TX queue from draining whilst we're filling it.
-	/*IOWR(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 1);*/
-	IOWR(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_UPPER32, 1);
+	IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 1);
+	//IOWR(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_UPPER32, 1);
 
 	return 0;
 
 	printf("Sending first header.\n");
 	WR_STATUS(status);
+
 #ifdef PLATFORM_ARM
 	sendqword = header[0];
 #else
 	sendqword = bswap32_within_64(header[0]);
 #endif
+
 	WR_DATA(sendqword);
 
 	status = 0;
@@ -312,11 +318,13 @@ send_tlp(struct RawTLP *tlp)
 		/*TLPDoubleWord merge_data = (TLPDoubleWord)(data[0] & 0xFFFFFFFFLL);*/
 		/*merge_data = bswap32(merge_data);*/
 		printf("Sending unaligned third header dword.\n");
+
 #ifdef PLATFORM_ARM
 		sendqword = header[1];
 #else
 		sendqword = (TLPQuadWord)(bswap32(header[1] >> 32)) << 32;
 #endif
+
 		if (tlp->data_length > 0) {
 			sendqword |= tlp->data[0];
 		}
@@ -341,11 +349,13 @@ send_tlp(struct RawTLP *tlp)
 			status_set_end_of_packet(status);
 		}
 		WR_STATUS(status);
+
 #ifdef PLATFORM_ARM
 		sendqword = header[1];
 #else
 		sendqword = bswap32_within_64(header[1]);
 #endif
+
 		WR_DATA(sendqword);
 
 		for (byte_index = 0; byte_index < tlp->data_length; byte_index += 8) {
@@ -358,7 +368,7 @@ send_tlp(struct RawTLP *tlp)
 	}
 
 	// Release queued data
-	IOWR(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 1);
+	IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 1);
 
 	return 0;
 #undef WR_STATUS

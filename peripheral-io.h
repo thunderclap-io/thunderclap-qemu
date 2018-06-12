@@ -25,7 +25,15 @@ static inline volatile uint64_t IORD64(uint64_t base, uint64_t offset)
 #ifdef WORD_SIZE_64
 	volatile uint64_t *pointer = (uint64_t *)(
 		physmem - PCIEPACKET_REGION_BASE + base + offset);
-	return *pointer;
+	uint64_t v;
+#ifdef PLATFORM_ARM
+// force an atomic 64 bit load
+	asm("ldrd\t%0, [%1]" : "=&r" (v) : "r" (pointer));
+#else
+	v = *pointer;
+#endif
+	return v;
+
 #elif defined WORD_SIZE_32
 	uint64_t ret;
 	volatile uint32_t *low_bits = (uint32_t *)(
@@ -52,7 +60,12 @@ static inline void IOWR64(uint64_t base, uint64_t offset, uint64_t data)
 #ifdef WORD_SIZE_64
 	volatile uint64_t *pointer = (uint64_t *)(
 		physmem - PCIEPACKET_REGION_BASE + base + offset);
+#ifdef PLATFORM_ARM
+// force an atomic 64 bit store
+	asm("strd\t%0, [%1]" : "=&r" (data) : "r" (pointer));
+#else
 	*pointer = data;
+#endif
 #elif defined WORD_SIZE_32
 	volatile uint32_t *low_data = (uint32_t *)(
 		physmem - PCIEPACKET_REGION_BASE + base + offset);

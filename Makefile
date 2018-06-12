@@ -41,12 +41,12 @@ DUMMY ?= 0
 LOG ?= 0
 PRINT_IDS ?= 0
 PROFILE ?= 0
-ifeq ($(TARGET),arm)
-WORDSIZE=32
-CFLAGS := $(CFLAGS) -DPCIETXRX32
-else
+#ifeq ($(TARGET),arm)
+#WORDSIZE=32
+#CFLAGS := $(CFLAGS) -DPCIETXRX32
+#else
 WORDSIZE=64
-endif
+#endif
 
 # Remove instances of SEP from the TARGET, then search for TARGET follwed by
 # SEP in the list of TARGETS followed by SEP to guarentee that an exact match
