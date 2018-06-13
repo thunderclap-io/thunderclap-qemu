@@ -85,7 +85,12 @@ LDLIBS := $(LDLIBS) -lutil -lglib-2.0 -lpthread -lm -lc
 CFLAGS := $(CFLAGS) -Wall
 CFLAGS := $(CFLAGS) -ferror-limit=10
 CFLAGS := $(CFLAGS) -DTHUNDERCLAP -DWORD_SIZE_$(WORDSIZE)
-CFLAGS := $(CFLAGS) -O3
+CFLAGS := $(CFLAGS) -O0
+
+ifeq ($(ASAN),1)
+CFLAGS := -fsanitize=address
+LDFLAGS := -fsanitize=address
+endif
 
 ifeq ($(DUMMY),1)
 CFLAGS := $(CFLAGS) -DDUMMY
