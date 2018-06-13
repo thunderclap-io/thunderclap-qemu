@@ -117,13 +117,13 @@ create_completion_header(struct RawTLP *tlp,
 
 	struct TLP64CompletionDWord1 *header1 =
 		(struct TLP64CompletionDWord1 *)(tlp->header) + 1;
-	header1->completer_id = completer_id;
+	set_completer_id(header1,completer_id);
 	set_status(header1, completion_status);
 	set_bytecount(header1, bytecount);
 
 	struct TLP64CompletionDWord2 *header2 =
 		(struct TLP64CompletionDWord2 *)(tlp->header) + 2;
-	header2->requester_id = requester_id;
+	set_requester_id(header2, requester_id);
 	header2->tag = tag;
 	header2->loweraddress = loweraddress;
 }
@@ -169,7 +169,7 @@ create_memory_request_header(struct RawTLP *tlp, enum tlp_direction direction,
 	set_length(dword0, length);
 	set_type(dword0, M);
 
-	request_dword1->requester_id = requester_id;
+	set_requester_id(request_dword1,requester_id);
 	request_dword1->tag = tag;
 	set_lastbe(request_dword1, lastbe);
 	set_firstbe(request_dword1, firstbe);
@@ -214,10 +214,10 @@ create_config_request_header(struct RawTLP *tlp, enum tlp_direction direction,
 	set_fmt(dword0, fmt);
 	set_type(dword0, CFG_0);
 	set_length(dword0, 1);
-	dword1->requester_id = requester_id;
+	set_requester_id(dword1,requester_id);
 	dword1->tag = tag;
 	set_firstbe(dword1, firstbe);
-	dword2->device_id = devfn;
+	set_device_id(dword2, devfn);
 	dword2->ext_reg_num = address >> 8;
 	dword2->reg_num = address & uint32_mask(8);
 }

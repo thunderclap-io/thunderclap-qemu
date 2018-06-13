@@ -62,7 +62,8 @@ static inline void IOWR64(uint64_t base, uint64_t offset, uint64_t data)
 		physmem - PCIEPACKET_REGION_BASE + base + offset);
 #ifdef PLATFORM_ARM
 // force an atomic 64 bit store
-	asm("strd\t%0, [%1]" : "=&r" (data) : "r" (pointer));
+//	asm("nop");
+	asm("strd\t%0, [%1]" : : "r" (data), "r" (pointer));
 #else
 	*pointer = data;
 #endif
