@@ -167,22 +167,22 @@ tlp_fmt_is_4dw(enum tlp_fmt fmt)
 
 static inline bool
 status_get_start_of_packet(uint64_t status) {
-	return ((status >> 24) & 1) == 1;
+	return ((status >> 24LL) & 1LL) == 1LL;
 }
 
 static inline bool
 status_get_end_of_packet(uint64_t status) {
-	return ((status >> 25) & 1) == 1;
+	return ((status >> 25LL) & 1LL) == 1LL;
 }
 
 static inline uint64_t
 status_set_start_of_packet(uint64_t status) {
-	return status | (1 << 24);
+	return status | (1LL << 24LL);
 }
 
 static inline uint64_t
 status_set_end_of_packet(uint64_t status) {
-	return status | (1 << 25);
+	return status | (1LL << 25LL);
 }
 
 /* TLP Structure Naming Scheme:
@@ -204,12 +204,21 @@ enum tlp_at {
 	TLP_AT_RESERVED
 };
 
+#ifdef HOST_WORDS_BIGENDIAN
 struct TLP64DWord0 {
 	uint8_t fmt_and_type;
 	uint8_t byte1;
 	uint8_t byte2;
 	uint8_t low_length;
 };
+#else
+struct TLP64DWord0 {
+	uint8_t low_length;
+	uint8_t byte2;
+	uint8_t byte1;
+	uint8_t fmt_and_type;
+};
+#endif
 
 static inline enum tlp_fmt
 get_fmt(const struct TLP64DWord0 *dword)
@@ -259,6 +268,7 @@ set_length(struct TLP64DWord0 *dword, uint16_t length) {
 }
 
 
+
 #define BYTE_FIELD(field_name, dword_type, field_container, high, low)		\
 static inline uint8_t 														\
 get_ ## field_name(struct dword_type *dword)	{							\
@@ -270,27 +280,82 @@ set_ ## field_name(struct dword_type *dword, uint8_t new_value) {			\
 		uint8_t_set_bits(dword -> field_container, high, low, new_value);	\
 }
 
+#ifdef HOST_WORDS_BIGENDIAN
 struct TLP64RequestDWord1 {
-	uint16_t requester_id;
+	uint8_t requester_idH;
+	uint8_t requester_idL;
 	uint8_t tag;
 	uint8_t bes;
 };
+#else
+struct TLP64RequestDWord1 {
+	uint8_t bes;
+	uint8_t tag;
+	uint8_t requester_idL;
+	uint8_t requester_idH;
+};
+#endif
 
 BYTE_FIELD(firstbe, TLP64RequestDWord1, bes, 3, 0);
 BYTE_FIELD(lastbe, TLP64RequestDWord1, bes, 7, 4);
 
+
+#ifdef HOST_WORDS_BIGENDIAN
 struct TLP64MessageRequestDWord1 {
-	uint16_t requester_id;
+	uint8_t requester_idH;
+	uint8_t requester_idL;
 	uint8_t tag;
 	uint8_t message_code;
 };
 
 struct TLP64CompletionDWord1 {
-	uint16_t completer_id;
+	uint8_t completer_idH;
+	uint8_t completer_idL;
 	uint8_t byte2;
 	uint8_t byte3;
 };
 
+struct TLP64CompletionDWord2 {
+	uint8_t requester_idH;
+	uint8_t requester_idL;
+	uint8_t tag;
+	uint8_t loweraddress;
+};
+#else
+struct TLP64MessageRequestDWord1 {
+	uint8_t message_code;
+	uint8_t tag;
+	uint8_t requester_idL;
+	uint8_t requester_idH;
+};
+
+struct TLP64CompletionDWord1 {
+	uint8_t byte3;
+	uint8_t byte2;
+	uint8_t completer_idL;
+	uint8_t completer_idH;
+};
+
+struct TLP64CompletionDWord2 {
+	uint8_t loweraddress;
+	uint8_t tag;
+	uint8_t requester_idL;
+	uint8_t requester_idH;
+};
+
+struct TLP64ConfigRequestDWord2 {
+	uint8_t reg_num;
+	uint8_t ext_reg_num;
+	uint8_t device_idL;
+	uint8_t device_idH;
+};
+
+#endif
+
+union TLP64CompletionDWord1Int {
+	struct TLP64CompletionDWord1 bits;
+	uint32_t word;
+};
 
 BYTE_FIELD(status, TLP64CompletionDWord1, byte2, 7, 5);
 BYTE_FIELD(bcm, TLP64CompletionDWord1, byte2, 4, 4);
@@ -307,16 +372,25 @@ set_bytecount(struct TLP64CompletionDWord1 *dword, uint16_t value) {
 	dword->byte3 = uint16_t_get_bits(value, 7, 0);
 }
 
-union TLP64CompletionDWord1Int {
-	struct TLP64CompletionDWord1 bits;
-	uint32_t word;
-};
+#define ID_FIELD(field_name, dword_type, field_container)		\
+static inline uint8_t 														\
+get_ ## field_name(struct dword_type *dword)	{							\
+	return (dword -> field_container##H << 8) | (dword -> field_container##L);			\
+}																			\
+static inline void															\
+set_ ## field_name(struct dword_type *dword, uint8_t new_value) {			\
+	dword -> field_container##H = 												\
+		(new_value & 0xFF00) >> 8;	\
+	dword -> field_container##L = 												\
+		(new_value & 0xFF);	\
+}
 
-struct TLP64CompletionDWord2 {
-	uint16_t requester_id;
-	uint8_t tag;
-	uint8_t loweraddress;
-};
+
+ID_FIELD(completer_id, TLP64CompletionDWord1, completer_id);
+ID_FIELD(requester_id, TLP64CompletionDWord2, requester_id);
+ID_FIELD(device_id,    TLP64ConfigRequestDWord2, device_id);
+
+
 
 enum tlp_completion_status {
 	TLPCS_SUCCESSFUL_COMPLETION	= 0,
@@ -326,12 +400,6 @@ enum tlp_completion_status {
 	TLPCS_COMPLETER_ABORT			= 4,
 	TLPCS_RESERVED_LITERAL_5		= 5,
 	TLPCS_REQUEST_TIMEOUT			= -1
-};
-
-struct TLP64ConfigRequestDWord2 {
-	uint16_t device_id;
-	uint8_t ext_reg_num;
-	uint8_t reg_num;
 };
 
 struct TLP64ConfigReq {
