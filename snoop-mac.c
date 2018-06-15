@@ -107,6 +107,7 @@ respond_to_packet(struct packet_response_state *state,
 	struct RawTLP *in, struct RawTLP *out)
 {
 	uint16_t requester_id;
+	uint16_t device_id;
 	uint64_t req_addr;
 	enum packet_response response = PR_NO_RESPONSE;
 	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)in->header;
@@ -117,7 +118,7 @@ respond_to_packet(struct packet_response_state *state,
 
 	enum tlp_direction dir = get_tlp_direction(in);
 
-	requester_id = request_dword1->requester_id;
+	requester_id = get_requester_id(request_dword1);
 
 	printf("header addr: %p\n", in->header);
 	printf("dword0: 0x%08"PRIx32" (%d).\n", *(uint32_t *)dword0, sizeof(dword0));
@@ -128,15 +129,22 @@ respond_to_packet(struct packet_response_state *state,
 
 	switch (get_type(dword0)) {
 	case CFG_0:
-		if ((config_request_dword2->device_id & uint32_mask(3)) != 0) {
+		printf("cfg0 reg_num=%#x, ext_reg_num=%#x, device_idL=%#x, device_idH=%#x\n", \
+			config_request_dword2->reg_num,
+			config_request_dword2->ext_reg_num,
+			config_request_dword2->device_idL,
+			config_request_dword2->device_idH);
+		device_id = get_device_id(config_request_dword2);
+		if ((device_id & uint32_mask(3)) != 0) {
 			printf("ENDIAND ISSUES AHEAD! Don't like device_id: %x.\n",
-				config_request_dword2->device_id);
+				device_id);
 		}
 
-		state->devfn = config_request_dword2->device_id;
+		state->devfn = device_id;
 
 		response = PR_RESPONSE;
 		req_addr = get_config_req_addr(in);
+		printf("cfg0, device_id=%#08x\n, addr = %#08x, dir=%#x", device_id, req_addr, dir);
 
 		if (dir == TLPD_READ) {
 			out->data_length = 4;
@@ -150,6 +158,7 @@ respond_to_packet(struct packet_response_state *state,
 			default:
 				out->data[0] = 0;
 			}
+			printf("cfg0 read addr=%#016llx, returning data=%#08x\n", req_addr, out->data[0]);
 			out->data[0] = le32_to_cpu(out->data[0]);
 		} else {
 			out->data_length = 0;
@@ -253,7 +262,7 @@ main(int argc, char *argv[])
 		next_tlp(&raw_tlp_in);
 
 		if (is_raw_tlp_valid(&raw_tlp_in)) {
-			printf("header addr: %p, (%llx)\n",
+			printf("header addr: %p, (%08x)\n",
 				raw_tlp_in.header, *raw_tlp_in.header);
 			response = respond_to_packet(&packet_response_state,
 				&raw_tlp_in, &raw_tlp_out);

@@ -20,7 +20,9 @@ read_hw_counter();
 void
 wait_for_tlp(TLPQuadWord *buffer, int buffer_len, struct RawTLP *tlp);
 
-enum tlp_data_alignment { TDA_ALIGNED, TDA_UNALIGNED };
+// don't get confused when we print 'aligned' and get zero
+// - should only ever use as an enum and compared
+enum tlp_data_alignment { TDA_ALIGNED=0xA1, TDA_UNALIGNED=0x20 };
 
 int
 send_tlp(struct RawTLP *tlp);

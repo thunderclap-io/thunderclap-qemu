@@ -60,6 +60,7 @@ bswap32_within_64(uint64_t input)
 	return ((uint64_t)(high_word) << 32) | low_word;
 }
 
+
 /* Request is not a whole number of dwords, so we need to read one more dword,
  * then use the lastbe to select the parts we want. I had to work this out on
  * paper. It works.
@@ -108,14 +109,14 @@ tlp_get_alignment_from_header(TLPDoubleWord *header)
 	if ((get_type(dword0) == M || get_type(dword0) == M_LK) &&
 		tlp_fmt_is_4dw(get_fmt(dword0))) {
 		/*if (print)*/
-			/*PDBG("4DW M Header. Addr: %x. Aligned? %d.", header[3],*/
-				/*(header[3] % 8) == 0);*/
+			printf("4DW M Header. Addr: %x. Aligned? %d.", header[3],
+				(header[3] % 8) == 0);
 		/* 64 bit address */
 		return (header[3] % 8) == 0 ? TDA_ALIGNED : TDA_UNALIGNED;
 	} else {
 		/*if (print)*/
-			/*PDBG("3DW M Header. Addr: %x. Aligned? %d.", header[2],*/
-				/*(header[2] % 8) == 0);*/
+			printf("3DW M Header. Addr: %x. Aligned? %d.", header[2],
+				(header[2] % 8) == 0);
 		/* Lower bits of relevant address are always in the same place. */
 		return (header[2] % 8) == 0 ? TDA_ALIGNED : TDA_UNALIGNED;
 	}
@@ -133,7 +134,7 @@ wait_for_tlp(TLPQuadWord *buffer, int buffer_len, struct RawTLP *out)
 	TLPQuadWord pciedata;
 	int i = 0; // i is "length of TLP so far received in doublewords.
 	int retry_attempt = 0;
-
+	fflush(stdout);
 	do {
 		ready = IORD64(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_READY);
 //		printf("%d: %016llx", ready);
@@ -161,7 +162,7 @@ wait_for_tlp(TLPQuadWord *buffer, int buffer_len, struct RawTLP *out)
 
 #ifdef PLATFORM_ARM
         // Empirical results suggest...
-		pciedata = bswap32_within_64(pciedata);
+//		pciedata = bswap32_within_64(pciedata);
 #endif
 
 		printf("%d: %016llx", i, pciedata);
@@ -242,9 +243,10 @@ pcie_hardware_init(int argc, char **argv, volatile uint8_t **physmem)
 void
 drain_pcie_core()
 {
-	while (IORD(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_READY)) {
-		IORD(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_STATUS);
-		IORD(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_DATA);
+	fflush(stdout);
+	while (IORD64(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_READY)) {
+		IORD64(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_STATUS);
+		IORD64(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_DATA);
 		for (int i = 0; i < (1 << 10); ++i) {
 			asm("nop");
 		}
@@ -261,6 +263,7 @@ send_tlp(struct RawTLP *tlp)
 	 * reconstructed. It is potentially an unsafe cast.
 	 */
 
+	 fflush(stdout);
 	/* Special case for:
 	 * 3DW, Unaligned data. Send qword of remaining header dword, first data.
 	 *   Construct qwords from unaligned data and send.
@@ -269,46 +272,58 @@ send_tlp(struct RawTLP *tlp)
 	do {																	\
 		IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_STATUS,	\
 			STATUS);														\
+		printf("status:=%#016llx ", STATUS);	\
 	} while (0)
 
 #define WR_DATA(DATA) \
 	do {																	\
 		IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_DATA,	\
 			DATA);										\
+		printf("data:=%#016llx ", DATA);	\
 	} while (0)
 
 	int byte_index;
 	uint64_t status = status_set_start_of_packet(0);
 	TLPQuadWord *header = (TLPQuadWord *)tlp->header;
-	TLPQuadWord *data = (TLPQuadWord *)tlp->data;
+	TLPDoubleWord *data = tlp->data;
 	TLPQuadWord sendqword;
 
 	enum tlp_data_alignment data_alignment =
 		tlp_get_alignment_from_header(tlp->header);
 
-	printf("Enabling queue.\n");
+	printf("Header len=%d, data len=%d, align=%x\n", tlp->header_length, tlp->data_length,
+		data_alignment);
+	for (int i=0; i < (tlp->header_length+7)/8; i++) {
+		printf("%#16llx ", header[i]);
+	}
+	printf("\n");
+
+	printf("Disabling queue.\n");
 
 	// Stops the TX queue from draining whilst we're filling it.
-	IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 1);
+	IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 0);
 	//IOWR(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_UPPER32, 1);
 
-	return 0;
 
-	printf("Sending first header.\n");
-	WR_STATUS(status);
 
-#ifdef PLATFORM_ARM
+	sendqword = header[0];
+/*#ifdef PLATFORM_ARM
 	sendqword = header[0];
 #else
 	sendqword = bswap32_within_64(header[0]);
 #endif
-
+*/
+//	printf("Sending first header %#016llx.\n", sendqword);
+//	usleep(1000);
+	WR_STATUS(status);
 	WR_DATA(sendqword);
+	putchar('\n');
 
 	status = 0;
 
 	assert(tlp->header_length == 12 || tlp->header_length == 16);
 
+//	data_alignment = TDA_UNALIGNED; // FIXME
 	if (tlp->header_length == 12 && data_alignment == TDA_UNALIGNED) {
 		/* Because this is big endian, the bits of the dword with the smallest
 		 * offset are the most significant. The header word has the smallest
@@ -317,56 +332,94 @@ send_tlp(struct RawTLP *tlp)
 		 */
 		/*TLPDoubleWord merge_data = (TLPDoubleWord)(data[0] & 0xFFFFFFFFLL);*/
 		/*merge_data = bswap32(merge_data);*/
-		printf("Sending unaligned third header dword.\n");
+//		printf("Sending unaligned third header dword %#016llx.\n", header[1]);
 
-#ifdef PLATFORM_ARM
+		sendqword = header[1];
+/*#ifdef PLATFORM_ARM
 		sendqword = header[1];
 #else
 		sendqword = (TLPQuadWord)(bswap32(header[1] >> 32)) << 32;
-#endif
+#endif*/
 
 		if (tlp->data_length > 0) {
-			sendqword |= tlp->data[0];
+			sendqword |= data32_to_64(data64_get_first32(header[1]), tlp->data[0]);
 		}
 		if (tlp->data_length <= 4) {
-			printf("It's EOP.\n");
-			status_set_end_of_packet(status);
+//			printf("It's EOP.\n");
+			status = status_set_end_of_packet(status);
 		}
 		WR_STATUS(status);
 		WR_DATA(sendqword);
+//		putchar('\n');
 		/* XXX THIS MIGHT NOT WORK XXX */
 		for (byte_index = 4; byte_index < tlp->data_length; byte_index += 8) {
 			if ((byte_index + 8) >= tlp->data_length) {
 				status_set_end_of_packet(status);
 			}
-			sendqword = (TLPQuadWord)(tlp->data[byte_index / 4]) << 32;
-			sendqword |= tlp->data[(byte_index / 4) + 1];
+			sendqword = data32_to_64(tlp->data[byte_index / 4], tlp->data[byte_index / 4] + 1);
+//			sendqword = (TLPQuadWord)(tlp->data[byte_index / 4]) << 32;
+//			sendqword |= tlp->data[(byte_index / 4) + 1];
 			WR_STATUS(status);
 			WR_DATA(sendqword);
 		}
 	} else {
 		if (tlp->data_length == 0) {
-			status_set_end_of_packet(status);
+			printf("eop\n");
+			status = status_set_end_of_packet(status);
 		}
-		WR_STATUS(status);
 
-#ifdef PLATFORM_ARM
+		sendqword = header[1];
+		// if we have a 3DW header, clear the 4th word
+		if (tlp->header_length == 12) {
+//			sendqword = header[1] & 0xffffffffLL;
+			TLPDoubleWord firstdata32 = 0xc0dcafe;
+			// we shouldn't need to send any data here, but is seems the doc lies
+			if (tlp->data_length > 0) {
+				firstdata32 = data[0];
+//				sendqword |= (data[0] & 0xffffffffLL)<<32LL;
+				tlp->data_length -= 4;
+				if (tlp->data_length == 0) {
+//					printf("wrong eop\n");
+					status = status_set_end_of_packet(status);
+				}	
+//			} else {
+//				sendqword |= 0xc0dcafe00000000;
+
+			}
+
+			sendqword = data32_to_64(data64_get_first32(header[1]), firstdata32);
+
+		}
+/*#ifdef PLATFORM_ARM
 		sendqword = header[1];
 #else
 		sendqword = bswap32_within_64(header[1]);
-#endif
+#endif*/
+		WR_STATUS(status);
 
 		WR_DATA(sendqword);
+//		printf("\nSending first data word %#016llx, status=%#016llx\n", sendqword, status);
+		status = 0;
 
 		for (byte_index = 0; byte_index < tlp->data_length; byte_index += 8) {
 			if ((byte_index + 8) >= tlp->data_length) {
-				status_set_end_of_packet(status);
+//				printf("eop\n");
+				status = status_set_end_of_packet(status);
+			}
+			sendqword = data32_to_64(tlp->data[byte_index / 4], tlp->data[byte_index / 4] + 1);
+//			sendqword = data[byte_index / 8];
+			if ((tlp->data_length - byte_index) == 4) {
+				// clear the second Dword if we only have one to send
+				sendqword = data32_to_64(tlp->data[byte_index / 4], 0);
+//				sendqword = sendqword & 0xffffffffLL;
+//				sendqword |= 0xdeadbeef00000000;
 			}
 			WR_STATUS(status);
-			WR_DATA(data[byte_index / 8]);
+			WR_DATA(sendqword);
+//			printf("\nSending %d th data word %#016llx, status=%#016llx\n", byte_index/8, sendqword, status);
 		}
 	}
-
+	fflush(stdout);
 	// Release queued data
 	IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 1);
 
