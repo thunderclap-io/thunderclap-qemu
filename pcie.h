@@ -321,6 +321,18 @@ struct TLP64CompletionDWord2 {
 	uint8_t tag;
 	uint8_t loweraddress;
 };
+
+struct TLP64ConfigRequestDWord2 {
+	uint8_t device_idH;
+	uint8_t device_idL;
+	uint8_t ext_reg_num;
+	uint8_t reg_num;
+};
+
+struct TLP64DataWord32 {
+	uint32_t second;
+	uint32_t first;
+};
 #else
 struct TLP64MessageRequestDWord1 {
 	uint8_t message_code;
@@ -350,11 +362,21 @@ struct TLP64ConfigRequestDWord2 {
 	uint8_t device_idH;
 };
 
+struct TLP64DataWord32 {
+	uint32_t first;
+	uint32_t second;
+};
 #endif
 
 union TLP64CompletionDWord1Int {
 	struct TLP64CompletionDWord1 bits;
 	uint32_t word;
+};
+
+
+union TLP64DataWord {
+	uint64_t	d64;
+	struct TLP64DataWord32	d32;
 };
 
 BYTE_FIELD(status, TLP64CompletionDWord1, byte2, 7, 5);
@@ -373,22 +395,62 @@ set_bytecount(struct TLP64CompletionDWord1 *dword, uint16_t value) {
 }
 
 #define ID_FIELD(field_name, dword_type, field_container)		\
-static inline uint8_t 														\
+static inline uint16_t 														\
 get_ ## field_name(struct dword_type *dword)	{							\
 	return (dword -> field_container##H << 8) | (dword -> field_container##L);			\
 }																			\
 static inline void															\
-set_ ## field_name(struct dword_type *dword, uint8_t new_value) {			\
+set_ ## field_name(struct dword_type *dword, uint16_t new_value) {			\
 	dword -> field_container##H = 												\
 		(new_value & 0xFF00) >> 8;	\
 	dword -> field_container##L = 												\
 		(new_value & 0xFF);	\
 }
 
-
+ID_FIELD(requester_id, TLP64RequestDWord1, requester_id);
+ID_FIELD(requester_id_msg, TLP64MessageRequestDWord1, requester_id);
 ID_FIELD(completer_id, TLP64CompletionDWord1, completer_id);
-ID_FIELD(requester_id, TLP64CompletionDWord2, requester_id);
+ID_FIELD(requester_id_cpl, TLP64CompletionDWord2, requester_id);
 ID_FIELD(device_id,    TLP64ConfigRequestDWord2, device_id);
+
+
+static inline uint32_t
+data64_get_first32(TLPQuadWord data) {
+	uint32_t result;
+#ifdef NOST_WORDS_BIGENDIAN
+	result = (data & 0xffffffff00000000LL)>>32LL;
+#else
+	result = (data & 0xffffffffLL);
+#endif
+	return result;
+}
+
+static inline uint32_t
+data64_get_second32(TLPQuadWord data) {
+	uint32_t result;
+#ifdef NOST_WORDS_BIGENDIAN
+	result = (data & 0xffffffffLL);
+#else
+	result = (data & 0xffffffff00000000LL)>>32LL;
+#endif
+	return result;
+}
+
+
+static inline uint64_t
+data32_to_64(TLPDoubleWord first, TLPDoubleWord second) {
+	uint64_t result;
+	uint64_t first64, second64;
+	// explicit cast
+	first64 = first;
+	second64 = second;
+#ifdef HOST_WORDS_BIGENDIAN
+	result = (first64 << 32LL) | (second64);
+#else
+	result = (second64 << 32LL) | (first64);
+#endif
+	return result;
+}
 
 
 

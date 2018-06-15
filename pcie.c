@@ -97,7 +97,9 @@ create_completion_header(struct RawTLP *tlp,
 	enum tlp_completion_status completion_status, uint16_t bytecount,
 	uint16_t requester_id, uint8_t tag, uint8_t loweraddress)
 {
-	/*printf("Creating a completion header.");*/
+	printf("Creating a completion header.");
+	printf("dir=%#x, cpl_id=%#x, cpl_status=%#x, bytecount=%#x, req_id=%#x, tag=%#x, loweraddr=%#x\n",
+		direction,completer_id, completion_status, bytecount, requester_id, tag, loweraddress);
 	// Clear buffer. If passed in a buffer that's too short, this might be an
 	// exploit?
 	tlp->header[0] = 0;
@@ -120,10 +122,11 @@ create_completion_header(struct RawTLP *tlp,
 	set_completer_id(header1,completer_id);
 	set_status(header1, completion_status);
 	set_bytecount(header1, bytecount);
+	printf("byte2=%#x, byte3=%#x\n", header1->byte2, header1->byte3);
 
 	struct TLP64CompletionDWord2 *header2 =
 		(struct TLP64CompletionDWord2 *)(tlp->header) + 2;
-	set_requester_id(header2, requester_id);
+	set_requester_id_cpl(header2, requester_id);
 	header2->tag = tag;
 	header2->loweraddress = loweraddress;
 }
