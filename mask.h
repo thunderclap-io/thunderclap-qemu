@@ -38,7 +38,7 @@ uint16_t_get_bits(...)
 #define GET_BITS_FUNCTION(type)											\
 static inline type type ## _get_bits(								\
 		type source, uint32_t high, uint32_t low) {						\
-	return source & MASK_ENABLE_BITS(type, high, low) >> low;			\
+	return (source & MASK_ENABLE_BITS(type, high, low)) >> low;			\
 }
 
 GET_BITS_FUNCTION(uint8_t);
@@ -53,7 +53,7 @@ uint32_mask(uint32_t width) {
 static inline uint32_t
 uint32_mask_enable_bits(uint32_t high, uint32_t low) {
 	assert(high >= low);
-	assert(high <= 31);
+	assert(high < 31);	// doesn't work for 31
 	return (MASK_ENABLE_BITS(uint32_t, high, low));
 }
 
@@ -68,7 +68,7 @@ page_base_address(uint64_t address) {
 	return address & ~uint64_mask(12);
 }
 
-#if 0
+#ifdef TEST_MASK
 #include <stdio.h>
 
 #define TEST(high, low) \
@@ -77,7 +77,29 @@ page_base_address(uint64_t address) {
 int
 main(int argc, char* argv[])
 {
-	printf("%lx\n", uint64_mask(12));
+	assert(uint64_mask(4)==0xf);
+	assert(uint64_mask(12)==0xfff);
+	assert(uint64_mask(29)==0x1fffffff);
+	assert(uint64_mask(37)==0x1fffffffffLL);
+	assert(uint32_mask(4)==0xf);
+	assert(uint32_mask(12)==0xfff);
+	assert(uint32_mask(29)==0x1fffffff);
+//	assert(uint32_mask(37)==0xffffffffLL);
+
+	printf("%#x\n",uint32_mask_enable_bits(29,0));
+	assert(uint32_mask_enable_bits(29,0)==0x3fffffff);
+//	printf("%#x\n",uint32_mask_enable_bits(31LL,0LL));
+//	assert(uint32_mask_enable_bits(31,0)==0xffffffff);
+	printf("%#x\n",uint32_mask_enable_bits(15,0));
+	assert(uint32_mask_enable_bits(15,0)==0xffff);
+	printf("%#x\n",uint32_mask_enable_bits(4,0));
+	assert(uint32_mask_enable_bits(4,0)==0x1f);
+	printf("%#x\n",uint32_mask_enable_bits(7,4));
+	assert(uint32_mask_enable_bits(7,4)==0xf0);
+
+	assert( MASK_ENABLE_BITS(uint16_t,7,4)==0xf0);
+	printf("%#x, mask=%#x\n",uint16_t_get_bits(0x5678,7,4), MASK_ENABLE_BITS(uint16_t,7,4));
+	assert(uint16_t_get_bits(0x5678,7,4)==0x7);
 	return 0;
 }
 #endif
