@@ -844,6 +844,7 @@ attack_el_capitan_only_granted_mbufs(E1000ECore* core, ConstDescriptorP desc)
 
 #endif
 
+#if 0
 __attribute__((constructor)) void
 setup_attack()
 {
@@ -852,3 +853,4 @@ setup_attack()
 	/*register_pre_xmit_hook(attack_el_capitan, reset_read_pages);*/
 	register_pre_xmit_hook(attack_el_capitan, NULL);
 }
+#endif
