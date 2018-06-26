@@ -317,7 +317,7 @@ send_tlp(struct RawTLP *tlp)
 //	usleep(1000);
 	WR_STATUS(status);
 	WR_DATA(sendqword);
-	putchar('\n');
+//	putchar('\n');
 
 	status = 0;
 

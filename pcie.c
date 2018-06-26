@@ -133,7 +133,7 @@ create_completion_header(struct RawTLP *tlp,
 		(struct TLP64CompletionDWord2 *)(tlp->header) + 2;
 	tlp_set_requester_id_cpl(header2, requester_id);
 	header2->tag = tag;
-	header2->loweraddress = loweraddress;
+	header2->loweraddress = (loweraddress & 0x7F); // only 7 bits long, top bit reserved=zero
 }
 
 void
