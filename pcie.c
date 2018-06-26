@@ -95,23 +95,28 @@ void
 create_completion_header(struct RawTLP *tlp,
 	enum tlp_direction direction, uint16_t completer_id,
 	enum tlp_completion_status completion_status, uint16_t bytecount,
-	uint16_t requester_id, uint8_t tag, uint8_t loweraddress)
+	uint16_t requester_id, uint8_t tag, uint8_t loweraddress,
+	uint32_t length)
 {
-	printf("Creating a completion header.");
+/*	printf("Creating a completion header.");
 	printf("dir=%#x, cpl_id=%#x, cpl_status=%#x, bytecount=%#x, req_id=%#x, tag=%#x, loweraddr=%#x\n",
 		direction,completer_id, completion_status, bytecount, requester_id, tag, loweraddress);
-	// Clear buffer. If passed in a buffer that's too short, this might be an
+*/	// Clear buffer. If passed in a buffer that's too short, this might be an
 	// exploit?
 	tlp->header[0] = 0;
 	tlp->header[1] = 0;
 	tlp->header[2] = 0;
+	// completions can be 1024 or fewer D-words
+	assert(length <= 1024);
 
 	struct TLP64DWord0 *header0 = (struct TLP64DWord0 *)(tlp->header);
 	if (direction == TLPD_READ
 		&& completion_status == TLPCS_SUCCESSFUL_COMPLETION) {
+//		printf("3dw data compl\n");
 		tlp_set_fmt(header0, TLPFMT_3DW_DATA);
-		tlp_set_length(header0, 1);
+		tlp_set_length(header0, length);
 	} else {
+//		printf("3dw nodata compl\n");
 		tlp_set_fmt(header0, TLPFMT_3DW_NODATA);
 		tlp_set_length(header0, 0);
 	}
@@ -122,7 +127,7 @@ create_completion_header(struct RawTLP *tlp,
 	tlp_set_completer_id(header1,completer_id);
 	tlp_set_status(header1, completion_status);
 	tlp_set_bytecount(header1, bytecount);
-	printf("byte2=%#x, byte3=%#x\n", header1->byte2, header1->byte3);
+//	printf("byte2=%#x, byte3=%#x\n", header1->byte2, header1->byte3);
 
 	struct TLP64CompletionDWord2 *header2 =
 		(struct TLP64CompletionDWord2 *)(tlp->header) + 2;

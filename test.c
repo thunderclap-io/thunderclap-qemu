@@ -352,9 +352,9 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 			out->data_length = 4;
 			create_completion_header(out, dir, state->pci_dev->devfn,
 				TLPCS_SUCCESSFUL_COMPLETION, bytecount, requester_id,
-				req_bits->tag, loweraddress);
+				req_bits->tag, loweraddress, bytecount/4);
 		} else { /* dir == TLPD_WRITE */
-			io_mem_write(target_region, rel_addr, bswap32(in->data[0]), 4);
+			io_mem_write(target_region, rel_addr, le32_to_cpu(in->data[0]), 4);
 		}
 
 		break;
@@ -401,8 +401,9 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 		}
 
 		out->header_length = 12;
+		uint16_t bytecount = 4; // always 4 for completions
 		create_completion_header(out, dir, state->pci_dev->devfn,
-			completion_status, 4, requester_id, req_bits->tag, 0);
+			completion_status, bytecount, requester_id, req_bits->tag, 0, out->data_length/4);
 
 		break;
 	case IO:
@@ -459,7 +460,7 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 		}
 
 		create_completion_header(out, dir, state->pci_dev->devfn,
-			TLPCS_SUCCESSFUL_COMPLETION, 4, requester_id, req_bits->tag, 0);
+			TLPCS_SUCCESSFUL_COMPLETION, out->data_length, requester_id, req_bits->tag, 0, out->data_length/4);
 
 		break;
 	case CPL:
@@ -482,7 +483,7 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 	}
 
 	for (i = 0; i < out->data_length / 4; ++i) {
-		out->data[i] = bswap32(out->data[i]);
+		out->data[i] = cpu_to_le32(out->data[i]);
 	}
 
 	return response;

@@ -108,16 +108,16 @@ tlp_get_alignment_from_header(TLPDoubleWord *header)
 	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)header;
 	if ((tlp_get_type(dword0) == M || tlp_get_type(dword0) == M_LK) &&
 		tlp_fmt_is_4dw(tlp_get_fmt(dword0))) {
-		/*if (print)*/
+/*		if (print)
 			printf("4DW M Header. Addr: %x. Aligned? %d.", header[3],
 				(header[3] % 8) == 0);
-		/* 64 bit address */
+*/		/* 64 bit address */
 		return (header[3] % 8) == 0 ? TDA_ALIGNED : TDA_UNALIGNED;
 	} else {
-		/*if (print)*/
+/*		if (print)
 			printf("3DW M Header. Addr: %x. Aligned? %d.", header[2],
 				(header[2] % 8) == 0);
-		/* Lower bits of relevant address are always in the same place. */
+*/		/* Lower bits of relevant address are always in the same place. */
 		return (header[2] % 8) == 0 ? TDA_ALIGNED : TDA_UNALIGNED;
 	}
 }
@@ -146,18 +146,18 @@ wait_for_tlp(TLPQuadWord *buffer, int buffer_len, struct RawTLP *out)
 		return;
 	}
 
-	puts("About to read status.");
+//	puts("About to read status.");
 
 	do {
 		status = IORD64(PCIEPACKETRECEIVER_0_BASE,
 			PCIEPACKETRECEIVER_STATUS);
-		printf("s=%016llx", status);
-		fflush(stdout);
+//		printf("s=%016llx", status);
+//		fflush(stdout);
 		// start at the beginning of the buffer once we get start of packet
 		if (status_get_start_of_packet(status)) {
 			i = 0;
 		}
-		puts("About to read data.");
+//		puts("About to read data.");
 		pciedata = IORD64(PCIEPACKETRECEIVER_0_BASE, PCIEPACKETRECEIVER_DATA);
 
 #ifdef PLATFORM_ARM
@@ -165,10 +165,10 @@ wait_for_tlp(TLPQuadWord *buffer, int buffer_len, struct RawTLP *out)
 //		pciedata = bswap32_within_64(pciedata);
 #endif
 
-		printf("%d: %016llx", i, pciedata);
+//		printf("%d: %016llx", i, pciedata);
 		buffer[i++] = pciedata;
-		printf(" (%016llx)\n", buffer[i-1]);
-		print_tlp_dwords(pciedata);
+//		printf(" (%016llx)\n", buffer[i-1]);
+//		print_tlp_dwords(pciedata);
 		if ((i * 8) > buffer_len) {
 			puts("TLP RECV OVERFLOW");
 			set_raw_tlp_invalid(out);
@@ -184,7 +184,7 @@ wait_for_tlp(TLPQuadWord *buffer, int buffer_len, struct RawTLP *out)
 
 	out->header = (TLPDoubleWord *)buffer;
 	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)out->header;
-	printf("fmt: %x\n", tlp_get_fmt(dword0));
+//	printf("fmt: %x\n", tlp_get_fmt(dword0));
 
 	switch (tlp_get_fmt(dword0)) {
 	case TLPFMT_3DW_NODATA:
@@ -272,15 +272,15 @@ send_tlp(struct RawTLP *tlp)
 	do {																	\
 		IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_STATUS,	\
 			STATUS);														\
-		printf("status:=%#016llx ", STATUS);	\
 	} while (0)
+		//printf("status:=%#016llx ", STATUS);	\
 
 #define WR_DATA(DATA) \
 	do {																	\
 		IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_DATA,	\
 			DATA);										\
-		printf("data:=%#016llx ", DATA);	\
 	} while (0)
+		//printf("data:=%#016llx ", DATA);	\
 
 	int byte_index;
 	uint64_t status = status_set_start_of_packet(0);
@@ -290,7 +290,7 @@ send_tlp(struct RawTLP *tlp)
 
 	enum tlp_data_alignment data_alignment =
 		tlp_get_alignment_from_header(tlp->header);
-
+/*
 	printf("Header len=%d, data len=%d, align=%x\n", tlp->header_length, tlp->data_length,
 		data_alignment);
 	for (int i=0; i < (tlp->header_length+7)/8; i++) {
@@ -299,7 +299,7 @@ send_tlp(struct RawTLP *tlp)
 	printf("\n");
 
 	printf("Disabling queue.\n");
-
+*/
 	// Stops the TX queue from draining whilst we're filling it.
 	IOWR64(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_QUEUEENABLE, 0);
 	//IOWR(PCIEPACKETTRANSMITTER_0_BASE, PCIEPACKETTRANSMITTER_UPPER32, 1);
@@ -364,7 +364,7 @@ send_tlp(struct RawTLP *tlp)
 		}
 	} else {
 		if (tlp->data_length == 0) {
-			printf("eop\n");
+//			printf("eop\n");
 			status = status_set_end_of_packet(status);
 		}
 
@@ -374,19 +374,20 @@ send_tlp(struct RawTLP *tlp)
 //			sendqword = header[1] & 0xffffffffLL;
 			TLPDoubleWord firstdata32 = 0xc0dcafe;
 			// we shouldn't need to send any data here, but is seems the doc lies
-			if (tlp->data_length > 0) {
+/*			if (tlp->data_length > 0) {
 				firstdata32 = data[0];
 //				sendqword |= (data[0] & 0xffffffffLL)<<32LL;
 				tlp->data_length -= 4;
 				if (tlp->data_length == 0) {
-//					printf("wrong eop\n");
+					printf("wrong eop\n");
 					status = status_set_end_of_packet(status);
-				}	
+				}
+
 //			} else {
 //				sendqword |= 0xc0dcafe00000000;
 
 			}
-
+*/
 			sendqword = data32_to_64(data64_get_first32(header[1]), firstdata32);
 
 		}

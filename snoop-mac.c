@@ -46,6 +46,7 @@
 #include "pcie-backend.h"
 #include "qemu/bswap.h"
 
+//#define FUZZPCIE
 
 static inline uint64_t
 get_page_address(uint64_t address)
@@ -120,20 +121,23 @@ respond_to_packet(struct packet_response_state *state,
 
 	requester_id = tlp_get_requester_id(request_dword1);
 
+/*
 	printf("header addr: %p\n", in->header);
 	printf("dword0: 0x%08"PRIx32" (%d).\n", *(uint32_t *)dword0, sizeof(dword0));
 	printf("dword1: 0x%08"PRIx32" (%d).\n",
 		*(uint32_t *)request_dword1, sizeof(request_dword1));
 	printf("dword2: 0x%08"PRIx32" (%d).\n",
 		*(uint32_t *)config_request_dword2, sizeof(config_request_dword2));
-
+*/
 	switch (tlp_get_type(dword0)) {
 	case CFG_0:
+/*
 		printf("cfg0 reg_num=%#x, ext_reg_num=%#x, device_idL=%#x, device_idH=%#x\n", \
 			config_request_dword2->reg_num,
 			config_request_dword2->ext_reg_num,
 			config_request_dword2->device_idL,
 			config_request_dword2->device_idH);
+*/
 		device_id = tlp_get_device_id(config_request_dword2);
 		if ((device_id & uint32_mask(3)) != 0) {
 			printf("ENDIAND ISSUES AHEAD! Don't like device_id: %x.\n",
@@ -144,7 +148,7 @@ respond_to_packet(struct packet_response_state *state,
 
 		response = PR_RESPONSE;
 		req_addr = get_config_req_addr(in);
-		printf("cfg0, device_id=%#08x\n, addr = %#08x, dir=%#x", device_id, req_addr, dir);
+//		printf("cfg0, device_id=%#08x\n, addr = %#08x, dir=%#x", device_id, req_addr, dir);
 
 		if (dir == TLPD_READ) {
 			out->data_length = 4;
@@ -152,22 +156,24 @@ respond_to_packet(struct packet_response_state *state,
 			case 0: /* vendor and device id */
 				out->data[0] = 0x104b8086;
 				if (state->attack_state == AS_UNINITIALISED) {
-					state->attack_state = AS_LOOKING_FOR_LEAKED_SYMBOL;
+					printf("Not enabling the attack\n");
+//					state->attack_state = AS_LOOKING_FOR_LEAKED_SYMBOL;
 				}
 				break;
 			default:
 				out->data[0] = 0;
 			}
-			printf("cfg0 read addr=%#016llx, returning data=%#08x\n", req_addr, out->data[0]);
+//			printf("cfg0 read addr=%#016llx, returning data=%#08x\n", req_addr, out->data[0]);
 			out->data[0] = le32_to_cpu(out->data[0]);
 		} else {
 			out->data_length = 0;
 		}
 
 		out->header_length = 12;
+		uint16_t bytecount = 4; // all config completions have a bytecount of 4
 		create_completion_header(out, dir, state->devfn,
-			TLPCS_SUCCESSFUL_COMPLETION, 4, requester_id, request_dword1->tag,
-			0);
+			TLPCS_SUCCESSFUL_COMPLETION, bytecount, requester_id, request_dword1->tag,
+			0, out->data_length/4);
 
 		break;
 	case CPL:
@@ -184,6 +190,70 @@ respond_to_packet(struct packet_response_state *state,
 		/*puts("Ignoring a TLP :(");*/
 		break;
 	}
+	return response;
+}
+
+enum packet_response
+random_response_packet(struct packet_response_state *state,
+	struct RawTLP *in, struct RawTLP *out)
+{
+	uint16_t requester_id;
+	uint16_t device_id;
+	uint64_t req_addr;
+	enum packet_response response = PR_NO_RESPONSE;
+	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)in->header;
+	struct TLP64RequestDWord1 *request_dword1 =
+		(struct TLP64RequestDWord1 *)(in->header + 1);
+	struct TLP64ConfigRequestDWord2 *config_request_dword2 =
+		(struct TLP64ConfigRequestDWord2 *)(in->header + 2);
+
+	enum tlp_direction dir = get_tlp_direction(in);
+
+	requester_id = tlp_get_requester_id(request_dword1);
+
+	// we have to pick up the device ID from config requests otherwise we won't send
+	// with the right address.  This will persist from here on
+	switch (tlp_get_type(dword0)) {
+	case CFG_0:
+		printf("cfg0 reg_num=%#x, ext_reg_num=%#x, device_idL=%#x, device_idH=%#x\n", \
+			config_request_dword2->reg_num,
+			config_request_dword2->ext_reg_num,
+			config_request_dword2->device_idL,
+			config_request_dword2->device_idH);
+		device_id = tlp_get_device_id(config_request_dword2);
+		if ((device_id & uint32_mask(3)) != 0) {
+			printf("ENDIAND ISSUES AHEAD! Don't like device_id: %x.\n",
+				device_id);
+		}
+
+		state->devfn = device_id;
+	}
+
+
+//	enum tlp_fmt fmt = tlp_fmt_iter[rand() % enum_iter_len((int*) tlp_fmt_iter)];
+	enum tlp_fmt fmt = (dir == TLPD_READ) ? TLPFMT_3DW_DATA : TLPFMT_3DW_DATA;
+	
+
+	if (fmt == TLPFMT_3DW_NODATA || fmt == TLPFMT_3DW_DATA) {	
+		out->header_length = 12;
+	} else {
+		out->header_length = 16;
+	}
+
+	if (fmt == TLPFMT_3DW_DATA || fmt == TLPFMT_4DW_DATA) {
+		out -> data_length = (rand() % 4)*4;
+	} else {
+		out -> data_length = 0;
+	}
+
+	printf("random fmt=%#x header_len=%#x data_len=%#x\n", fmt, out->header_length, out->data_length);
+
+	create_completion_header(out, dir, state->devfn,
+		TLPCS_SUCCESSFUL_COMPLETION, out->data_length, requester_id, request_dword1->tag,
+		0, out->data_length/4);
+
+	response = PR_RESPONSE;
+	
 	return response;
 }
 
@@ -264,8 +334,13 @@ main(int argc, char *argv[])
 		if (is_raw_tlp_valid(&raw_tlp_in)) {
 			printf("header addr: %p, (%08x)\n",
 				raw_tlp_in.header, *raw_tlp_in.header);
+//#ifndef FUZZPCIE
 			response = respond_to_packet(&packet_response_state,
 				&raw_tlp_in, &raw_tlp_out);
+/*#else
+			response = random_response_packet(&packet_response_state,
+				&raw_tlp_in, &raw_tlp_out);
+#endif*/
 			if (response != PR_NO_RESPONSE) {
 				send_result = send_tlp(&raw_tlp_out);
 				assert(send_result != -1);
