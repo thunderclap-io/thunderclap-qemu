@@ -260,12 +260,12 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 	out->header_length = 0;
 	out->data_length = 0;
 
-	dir = ((dword0->fmt & 2) >> 1);
+	dir = ((tlp_get_fmt(dword0) & 2) >> 1);
 
-	switch (dword0->type) {
+	switch (tlp_get_type(dword0)) {
 	case M:
 		/*puts("Dealing with M req.");*/
-		assert(dword0->length == 1);
+		assert(tlp_get_length(dword0) == 1);
 		/* This isn't in the spec, but seems to be all we've found in our
 		 * trace. */
 
@@ -317,7 +317,7 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 
 		if (dir == TLPD_READ) {
 			/*puts("M Read.");*/
-			requester_id = request_dword1->requester_id;
+			requester_id = tlp_get_requester_id(request_dword1);
 #ifdef DUMMY
 			read_error = false;
 			out->data[0] = 0xBEDEBEDE;
@@ -340,7 +340,7 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 			assert(!read_error);
 
 			for (i = 0; i < 4; ++i) {
-				if ((request_dword1->firstbe >> i) & 1) {
+				if ((tlp_get_firstbe(request_dword1) >> i) & 1) {
 					if (bytecount == 0) {
 						loweraddress += i;
 					}
@@ -359,16 +359,16 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 
 		break;
 	case CFG_0:
-		assert(dword0->length == 1);
+		assert(tlp_get_length(dword0) == 1);
 		response = PR_RESPONSE;
-		requester_id = request_dword1->requester_id;
+		requester_id = tlp_get_requester_id(request_dword1);
 
 		req_addr = get_config_req_addr(in);
 
-		if ((config_request_dword2->device_id & uint32_mask(3)) == 0) {
+		if ((tlp_get_device_id(config_request_dword2) & uint32_mask(3)) == 0) {
 			/* Mask to get function num -- we are 0 */
 			completion_status = TLPCS_SUCCESSFUL_COMPLETION;
-			state->pci_dev->devfn = config_request_dword2->device_id;
+			state->pci_dev->devfn = tlp_get_device_id(config_request_dword2);
 			global_devfn = state->pci_dev->devfn;
 
 			if (dir == TLPD_READ) {
@@ -386,7 +386,7 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 				out->data_length = 0;
 #ifndef DUMMY
 				for (i = 0; i < 4; ++i) {
-					if ((request_dword1->firstbe >> i) & 1) {
+					if ((tlp_get_firstbe(request_dword1) >> i) & 1) {
 						pci_host_config_write_common(
 							state->pci_dev, req_addr + i, req_addr + 4,
 							(in->data[0] >> ((3 - i) * 8)) & 0xFF, 1);
@@ -406,10 +406,10 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 
 		break;
 	case IO:
-		assert(request_dword1->firstbe == 0xf); /* Only seen trace. */
+		assert(tlp_get_firstbe(request_dword1) == 0xf); /* Only seen trace. */
 
 		response = PR_RESPONSE;
-		requester_id = request_dword1->requester_id;
+		requester_id = tlp_get_requester_id(request_dword1);
 		out->header_length = 12;
 
 		/*

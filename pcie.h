@@ -16,6 +16,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include <stdio.h>
 
 #include <mask.h>
