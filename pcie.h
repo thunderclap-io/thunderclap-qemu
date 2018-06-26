@@ -221,13 +221,13 @@ struct TLP64DWord0 {
 #endif
 
 static inline enum tlp_fmt
-get_fmt(const struct TLP64DWord0 *dword)
+tlp_get_fmt(const struct TLP64DWord0 *dword)
 {
 	return (dword->fmt_and_type >> 5) & 3;
 }
 
 static inline void
-set_fmt(struct TLP64DWord0 *dword, enum tlp_fmt fmt)
+tlp_set_fmt(struct TLP64DWord0 *dword, enum tlp_fmt fmt)
 {
 	uint8_t fmt_and_type = dword->fmt_and_type;
 	fmt_and_type &= MASK(uint8_t, 5);
@@ -236,13 +236,13 @@ set_fmt(struct TLP64DWord0 *dword, enum tlp_fmt fmt)
 }
 
 static inline enum tlp_type
-get_type(const struct TLP64DWord0 *dword)
+tlp_get_type(const struct TLP64DWord0 *dword)
 {
 	return dword->fmt_and_type & 31;
 }
 
 static inline void
-set_type(struct TLP64DWord0 *dword, enum tlp_type type)
+tlp_set_type(struct TLP64DWord0 *dword, enum tlp_type type)
 {
 	uint8_t fmt_and_type = dword->fmt_and_type;
 	fmt_and_type &= ~MASK(uint8_t, 5);
@@ -251,18 +251,18 @@ set_type(struct TLP64DWord0 *dword, enum tlp_type type)
 }
 
 static inline void
-set_at(struct TLP64DWord0 *dword, enum tlp_at at) {
+tlp_set_at(struct TLP64DWord0 *dword, enum tlp_at at) {
 	dword->byte2 = uint8_t_set_bits(dword->byte2, 3, 2, at);
 }
 
 static inline uint16_t
-get_length(struct TLP64DWord0 *dword) {
+tlp_get_length(struct TLP64DWord0 *dword) {
 	uint16_t length = dword->low_length;
 	return (dword->byte2 & MASK(uint8_t, 2) << 8) | length;
 }
 
 static inline void
-set_length(struct TLP64DWord0 *dword, uint16_t length) {
+tlp_set_length(struct TLP64DWord0 *dword, uint16_t length) {
 	dword->low_length = length;
 	dword->byte2 = uint8_t_set_bits(dword->byte2, 1, 0, length >> 8);
 }
@@ -271,11 +271,11 @@ set_length(struct TLP64DWord0 *dword, uint16_t length) {
 
 #define BYTE_FIELD(field_name, dword_type, field_container, high, low)		\
 static inline uint8_t 														\
-get_ ## field_name(struct dword_type *dword)	{							\
+tlp_get_ ## field_name(struct dword_type *dword)	{							\
 	return uint8_t_get_bits(dword -> field_container, high, low);			\
 }																			\
 static inline void															\
-set_ ## field_name(struct dword_type *dword, uint8_t new_value) {			\
+tlp_set_ ## field_name(struct dword_type *dword, uint8_t new_value) {			\
 	dword -> field_container = 												\
 		uint8_t_set_bits(dword -> field_container, high, low, new_value);	\
 }
@@ -383,12 +383,12 @@ BYTE_FIELD(status, TLP64CompletionDWord1, byte2, 7, 5);
 BYTE_FIELD(bcm, TLP64CompletionDWord1, byte2, 4, 4);
 
 static inline uint16_t
-get_bytecount(struct TLP64CompletionDWord1 *dword) {
+tlp_get_bytecount(struct TLP64CompletionDWord1 *dword) {
 	return (uint8_t_get_bits(dword->byte2, 3, 0) << 8) | dword->byte3;
 }
 
 static inline void
-set_bytecount(struct TLP64CompletionDWord1 *dword, uint16_t value) {
+tlp_set_bytecount(struct TLP64CompletionDWord1 *dword, uint16_t value) {
 	dword->byte2 = uint8_t_set_bits(dword->byte2, 3, 0, 
 		uint16_t_get_bits(value, 11, 8));
 	dword->byte3 = uint16_t_get_bits(value, 7, 0);
@@ -396,11 +396,11 @@ set_bytecount(struct TLP64CompletionDWord1 *dword, uint16_t value) {
 
 #define ID_FIELD(field_name, dword_type, field_container)		\
 static inline uint16_t 														\
-get_ ## field_name(struct dword_type *dword)	{							\
+tlp_get_ ## field_name(struct dword_type *dword)	{							\
 	return (dword -> field_container##H << 8) | (dword -> field_container##L);			\
 }																			\
 static inline void															\
-set_ ## field_name(struct dword_type *dword, uint16_t new_value) {			\
+tlp_set_ ## field_name(struct dword_type *dword, uint16_t new_value) {			\
 	dword -> field_container##H = 												\
 		(new_value & 0xFF00) >> 8;	\
 	dword -> field_container##L = 												\
@@ -518,7 +518,7 @@ get_tlp_type(const struct RawTLP *tlp)
 {
 	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)(tlp->header);
 	assert(dword0 != NULL);
-	return get_type(dword0);
+	return tlp_get_type(dword0);
 }
 
 static inline uint64_t
@@ -534,7 +534,7 @@ static enum tlp_direction
 get_tlp_direction(const struct RawTLP *tlp)
 {
 	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)tlp->header;
-	return ((get_fmt(dword0) & 2) >> 1);
+	return ((tlp_get_fmt(dword0) & 2) >> 1);
 }
 
 static inline uint16_t

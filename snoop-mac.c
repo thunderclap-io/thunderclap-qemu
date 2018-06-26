@@ -118,7 +118,7 @@ respond_to_packet(struct packet_response_state *state,
 
 	enum tlp_direction dir = get_tlp_direction(in);
 
-	requester_id = get_requester_id(request_dword1);
+	requester_id = tlp_get_requester_id(request_dword1);
 
 	printf("header addr: %p\n", in->header);
 	printf("dword0: 0x%08"PRIx32" (%d).\n", *(uint32_t *)dword0, sizeof(dword0));
@@ -127,14 +127,14 @@ respond_to_packet(struct packet_response_state *state,
 	printf("dword2: 0x%08"PRIx32" (%d).\n",
 		*(uint32_t *)config_request_dword2, sizeof(config_request_dword2));
 
-	switch (get_type(dword0)) {
+	switch (tlp_get_type(dword0)) {
 	case CFG_0:
 		printf("cfg0 reg_num=%#x, ext_reg_num=%#x, device_idL=%#x, device_idH=%#x\n", \
 			config_request_dword2->reg_num,
 			config_request_dword2->ext_reg_num,
 			config_request_dword2->device_idL,
 			config_request_dword2->device_idH);
-		device_id = get_device_id(config_request_dword2);
+		device_id = tlp_get_device_id(config_request_dword2);
 		if ((device_id & uint32_mask(3)) != 0) {
 			printf("ENDIAND ISSUES AHEAD! Don't like device_id: %x.\n",
 				device_id);
@@ -179,8 +179,8 @@ respond_to_packet(struct packet_response_state *state,
 		}
 		break;
 	default:
-		printf("Ignoring %s (0x%x) TLP.\n", tlp_type_str(get_type(dword0)),
-			get_type(dword0));
+		printf("Ignoring %s (0x%x) TLP.\n", tlp_type_str(tlp_get_type(dword0)),
+			tlp_get_type(dword0));
 		/*puts("Ignoring a TLP :(");*/
 		break;
 	}

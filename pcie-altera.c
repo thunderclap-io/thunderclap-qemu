@@ -106,8 +106,8 @@ static inline enum tlp_data_alignment
 tlp_get_alignment_from_header(TLPDoubleWord *header)
 {
 	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)header;
-	if ((get_type(dword0) == M || get_type(dword0) == M_LK) &&
-		tlp_fmt_is_4dw(get_fmt(dword0))) {
+	if ((tlp_get_type(dword0) == M || tlp_get_type(dword0) == M_LK) &&
+		tlp_fmt_is_4dw(tlp_get_fmt(dword0))) {
 		/*if (print)*/
 			printf("4DW M Header. Addr: %x. Aligned? %d.", header[3],
 				(header[3] % 8) == 0);
@@ -184,9 +184,9 @@ wait_for_tlp(TLPQuadWord *buffer, int buffer_len, struct RawTLP *out)
 
 	out->header = (TLPDoubleWord *)buffer;
 	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)out->header;
-	printf("fmt: %x\n", get_fmt(dword0));
+	printf("fmt: %x\n", tlp_get_fmt(dword0));
 
-	switch (get_fmt(dword0)) {
+	switch (tlp_get_fmt(dword0)) {
 	case TLPFMT_3DW_NODATA:
 	case TLPFMT_3DW_DATA:
 		out->header_length = 12;
@@ -203,11 +203,11 @@ wait_for_tlp(TLPQuadWord *buffer, int buffer_len, struct RawTLP *out)
 	 * Write, Config Write Types 0 and 1, Completion with Data, Completion
 	 * with Data Locked. */
 
-	if (tlp_fmt_has_data(get_fmt(dword0))) {
+	if (tlp_fmt_has_data(tlp_get_fmt(dword0))) {
 		if (tlp_get_alignment_from_header(out->header) == TDA_ALIGNED) {
 			out->data = out->header + 4;
 		} else {
-			if (tlp_fmt_is_4dw(get_fmt(dword0))) {
+			if (tlp_fmt_is_4dw(tlp_get_fmt(dword0))) {
 				out->data = out->header + 5;
 			} else {
 				out->data = out->header + 3;
@@ -486,28 +486,28 @@ _perform_dma_read(uint8_t* buf, uint16_t length, uint16_t requester_id,
 		assert(is_raw_tlp_valid(&read_resp_tlp));
 
 		read_resp_dword0 = (struct TLP64DWord0 *)(read_resp_tlp.header);
-		assert(get_type(read_resp_dword0) == CPL);
+		assert(tlp_get_type(read_resp_dword0) == CPL);
 
 		read_resp_dword1 = (struct TLP64CompletionDWord1 *)(
 			read_resp_tlp.header + 1);
 
-		if (get_status(read_resp_dword1) == TLPCS_UNSUPPORTED_REQUEST) {
+		if (tlp_get_status(read_resp_dword1) == TLPCS_UNSUPPORTED_REQUEST) {
 			free_raw_tlp_buffer(&read_resp_tlp);
 			return DRR_UNSUPPORTED_REQUEST;
 		}
 
 		dword0 = (struct TLP64DWord0 *)read_resp_tlp.header;
 
-		assert(tlp_fmt_has_data(get_fmt(dword0)));
+		assert(tlp_fmt_has_data(tlp_get_fmt(dword0)));
 
-		for (j = 0; j < (get_length(dword0) * sizeof(TLPDoubleWord)) &&
+		for (j = 0; j < (tlp_get_length(dword0) * sizeof(TLPDoubleWord)) &&
 				(i + j) < length; ++j) {
 			buf[i + j] = ((uint8_t *)(read_resp_tlp.data))[j];
 			/*PDBG("i: %d, j: %d, i + j: %d, buf[i + j]: %d.",*/
 				/*i, j, i + j, buf[i + j]);*/
 		}
 
-		i += (get_length(dword0) * sizeof(TLPDoubleWord));
+		i += (tlp_get_length(dword0) * sizeof(TLPDoubleWord));
 
 		/*if (dword0->length != 1) {*/
 			/*printf("Non standard completion packet; i is now %d.\n", i);*/

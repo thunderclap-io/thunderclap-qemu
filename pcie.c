@@ -109,24 +109,24 @@ create_completion_header(struct RawTLP *tlp,
 	struct TLP64DWord0 *header0 = (struct TLP64DWord0 *)(tlp->header);
 	if (direction == TLPD_READ
 		&& completion_status == TLPCS_SUCCESSFUL_COMPLETION) {
-		set_fmt(header0, TLPFMT_3DW_DATA);
-		set_length(header0, 1);
+		tlp_set_fmt(header0, TLPFMT_3DW_DATA);
+		tlp_set_length(header0, 1);
 	} else {
-		set_fmt(header0, TLPFMT_3DW_NODATA);
-		set_length(header0, 0);
+		tlp_set_fmt(header0, TLPFMT_3DW_NODATA);
+		tlp_set_length(header0, 0);
 	}
-	set_type(header0, CPL);
+	tlp_set_type(header0, CPL);
 
 	struct TLP64CompletionDWord1 *header1 =
 		(struct TLP64CompletionDWord1 *)(tlp->header) + 1;
-	set_completer_id(header1,completer_id);
-	set_status(header1, completion_status);
-	set_bytecount(header1, bytecount);
+	tlp_set_completer_id(header1,completer_id);
+	tlp_set_status(header1, completion_status);
+	tlp_set_bytecount(header1, bytecount);
 	printf("byte2=%#x, byte3=%#x\n", header1->byte2, header1->byte3);
 
 	struct TLP64CompletionDWord2 *header2 =
 		(struct TLP64CompletionDWord2 *)(tlp->header) + 2;
-	set_requester_id_cpl(header2, requester_id);
+	tlp_set_requester_id_cpl(header2, requester_id);
 	header2->tag = tag;
 	header2->loweraddress = loweraddress;
 }
@@ -167,15 +167,15 @@ create_memory_request_header(struct RawTLP *tlp, enum tlp_direction direction,
 	if (direction == TLPD_WRITE) {
 		fmt |= TLPFMT_WITHDATA;
 	}
-	set_fmt(dword0, fmt);
-	set_at(dword0, at);
-	set_length(dword0, length);
-	set_type(dword0, M);
+	tlp_set_fmt(dword0, fmt);
+	tlp_set_at(dword0, at);
+	tlp_set_length(dword0, length);
+	tlp_set_type(dword0, M);
 
-	set_requester_id(request_dword1,requester_id);
+	tlp_set_requester_id(request_dword1,requester_id);
 	request_dword1->tag = tag;
-	set_lastbe(request_dword1, lastbe);
-	set_firstbe(request_dword1, firstbe);
+	tlp_set_lastbe(request_dword1, lastbe);
+	tlp_set_firstbe(request_dword1, firstbe);
 
 	if (large_address) {
 		*address_dword2 = (TLPDoubleWord)(address >> 32);
@@ -214,13 +214,13 @@ create_config_request_header(struct RawTLP *tlp, enum tlp_direction direction,
 	if (direction == TLPD_WRITE) {
 		fmt |= TLPFMT_WITHDATA;
 	}
-	set_fmt(dword0, fmt);
-	set_type(dword0, CFG_0);
-	set_length(dword0, 1);
-	set_requester_id(dword1,requester_id);
+	tlp_set_fmt(dword0, fmt);
+	tlp_set_type(dword0, CFG_0);
+	tlp_set_length(dword0, 1);
+	tlp_set_requester_id(dword1,requester_id);
 	dword1->tag = tag;
-	set_firstbe(dword1, firstbe);
-	set_device_id(dword2, devfn);
+	tlp_set_firstbe(dword1, firstbe);
+	tlp_set_device_id(dword2, devfn);
 	dword2->ext_reg_num = address >> 8;
 	dword2->reg_num = address & uint32_mask(8);
 }
@@ -267,7 +267,7 @@ is_cpl_d(struct RawTLP *tlp)
 	assert(tlp->header_length != -1);
 	assert(tlp->header != NULL);
 	struct TLP64DWord0 *dword0 = (struct TLP64DWord0 *)tlp->header;
-	return get_type(dword0) == CPL && tlp_fmt_has_data(get_fmt(dword0));
+	return tlp_get_type(dword0) == CPL && tlp_fmt_has_data(tlp_get_fmt(dword0));
 }
 
 static inline TLPQuadWord *
