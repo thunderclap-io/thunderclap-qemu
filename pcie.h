@@ -99,6 +99,21 @@ enum tlp_type {
 	T_CFG				= 0x1B, // These are deprecated
 };
 
+static enum tlp_type tlp_type_iter[] = {
+	M,
+	M_LK,
+	IO,
+	CFG_0,
+	CFG_1,
+	CPL,
+	CPL_LK,
+	MSG,
+	T_CFG,
+	-1
+};
+
+
+
 static inline const char *
 tlp_type_str(enum tlp_type type)
 {
@@ -148,6 +163,15 @@ enum tlp_fmt {
 	TLPFMT_3DW_DATA		= 2,
 	TLPFMT_4DW_DATA		= 3,
 	TLPFMT_PREFIX		= 4
+};
+
+static enum tlp_fmt tlp_fmt_iter[] = {
+	TLPFMT_3DW_NODATA,
+	TLPFMT_4DW_NODATA,
+	TLPFMT_3DW_DATA,
+	TLPFMT_4DW_DATA,
+	TLPFMT_PREFIX,
+	-1
 };
 
 #define TLPFMT_4DW			0x1
@@ -205,6 +229,15 @@ enum tlp_at {
 	TLP_AT_RESERVED
 };
 
+static enum tlp_at tlp_at_iter[] = {
+	TLP_AT_UNTRANSLATED,
+	TLP_AT_TRANSLATION_REQUEST,
+	TLP_AT_TRANSLATED,
+	TLP_AT_RESERVED,
+	-1
+};
+
+
 #ifdef HOST_WORDS_BIGENDIAN
 struct TLP64DWord0 {
 	uint8_t fmt_and_type;
@@ -248,7 +281,7 @@ tlp_set_type(struct TLP64DWord0 *dword, enum tlp_type type)
 	uint8_t fmt_and_type = dword->fmt_and_type;
 	fmt_and_type &= ~MASK(uint8_t, 5);
 	fmt_and_type |= type;
-	dword->fmt_and_type = type;
+	dword->fmt_and_type = fmt_and_type;
 }
 
 static inline void
@@ -475,7 +508,8 @@ void
 create_completion_header(struct RawTLP *tlp,
 	enum tlp_direction direction, uint16_t completer_id,
 	enum tlp_completion_status completion_status, uint16_t bytecount,
-	uint16_t requester_id, uint8_t tag, uint8_t loweraddress);
+	uint16_t requester_id, uint8_t tag, uint8_t loweraddress,
+	uint32_t length);
 
 void
 create_memory_request_header(struct RawTLP *tlp, enum tlp_direction direction,
@@ -544,6 +578,19 @@ bdf_to_uint(uint8_t bus_num, uint8_t dev_num, uint8_t fn_num)
 	assert((dev_num & ~uint32_mask(5)) == 0);
 	assert((fn_num & ~uint32_mask(3)) == 0);
 	return ((uint16_t)bus_num) << 8 | (dev_num << 3) | fn_num;
+}
+
+// get the length of a static enum iterator
+// all should contain -1 as the last element
+static inline int
+enum_iter_len(int *iter)
+{
+	int i=0;
+	while (iter[i] != -1) {
+		i++;
+		assert(i < 256); // should never be longer than this
+	}
+	return i;
 }
 
 #define WARN_ON_CHEW(a)	if (a == DRR_CHEWED) { PDBG("chewed!"); }
