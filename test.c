@@ -264,7 +264,7 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 
 	switch (tlp_get_type(dword0)) {
 	case M:
-		/*puts("Dealing with M req.");*/
+//		puts("Dealing with M req.");
 		assert(tlp_get_length(dword0) == 1);
 		/* This isn't in the spec, but seems to be all we've found in our
 		 * trace. */
@@ -354,6 +354,7 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 				TLPCS_SUCCESSFUL_COMPLETION, bytecount, requester_id,
 				req_bits->tag, loweraddress, bytecount/4);
 		} else { /* dir == TLPD_WRITE */
+//			printf("MEM WRITE: addr=%#x, data=%#x\n", rel_addr, le32_to_cpu(in->data[0]));
 			io_mem_write(target_region, rel_addr, le32_to_cpu(in->data[0]), 4);
 		}
 
@@ -379,8 +380,8 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 				out->data[0] = pci_host_config_read_common(
 					state->pci_dev, req_addr, req_addr + 4, 4);
 
-				/*printf("CfgRd0 of 0x%x: data 0x%x.\n",*/
-					/*req_addr, out->data[0]);*/
+//				printf("CfgRd0 of 0x%x: data 0x%x.\n",
+//					req_addr, out->data[0]);
 #endif
 			} else {
 				out->data_length = 0;
@@ -389,7 +390,8 @@ respond_to_packet(struct PacketGeneratorState *state, struct RawTLP *in,
 					if ((tlp_get_firstbe(request_dword1) >> i) & 1) {
 						pci_host_config_write_common(
 							state->pci_dev, req_addr + i, req_addr + 4,
-							(in->data[0] >> ((3 - i) * 8)) & 0xFF, 1);
+							(le32_to_cpu(in->data[0]) >> ((i) * 8)) & 0xFF, 1);
+							//(in->data[0] >> ((3 - i) * 8)) & 0xFF, 1);
 					}
 				}
 #endif
