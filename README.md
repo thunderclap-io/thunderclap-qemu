@@ -1,11 +1,10 @@
-% Thunderclap
-% Colin Rothwell
-% 2018
+# Thunderclap I/O security research platform
 
 Thunderclap is a platform for probing PCIe, primarily aimed at security research.
 
-Platform Installation
-=====================
+## Platform Installation
+
+**These instructions need updating to use the scripted flow**
 
 Currently, we aim for the attack platform to run on an Intel (Altera) Arria 10 SoC FPGA.
 This is easiest if a Ubuntu-based OS is run on the ARM core on the FPGA.
@@ -85,10 +84,14 @@ You probably won't brick your box, but you can cause damage that requires quite 
 	losetup -d /dev/loopX
 
 
-Building
-========
+# Building
 
-As it stands, Thunderclap can only be run on a BERI-based platform.
+Thunderclap can be used on an Arria 10 SoC FPGA, using the hard ARM Cortex
+A9 core running Linux, or a Stratix V FPGA using a soft BERI core.
+The BERI core is largely deprecated and the ARM is the recommended target.
+
+## Building for BERI
+
 It is designed for cross compilation from x86.
 The build has only been tested so far on FreeBSD-based hosts.
 
@@ -127,9 +130,8 @@ Building should be as simple as:
 
 This will produce a statically linked attack binary called `test` (for historical reasons) in the directory  `build-beribsd`.
 
-For Linux
+## Building for Linux
 ---------
-
 Install binutils-arm-linux-gnueabihf and gcc-5-arm-linux-gnueabihf.
 
 You used to have to manually download the dependency libraries from the repo each time you wanted to build the project, but because I am kind, I have included them in a tarball.
@@ -149,7 +151,7 @@ I had to then explictly run:
     sudo ln -s libgcc_s.so.1 libgcc.so
 
 
-### Deprecated: Manually Downloading the Libraries
+### Manually Downloading the Libraries
 
 If, for whatever reason, you need or want to download the dependencies yourself, here's how.
 This assumes that you are running a Ubuntu/Debian variant.
@@ -187,16 +189,15 @@ Now extract the data from the downloaded deb files:
     done
 
 
-Running Attacks
-===============
+## Running Attacks
 
-To run the attack, it must be copied onto the board.
-The most reliable way that we have come up with this is to copy it via SD card.
 
+To run an attack, the Thunderclap binary must be copied onto the board.
+
+On BERI, the most reliable way that we have come up with this is to copy it via SD card.
 In order for the running binary to achieve acceptable performance, it must be `cp`ed into `/dev/null` before running, so that it is cached in system memory.
 
-Writing Attacks
-===============
+## Writing Attacks
 
 Attack code should be placed in `attacks.c` in the system root.
 This uses an embryonic hook system.
@@ -230,8 +231,7 @@ enum DescriptorType { DT_TRANSMIT, DT_RECEIVE };
 This is a generalised representation of e1000e transmit and receive descriptors.
 Some descriptors have more metadata than is contained in the representation, but this has proved unnecessary for attacks so far, so I have not included it.
 
-Interacting with PCIe
-=====================
+## Interacting with PCIe
 
 I have endeavoured to make the PCIe library as user-friendly as possible.
 There is, however, only so much lipstick that can be put on a pig.
@@ -310,8 +310,7 @@ Not capable of writing more than 128 bytes at a time.
 Always returns 0.
 PCIe writes are 'non-posted', meaning that they do not ever get a response, so if you want to be sure that this has worked, perform a read of the same memory location.
 
-Low-level Functions
--------------------
+### Low-level Functions
 
 If you wish to do something more complex than the DMA operations specified above, or be able to respond to requests made by the host, you need to use some of the lower-level functionality of the Thunderclap interface.
 
@@ -448,8 +447,7 @@ This is aided as QEMU includes some functions for endianness correction in the f
 It also includes a family of functions for converting functions specifically to and from the endianness of the 'CPU', which QEMU perceives to be the emulated CPU, but which is actually the CPU of the victim machine in our case.
 These are defined with macros, and include, for example, `be32_to_cpu`, and `cpu_to_le64`, with `be` and `le` being valid endiannesses, and 16, 32, and 64 being valid sizes.
 
-Attack Platform Structure
-=========================
+## Attack Platform Structure
 
 The main function of the attack platform is in `test.c`, demonstrating that the platform grew organically.
 It implements the minimal viable subset of the QEMU main loop that allows the model of the NIC to run.
@@ -460,8 +458,7 @@ The `process_packet` loop calls the `next_tlp` function until it stops returning
 For each TLP received, the `process_packet` function calls `respond_to_packet`.
 For memory and config writes, this finds the relevant structures representing the memory regions of the device models, and returns a response to a read, or writes the data as appropriate.
 
-NIC Model
-=========
+## NIC Model
 
 The files that contain the implementation of the NIC model are in the `hw/net` directory, and are `e1000e.c`, `e1000e_core.h`, `e1000e_core.c` and `e1000_regs.h`.
 By far the most useful is `e1000e_core.c`, which contains the parts of the code that actually perform the work, rather than presentation logic or definitions.
@@ -470,8 +467,7 @@ I have found that the `start_xmit` function that is called just before a transmi
 If you wish to interact with the function to carry out an attack, I recommend that you either use the `pre_transmit_hook` system, or add a new hook if that is unsuitable.
 The counterpart to `start_xmit` is `start_recv`.
 
-Other Attack Tools
-==================
+## Other Attack Tools
 
 `snoop-mac.c`
 -------------
@@ -490,11 +486,12 @@ This file is the minimum possible implementation of an Intel 82754L NIC that Lin
 It is is modified to present the PCIe ATS capability.
 Linux then enables ATS for the emulated device.
 
-Various Utilities
-=================
+## Various Utilities
 
 `crhexdump`
 ----------
 
 This is a function that prints a reasonably aesthetic hexdump using printf and
 putchar.
+
+
