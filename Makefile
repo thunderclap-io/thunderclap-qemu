@@ -83,7 +83,7 @@ LDLIBS := -lz -lpixman-1 -lpcre
 LDLIBS := $(LDLIBS) -lutil -lglib-2.0 -lpthread -lm -lc
 
 CFLAGS := $(CFLAGS) -Wall
-CFLAGS := $(CFLAGS) -ferror-limit=10
+#CFLAGS := $(CFLAGS) -ferror-limit=10
 CFLAGS := $(CFLAGS) -DTHUNDERCLAP -DWORD_SIZE_$(WORDSIZE)
 CFLAGS := $(CFLAGS) -O0 
 #CFLAGS |= $(CFLAGS) --save-temps
@@ -163,7 +163,8 @@ $(info Building for ARM)
 WORDSIZE=32
 CROSS_USR = linux-packages/usr
 CC=clang
-CFLAGS := $(CFLAGS) -target arm-linux-gnueabihf -mcpu=cortex-a9 -mfpu=neon
+CFLAGS := $(CFLAGS) -mcpu=cortex-a9
+CFLAGS := $(CFLAGS) -mfpu=neon
 CFLAGS := $(CFLAGS) -mfloat-abi=hard
 CFLAGS := $(CFLAGS) -I.
 CFLAGS := $(CFLAGS) -I/usr/arm-linux-gnueabihf/include
@@ -173,6 +174,9 @@ CFLAGS := $(CFLAGS) -I$(CROSS_USR)/include/pixman-1
 CFLAGS := $(CFLAGS) -I$(CROSS_USR)/include/gio-unix-2.0
 CFLAGS := $(CFLAGS) -D__linux__ -DCONFIG_LINUX -DPLATFORM_ARM
 LD := clang -target arm-linux-gnueabihf
+LDFLAGS := $(LDFLAGS) -mcpu=cortex-a9
+LDFLAGS := $(LDFLAGS) -mfpu=neon
+LDFLAGS := $(LDFLAGS) -mfloat-abi=hard
 LDFLAGS := $(LDFLAGS) -L/usr/arm-linux-gnueabihf/lib
 LDFLAGS := $(LDFLAGS) -Llinux-packages/lib/arm-linux-gnueabihf
 LDFLAGS := $(LDFLAGS) -L$(CROSS_USR)/lib/arm-linux-gnueabihf
