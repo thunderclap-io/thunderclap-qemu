@@ -5,7 +5,7 @@ pipeline {
 			agent {	dockerfile true }
 			steps {
 				sh 'make TARGET=arm CC=arm-linux-gnueabihf-gcc-5 LD=arm-linux-gnueabihf-gcc-5 CROSS_USR=/usr'
-				archiveArtifacts "build-arm/test"
+				archiveArtifacts "build-arm/thunderclap"
 			}
 		}
 	}
