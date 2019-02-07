@@ -194,7 +194,7 @@ CFLAGS := $(CFLAGS) -D NEED_CPU_H -D TARGET_X86_64
 CFLAGS := $(CFLAGS) -D_GNU_SOURCE # To pull in pipe2 -- seems dodgy
 
 ifeq ($(DUMMY),1)
-SOURCES := test.c log.c beri-io.c baremetal/baremetalsupport.c
+SOURCES := thunderclap.c log.c beri-io.c baremetal/baremetalsupport.c
 SOURCES += $(BACKEND_$(TARGET))
 else
 DONT_FIND_TEMPLATES := $(shell grep "include \".*\.c\"" -roh . | sort | uniq | sed 's/include /! -name /g')
@@ -223,7 +223,7 @@ endif
 O_FILES := $(addprefix $(TARGET_DIR)/,$(SOURCES:.c=.o))
 HEADERS := $(shell find . -name "*.h")
 
-$(TARGET_DIR)/test: $(O_FILES)
+$(TARGET_DIR)/thunderclap: $(O_FILES)
 	@echo "Linking..."
 	@$(LD) $(LDFLAGS) -o $@ $^ $(LOADLIBS) $(LDLIBS)
 
