@@ -19,18 +19,32 @@ make it easier:
 * Run `./make-docker.sh`  from a shell prompt
 * The output binary is called `thunderclap` in the top level of the source tree
 
-Previously we also ran Thunderclap on the [BERI CPU](https://www.beri-cpu.org) (which implements the
+Previously we also ran Thunderclap on the [BERI CPU](http://www.beri-cpu.org) (which implements the
 64-bit MIPS ISA) on Stratix V CPUs - this is largely deprecated, although
-the build infrastructure remains.
+the build infrastructure remains.  We have retained the [previous version of
+this file](README-legacy.md) for reference, which also contains more detail
+of the previous non-Docker build.
 
 We also have a backend that runs against a Postgres database of a trace of
-PCIe TLPs from a real 82574L, useful for debugging.
+PCIe TLPs from a real 82574L, which we used for the initial bringup (in
+particular, debugging endian issues on the BERI big-endian MIPS).
 
 ## Running Attacks
 
 To run an attack, the Thunderclap binary must be copied onto the FPGA's
-storage, either by mounting the SD card in another machine, or using SSH.
+storage, either by mounting the SD card in another machine, or using SSH by
+plugging in ethernet to the FPGA board's own HPS ethernet port.
+(You should be able to `ifconfig`/`dhclient` the Arm's ethernet like any other
+Linux machine. Boards often have additional ports designed to be driven by
+FPGA logic alone - we don't use these.)
 
+Run the binary on the FPGA, and then power up the victim PC and let it boot
+with the Thunderclap PCIe NIC.  Alternatively mount the FPGA in a
+PCIe/Thunderbolt dock and hotplug the dock into the victim.
+
+We have mostly performed attacks by printing data to the console, although
+the FPGA is able to store data on the SD card or exfiltrate it over its own
+ethernet port.
 
 ## Writing Attacks
 
