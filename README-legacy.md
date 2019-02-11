@@ -1,8 +1,9 @@
 # Notes from previous iterations
 
 Thunderclap has gone through a number of iterations of both hardware and build system.
-In particular we previous ran on a [BERI](https://www.beri-cpu.org/) CPU under FreeBSD, which had a substantially different build system and developer experience.
+In particular we previous ran on a [BERI](http://www.beri-cpu.org/) CPU under FreeBSD, which had a substantially different build system and developer experience.
 These notes refer to these older versions, but we have retained them for reference.
+The [main README](README.md) should be consulted for the current iteration.
 
 ## Platform Installation
 
