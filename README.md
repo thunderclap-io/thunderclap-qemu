@@ -7,27 +7,40 @@ This repository contains the software component, which implements a model of
 the Intel 82574L ethernet card (the common 'E1000' type) using an extremely
 cut-down version of the QEMU system emulator.
 
-## Building
+## Variations
 
 The current supported flow is to build a binary to run on Ubuntu on the
-Arria 10 FPGA's Arm Cortex A9 Hard Processor System (HPS).  As we need an
-Arm cross-build environment with several package dependencies, the build is
-somewhat complex.  However we have wrapped it up using Docker which should
-make it easier:
+Arria 10 FPGA's Arm Cortex A9 Hard Processor System (HPS).  Apart from the
+memory-mapped I/O port which allows us to send and receive PCIe packets,
+this is very similar to other Ubuntu/Arm platforms (eg Raspberry Pi).
 
-* [Install Docker](https://docs.docker.com/install/) on your machine (Linux/Mac/Windows).
-* Run `./make-docker.sh`  from a shell prompt
-* The output binary is called `thunderclap` in the top level of the source tree
+We have been through a number of different iterations which we no longer
+support but remain in the codebase. They were relevant as we developed the
+work in the Thunderclap paper.
 
-Previously we also ran Thunderclap on the [BERI CPU](http://www.beri-cpu.org) (which implements the
-64-bit MIPS ISA) on Stratix V CPUs - this is largely deprecated, although
-the build infrastructure remains.  We have retained the [previous version of
-this file](README-legacy.md) for reference, which also contains more detail
-of the previous non-Docker build.
+Previously we ran on the [BERI CPU](http://www.beri-cpu.org) (which
+implements the 64-bit MIPS ISA) on Stratix V CPUs - this is largely
+deprecated, although the build infrastructure remains.  We have retained the
+[previous version of this file](README-legacy.md) for reference, which also
+contains more detail of the previous non-Docker build.
 
 We also have a backend that runs against a Postgres database of a trace of
 PCIe TLPs from a real 82574L, which we used for the initial bringup (in
 particular, debugging endian issues on the BERI big-endian MIPS).
+
+Some of our earliest work was done on an Intel/Altera NIOS-II soft-core,
+running without an operating system.  This was not able to run QEMU, but did
+achieve some of our more basic attacks.
+
+## Building for ARM
+
+As we need an Arm cross-build environment with several package dependencies,
+the build is somewhat complex.  However we have wrapped it up using Docker
+which should make it easier:
+
+* [Install Docker](https://docs.docker.com/install/) on your machine (Linux/Mac/Windows).
+* Run `./make-docker.sh`  from a shell prompt
+* The output binary is called `thunderclap` in the top level of the source tree
 
 ## Running Attacks
 
