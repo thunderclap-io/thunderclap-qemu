@@ -342,7 +342,7 @@ send_tlp(struct RawTLP *tlp)
 #endif*/
 
 		if (tlp->data_length > 0) {
-			sendqword |= data32_to_64(data64_get_first32(header[1]), tlp->data[0]);
+			sendqword = data32_to_64(data64_get_first32(header[1]), tlp->data[0]);
 		}
 		if (tlp->data_length <= 4) {
 //			printf("It's EOP.\n");
